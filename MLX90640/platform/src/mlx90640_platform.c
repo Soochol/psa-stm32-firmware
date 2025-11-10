@@ -5,6 +5,8 @@
 #include "mode.h"
 #include "stdio.h"
 #include "string.h"
+
+extern I2C_HandleTypeDef hi2c4;
 //////////////////////////////////
 /*		DRIVER INIT				*/
 //////////////////////////////////
@@ -112,6 +114,8 @@ int i_Temp_IR_Read_DMA(uint8_t u8_addr, uint16_t u16_memAddr, uint16_t u16_cnt){
 
 void v_Temp_IR_Tout_Handler(){
 	if(u32_tempIR_ErrCnt > 10 || ((e_tempIR_evt == COMM_STAT_BUSY) && _b_Tim_Is_OVR(u32_Tim_1msGet(), u32_toutRef, 2000))){
+		// MEDIUM: Abort DMA transaction to prevent I2C bus lockup
+		HAL_I2C_Master_Abort_IT(&hi2c4, ADDR_IR_TEMP);
 		//timeout
 		e_tempIR_evt = COMM_STAT_READY;
 		e_tempIR_config = COMM_STAT_ERR;

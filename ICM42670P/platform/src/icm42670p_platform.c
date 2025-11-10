@@ -178,6 +178,8 @@ int i_IMU_Read(uint8_t u8_addr, uint16_t u16_memAddr, uint16_t u16_cnt){
 
 void v_IMU_Tout_Handler(){
 	if((e_imu_evt_L == COMM_STAT_BUSY) && _b_Tim_Is_OVR(u32_Tim_1msGet(), u32_toutRef_L, 2000)){
+		// MEDIUM: Abort DMA transaction to prevent I2C bus lockup
+		HAL_I2C_Master_Abort_IT(p_i2c, ADDR_IMU_LEFT);
 		//timeout
 		e_imu_evt_L = COMM_STAT_READY;
 		e_imu_config = COMM_STAT_ERR;
@@ -186,6 +188,8 @@ void v_IMU_Tout_Handler(){
 	}
 
 	if((e_imu_evt_R == COMM_STAT_BUSY) && _b_Tim_Is_OVR(u32_Tim_1msGet(), u32_toutRef_R, 2000)){
+		// MEDIUM: Abort DMA transaction to prevent I2C bus lockup
+		HAL_I2C_Master_Abort_IT(p_i2c, ADDR_IMU_RIGHT);
 		//timeout
 		e_imu_evt_R = COMM_STAT_READY;
 		e_imu_config = COMM_STAT_ERR;

@@ -112,6 +112,8 @@ static e_COMM_STAT_t e_temp_inout_config;
 
 void v_Temp_InOut_Tout_Handler(){
 	if((e_temp_in_evt == COMM_STAT_BUSY) && _b_Tim_Is_OVR(u32_Tim_1msGet(), u32_toutRef_In, 2000)){
+		// MEDIUM: Abort DMA transaction to prevent I2C bus lockup
+		HAL_I2C_Master_Abort_IT(p_i2c, ADDR_TEMP_INDOOR);
 		e_temp_in_evt = COMM_STAT_READY;
 		e_temp_inout_config = COMM_STAT_ERR;
 		v_Mode_Set_Error(modeERR_TEMP_OUT);
@@ -119,6 +121,8 @@ void v_Temp_InOut_Tout_Handler(){
 	}
 
 	if((e_temp_out_evt == COMM_STAT_BUSY) && _b_Tim_Is_OVR(u32_Tim_1msGet(), u32_toutRef_Out, 2000)){
+		// MEDIUM: Abort DMA transaction to prevent I2C bus lockup
+		HAL_I2C_Master_Abort_IT(p_i2c, ADDR_TEMP_OUTDOOR);
 		e_temp_out_evt = COMM_STAT_READY;
 		e_temp_inout_config = COMM_STAT_ERR;
 		v_Mode_Set_Error(modeERR_TEMP_OUT);
