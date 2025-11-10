@@ -71,6 +71,7 @@ static uint8_t u8_txEsp_arr[UART_ESP_TX_ARR_SIZE + 1] __attribute__((section(".m
 static uint8_t u8_espRx;
 
 static e_COMM_STAT_t e_espTx;
+static e_COMM_STAT_t e_espRx;
 /****************************************/
 //	UART4
 //	- DBG
@@ -98,6 +99,7 @@ static uint8_t u8_txDbg_arr[UART_DBG_TX_ARR_SIZE + 1] __attribute__((section(".m
 static uint8_t u8_dbgRxDR[8];
 
 static e_COMM_STAT_t e_dbgTx;
+static e_COMM_STAT_t e_dbgRx;
 
 /****************************************/
 //	UART - COMMON
@@ -130,12 +132,20 @@ void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart){
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart){
 	if(huart == p_uart1){
 		v_ESP_Recive(u8_espRx);
-		HAL_UART_Receive_IT(p_uart1, &u8_espRx, 1);
+		// HIGH: Check return value to detect if RX restart fails
+		if(HAL_UART_Receive_IT(p_uart1, &u8_espRx, 1) != HAL_OK){
+			// If restart fails, communication stops silently - could retry or set error flag
+			e_espRx = COMM_STAT_ERR;
+		}
 	}
 	else if(huart == p_uart4){
 		//v_DBG_Receive(huart->Instance->RDR);
 		v_DBG_Receive(u8_dbgRxDR[0]);
-		HAL_UART_Receive_IT(p_uart4, u8_dbgRxDR, 1);
+		// HIGH: Check return value to detect if RX restart fails
+		if(HAL_UART_Receive_IT(p_uart4, u8_dbgRxDR, 1) != HAL_OK){
+			// If restart fails, debug communication stops silently
+			e_dbgRx = COMM_STAT_ERR;
+		}
 	}
 }
 
@@ -178,7 +188,10 @@ void v_Uart_Handler(){
 static void v_Uart_ESP_Init(){
 	e_espTx = COMM_STAT_READY;
 	//	receive		//
-	HAL_UART_Receive_IT(p_uart1, &u8_espRx, 1);
+	// HIGH: Check return value to detect initialization failure
+	if(HAL_UART_Receive_IT(p_uart1, &u8_espRx, 1) != HAL_OK){
+		e_espRx = COMM_STAT_ERR;
+	}
 }
 
 void v_Uart_ESP_DisableIT(){
@@ -186,7 +199,10 @@ void v_Uart_ESP_DisableIT(){
 }
 
 void v_Uart_ESP_EnableIT(){
-	HAL_UART_Receive_IT(p_uart1, &u8_espRx, 1);
+	// HIGH: Check return value to detect re-enable failure
+	if(HAL_UART_Receive_IT(p_uart1, &u8_espRx, 1) != HAL_OK){
+		e_espRx = COMM_STAT_ERR;
+	}
 }
 
 /*
@@ -209,7 +225,10 @@ void v_Uart_ESP_Out(uint8_t* pu8_arr, uint16_t u16_cnt){
 #if UART_CACHE_ENABLED
 		SCB_CleanDCache_by_Addr((uint32_t*)u8_txEsp_arr, UART_ESP_TX_ARR_SIZE);//after multiple calculation
 #endif
-		HAL_UART_Transmit_DMA(p_uart1, u8_txEsp_arr, u16_cnt);
+		// HIGH: Check return value to detect DMA transmit start failure
+		if(HAL_UART_Transmit_DMA(p_uart1, u8_txEsp_arr, u16_cnt) != HAL_OK){
+			e_espTx = COMM_STAT_ERR;
+		}
 	}
 }
 
@@ -227,7 +246,10 @@ static void v_Uart_ESP_Handler(){
 #if UART_CACHE_ENABLED
 		SCB_CleanDCache_by_Addr((uint32_t*)u8_txEsp_arr, UART_ESP_TX_ARR_SIZE);//after multiple calculation
 #endif
-		HAL_UART_Transmit_DMA(p_uart1, u8_txEsp_arr, len);
+		// HIGH: Check return value to detect DMA transmit start failure
+		if(HAL_UART_Transmit_DMA(p_uart1, u8_txEsp_arr, len) != HAL_OK){
+			e_espTx = COMM_STAT_ERR;
+		}
 	}
 	v_ESP_Handler();
 	//v_ESP_CmdTest();
@@ -278,7 +300,10 @@ static void v_Uart_DBG_Init(){
 	e_dbgTx = COMM_STAT_READY;
 	//	receive		//
 
-	HAL_UART_Receive_IT(p_uart4, u8_dbgRxDR, 1);
+	// HIGH: Check return value to detect initialization failure
+	if(HAL_UART_Receive_IT(p_uart4, u8_dbgRxDR, 1) != HAL_OK){
+		e_dbgRx = COMM_STAT_ERR;
+	}
 	//__HAL_UART_ENABLE_IT(p_uart4, UART_IT_RXNE);
 }
 
@@ -287,7 +312,10 @@ void v_Uart_DBG_DisableIT(){
 }
 
 void v_Uart_DBG_EnableIT(){
-	HAL_UART_Receive_IT(p_uart4, u8_dbgRxDR, 1);
+	// HIGH: Check return value to detect re-enable failure
+	if(HAL_UART_Receive_IT(p_uart4, u8_dbgRxDR, 1) != HAL_OK){
+		e_dbgRx = COMM_STAT_ERR;
+	}
 }
 
 
@@ -312,7 +340,10 @@ void v_Uart_DBG_Out(uint8_t* pu8_arr, uint16_t u16_cnt){
 #if UART_CACHE_ENABLED
 		SCB_CleanDCache_by_Addr((uint32_t*)u8_txDbg_arr, UART_DBG_TX_ARR_SIZE);//after multiple calculation'
 #endif
-		HAL_UART_Transmit_DMA(p_uart4, u8_txDbg_arr, len);
+		// HIGH: Check return value to detect DMA transmit start failure
+		if(HAL_UART_Transmit_DMA(p_uart4, u8_txDbg_arr, len) != HAL_OK){
+			e_dbgTx = COMM_STAT_ERR;
+		}
 	}
 }
 
@@ -331,7 +362,10 @@ static void v_Uart_DBG_Handler(){
 #if UART_CACHE_ENABLED
 		SCB_CleanDCache_by_Addr((uint32_t*)u8_txDbg_arr, UART_DBG_TX_ARR_SIZE);//after multiple calculation'
 #endif
-		HAL_UART_Transmit_DMA(p_uart4, u8_txDbg_arr, len);
+		// HIGH: Check return value to detect DMA transmit start failure
+		if(HAL_UART_Transmit_DMA(p_uart4, u8_txDbg_arr, len) != HAL_OK){
+			e_dbgTx = COMM_STAT_ERR;
+		}
 	}
 #if UART_DBG_PRINT_TEST
 	//v_Uart_DBG_Test();
