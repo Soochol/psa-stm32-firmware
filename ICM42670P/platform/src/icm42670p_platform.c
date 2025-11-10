@@ -2039,7 +2039,7 @@ e_COMM_STAT_t e_IMU_Read_Data(int* pi_int, uint8_t u8_addr, uint8_t* pu8_data, u
 }
 
 uint32_t imu_int_cnt_L, imu_int_cnt_R;
-static void v_IMU_Int_Handler(){
+__attribute__((unused)) static void v_IMU_Int_Handler(){
 
 	static int int_L, int_R;
 	static int mask;

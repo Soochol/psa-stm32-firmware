@@ -370,7 +370,7 @@ void v_printf_poll(const char *fmt, ...){
  * - create	: 25.03.27
  * - modify	: 25.04.28
  */
-static void v_Uart_DBG_Test(){
+__attribute__((unused)) static void v_Uart_DBG_Test(){
 	static uint32_t u32_timRef;
 	if(_b_Tim_Is_OVR(u32_Tim_1msGet(), u32_timRef, 1000)){
 		u32_timRef = u32_Tim_1msGet();

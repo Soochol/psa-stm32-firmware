@@ -240,7 +240,7 @@ float f_FSR_Convert_Gram(uint16_t u16_adc){
 float fsrGram_Left, fsrGram_Right;
 float fsrVolt_Left, fsrVolt_Right;
 uint16_t fsrADC_Left, fsrADC_Right;
-static void v_FSR_Convert_Handler(){
+__attribute__((unused)) static void v_FSR_Convert_Handler(){
 	if(b_fsr_left){
 		b_fsr_left = false;
 		uint32_t sum=0;

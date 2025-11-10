@@ -567,7 +567,7 @@ static void v_Mode_HeatPad_PWM(x_modeSTEP_t x_step){
 	v_TIM2_Ch3_Out(pwm);
 }
 
-static void v_Mode_HeatPad_Handler(){
+__attribute__((unused)) static void v_Mode_HeatPad_Handler(){
 	v_Mode_HeatPad_PWM(x_modeHeatPad);
 }
 
@@ -2201,7 +2201,7 @@ void v_Mode_Sound_Test(){
 
 
 
-static void v_Mode_SubBD_Print(){
+__attribute__((unused)) static void v_Mode_SubBD_Print(){
 	static uint32_t timRef;
 	if(_b_Tim_Is_OVR(u32_Tim_1msGet(), timRef, 250)){
 		timRef = u32_Tim_1msGet();

@@ -190,9 +190,6 @@ DRESULT SD_read(BYTE lun, BYTE *buff, DWORD sector, UINT count)
 {
   DRESULT res = RES_ERROR;
   uint32_t timeout;
-#if defined(ENABLE_SCRATCH_BUFFER)
-  uint8_t ret;
-#endif
 #if (ENABLE_SD_DMA_CACHE_MAINTENANCE == 1)
   uint32_t alignedAddr;
 #endif
@@ -254,6 +251,7 @@ DRESULT SD_read(BYTE lun, BYTE *buff, DWORD sector, UINT count)
     {
       /* Slow path, fetch each sector a part and memcpy to destination buffer */
       int i;
+      uint8_t ret = MSD_ERROR;
 
       for (i = 0; i < count; i++) {
         ret = BSP_SD_ReadBlocks_DMA((uint32_t*)scratch, (uint32_t)sector++, 1);
@@ -313,7 +311,6 @@ DRESULT SD_write(BYTE lun, const BYTE *buff, DWORD sector, UINT count)
   DRESULT res = RES_ERROR;
   uint32_t timeout;
 #if defined(ENABLE_SCRATCH_BUFFER)
-  uint8_t ret;
   int i;
 #endif
 
@@ -382,6 +379,7 @@ DRESULT SD_write(BYTE lun, const BYTE *buff, DWORD sector, UINT count)
       */
       SCB_InvalidateDCache_by_Addr((uint32_t*)scratch, BLOCKSIZE);
 #endif
+      uint8_t ret = MSD_ERROR;
 
       for (i = 0; i < count; i++)
       {
