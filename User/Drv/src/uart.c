@@ -196,6 +196,11 @@ void v_Uart_ESP_EnableIT(){
  * - modify	: -
  */
 void v_Uart_ESP_Out(uint8_t* pu8_arr, uint16_t u16_cnt){
+	// CRITICAL: Validate pointer parameters to prevent hard fault
+	if(pu8_arr == NULL || u16_cnt == 0){
+		return;
+	}
+
 	uartEspTx->fn.v_PutArr(uartEspTx, pu8_arr, u16_cnt);
 
 	if((e_espTx == COMM_STAT_DONE || e_espTx == COMM_STAT_READY) && uartEspTx->u16_cnt){
@@ -293,6 +298,11 @@ void v_Uart_DBG_EnableIT(){
  * - create	: 25.03.27
  */
 void v_Uart_DBG_Out(uint8_t* pu8_arr, uint16_t u16_cnt){
+	// CRITICAL: Validate pointer parameters to prevent hard fault
+	if(pu8_arr == NULL || u16_cnt == 0){
+		return;
+	}
+
 	uartDbgTx->fn.v_PutArr(uartDbgTx, (uint8_t*)pu8_arr, u16_cnt);
 
 	if(e_dbgTx == COMM_STAT_DONE || e_dbgTx == COMM_STAT_READY){

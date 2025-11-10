@@ -119,7 +119,14 @@ void v_ESP_Recive(uint8_t u8_rx){
  * - u16_len	: data length
  */
 static void v_ESP_Transmit(uint8_t u8_dir, uint8_t u8_cmd, uint8_t* pu8_data, uint16_t u16_len){
-	uint8_t fmt[64];
+	// CRITICAL: Validate buffer size to prevent stack overflow
+	// fmt[64] = STX(1) + LEN(1) + DIR(1) + CMD(1) + DATA(u16_len) + CHK(1) + ETX(1)
+	// Maximum safe data length: 64 - 6 = 58 bytes
+	if(u16_len > (ESP_TX_FMT_BUF_SIZE - 6)){
+		return;  // Prevent buffer overflow
+	}
+
+	uint8_t fmt[ESP_TX_FMT_BUF_SIZE];
 	//uint8_t fmt[ESP_FMT_SIZE_MIN + u16_len + 1];
 	uint8_t chk = ESP_FMT_CHK_INIT;
 	uint16_t cnt=0;
@@ -668,7 +675,14 @@ void v_ESP_Send_Error(uint16_t u16_error){
 
 
 static void v_ESP_Transmit_toRx(uint8_t u8_dir, uint8_t u8_cmd, uint8_t* pu8_data, uint16_t u16_len){
-	uint8_t fmt[64];
+	// CRITICAL: Validate buffer size to prevent stack overflow
+	// fmt[64] = STX(1) + LEN(1) + DIR(1) + CMD(1) + DATA(u16_len) + CHK(1) + ETX(1)
+	// Maximum safe data length: 64 - 6 = 58 bytes
+	if(u16_len > (ESP_TX_TO_RX_BUF_SIZE - 6)){
+		return;  // Prevent buffer overflow
+	}
+
+	uint8_t fmt[ESP_TX_TO_RX_BUF_SIZE];
 	//uint8_t fmt[ESP_FMT_SIZE_MIN + u16_len + 1];
 	uint8_t chk = ESP_FMT_CHK_INIT;
 	uint16_t cnt=0;

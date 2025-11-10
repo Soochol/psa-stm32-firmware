@@ -142,6 +142,11 @@ static x_I2C_BUF_t i2c1_buf;
 
 
 int i_I2C1_Write(uint8_t u8_addr, uint16_t u16_reg, uint8_t* pu8_arr, uint16_t u16_len){
+	// CRITICAL: Validate pointer parameters to prevent hard fault
+	if(pu8_arr == NULL || u16_len == 0){
+		return COMM_STAT_ERR;
+	}
+
 	if(e_comm_i2c1 == COMM_STAT_READY){
 		if(u16_len + 1 < I2C1_WR_SIZE){
 			u8_i2c1_addr = u8_addr;
@@ -208,6 +213,11 @@ static x_I2C_BUF_t i2c2_buf;
 
 
 int i_I2C2_Write(uint8_t u8_addr, uint16_t u16_reg, uint8_t* pu8_arr, uint16_t u16_len){
+	// CRITICAL: Validate pointer parameters to prevent hard fault
+	if(pu8_arr == NULL || u16_len == 0){
+		return COMM_STAT_ERR;
+	}
+
 	if(e_comm_i2c2 == COMM_STAT_READY){
 		if(u16_len + 1 < I2C2_WR_SIZE){
 			u8_i2c2_addr = u8_addr;
@@ -271,6 +281,11 @@ uint32_t i2c4_ok, i2c4_busy, i2c4_err;
 bool b_i2c4_rdDone, b_i2c4_wrDone;
 #define I2C4_CHG	0
 int i_I2C4_Write(uint8_t u8_addr, uint16_t u16_reg, uint8_t* pu8_data, uint16_t u16_len){
+	// CRITICAL: Validate pointer parameters to prevent hard fault
+	if(pu8_data == NULL || u16_len == 0){
+		return COMM_STAT_ERR;
+	}
+
 #if I2C4_CHG
 	HAL_StatusTypeDef ret = HAL_I2C_Mem_Write_DMA(p_i2c4, u8_addr, u16_reg, I2C_MEMADD_SIZE_16BIT, pu8_data, u16_len);
 #else
@@ -288,6 +303,11 @@ int i_I2C4_Write(uint8_t u8_addr, uint16_t u16_reg, uint8_t* pu8_data, uint16_t 
 
 
 int i_I2C4_Read(uint8_t u8_addr, uint16_t u16_reg, uint8_t* pu8_data, uint16_t u16_len){
+	// CRITICAL: Validate pointer parameters to prevent hard fault
+	if(pu8_data == NULL || u16_len == 0){
+		return COMM_STAT_ERR;
+	}
+
 #if I2C4_CHG
 	HAL_StatusTypeDef ret = HAL_I2C_Mem_Read_DMA(p_i2c4, u8_addr, u16_reg, I2C_MEMADD_SIZE_16BIT, pu8_data, u16_len);
 #else
@@ -306,32 +326,40 @@ int i_I2C4_Config_400KHz(){
 	HAL_I2C_DeInit(p_i2c4);
 
 	p_i2c4->Init.Timing = 0x00C0216C;
+	// CRITICAL: Propagate configuration errors instead of silently failing
 	if(HAL_I2C_Init(p_i2c4) != HAL_OK){
 		i2c4_config_err++;
+		return COMM_STAT_ERR;
 	}
 	if(HAL_I2CEx_ConfigAnalogFilter(&hi2c4, I2C_ANALOGFILTER_ENABLE) != HAL_OK){
 		i2c4_config_err++;
+		return COMM_STAT_ERR;
 	}
 	if(HAL_I2CEx_ConfigDigitalFilter(&hi2c4, 0) != HAL_OK){
 		i2c4_config_err++;
+		return COMM_STAT_ERR;
 	}
-	return 0;
+	return COMM_STAT_OK;
 }
 
 int i_I2C4_Config_1MHz(){
 	HAL_I2C_DeInit(p_i2c4);
 
 	p_i2c4->Init.Timing = 0x00B11B24;
+	// CRITICAL: Propagate configuration errors instead of silently failing
 	if(HAL_I2C_Init(p_i2c4) != HAL_OK){
 		i2c4_config_err++;
+		return COMM_STAT_ERR;
 	}
 	if(HAL_I2CEx_ConfigAnalogFilter(&hi2c4, I2C_ANALOGFILTER_ENABLE) != HAL_OK){
 		i2c4_config_err++;
+		return COMM_STAT_ERR;
 	}
 	if(HAL_I2CEx_ConfigDigitalFilter(&hi2c4, 0) != HAL_OK){
 		i2c4_config_err++;
+		return COMM_STAT_ERR;
 	}
-	return 0;
+	return COMM_STAT_OK;
 }
 
 
@@ -354,6 +382,11 @@ void v_I2C4_Set_Comm_Ready(){
 }
 
 int i_I2C4_Write_DMA(uint8_t u8_addr, uint16_t u16_reg, uint8_t* pu8_arr, uint16_t u16_len){
+	// CRITICAL: Validate pointer parameters to prevent hard fault
+	if(pu8_arr == NULL || u16_len == 0){
+		return COMM_STAT_ERR;
+	}
+
 	if(e_comm_i2c4 == COMM_STAT_READY){
 		if(u16_len + 1 < I2C4_WR_SIZE){
 			u8_i2c4_addr = u8_addr;
@@ -421,6 +454,11 @@ static x_I2C_BUF_t i2c5_buf;
 
 
 int i_I2C5_Write(uint8_t u8_addr, uint16_t u16_reg, uint8_t* pu8_arr, uint16_t u16_len){
+	// CRITICAL: Validate pointer parameters to prevent hard fault
+	if(pu8_arr == NULL || u16_len == 0){
+		return COMM_STAT_ERR;
+	}
+
 	if(e_comm_i2c5 == COMM_STAT_READY){
 		if(u16_len + 1 < I2C5_WR_SIZE){
 			u8_i2c5_addr = u8_addr;
