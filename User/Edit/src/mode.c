@@ -1251,6 +1251,8 @@ static void v_Mode_Waiting(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t* 
 		if(_b_Tim_Is_OVR(u32_Tim_1msGet(), px_pub->u32_timToutRef, tout)){
 			//add end condition
 			if(px_pub->i_sound){
+				// MEDIUM: Stop any currently playing MP3 before timeout sound
+				i_MP3_ForceStop();
 				if(i_MP3_Is_Ready()){
 					i_MP3_Begin(MODE_MP3_WAITING_TIMEOUT);
 					px_pub->i_sound = 0;
@@ -1416,6 +1418,8 @@ static void v_Mode_ForceOn(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t* 
 	if(px_work->cr.bit.b1_on){
 		if(_b_Tim_Is_OVR(u32_Tim_1msGet(), px_pub->u32_timToutRef, tout)){
 			if(px_pub->i_sound){
+				// MEDIUM: Stop any currently playing MP3 before timeout sound
+				i_MP3_ForceStop();
 				if(i_MP3_Is_Ready()){
 					i_MP3_Begin(MODE_MP3_FORCE_ON_TIMEOUT);
 					px_pub->i_sound = 0;
@@ -1772,6 +1776,8 @@ static void v_Mode_Error(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t* px
 			ledToggle = 0;
 			//sound
 			if(i_Mode_Get_MP3_Play()){
+				// MEDIUM: Stop any currently playing MP3 before error sound
+				i_MP3_ForceStop();
 				sound = 1;
 			}
 			//debug
