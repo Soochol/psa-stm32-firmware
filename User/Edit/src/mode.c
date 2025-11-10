@@ -84,18 +84,43 @@ static x_modePUB_t x_modePub;
 
 static e_modeERR_t e_modeError;
 
+/*
+ * brief	: Initialize mode state machine with specified mode
+ * param	: e_id - Initial mode ID to set (e.g., modeBOOTING)
+ * return	: void
+ * note		: - Sets current mode and triggers update
+ *			  - Should be called once during system initialization
+ *			  - Bypasses normal mode transition validation
+ */
 void v_Mode_SetInit(e_modeID_t e_id){
 	x_modeWORK_t* px_work = &x_modeWork;
 	px_work->guide.e_curr = e_id;
 	px_work->cr.u8 = modeCR_UPD_ON;
 }
 
+/*
+ * brief	: Request transition to next mode
+ * param	: e_id - Target mode ID to transition to
+ * return	: void
+ * note		: - Sets next mode and marks for transition
+ *			  - Actual transition happens in v_Mode_Handler()
+ *			  - Mode transition may be delayed or validated
+ */
 void v_Mode_SetNext(e_modeID_t e_id){
 	x_modeWORK_t* px_work = &x_modeWork;
 	px_work->guide.e_next = e_id;
 	px_work->cr.u8 = modeCR_UPD_OFF;
 }
 
+/*
+ * brief	: Execute mode state transition
+ * param	: px_work - Pointer to mode state machine work structure
+ * return	: void
+ * note		: - Moves prev <- curr <- next in state history
+ *			  - Sets default next mode to WAITING
+ *			  - Triggers update flag for mode entry handlers
+ *			  - Should only be called from v_Mode_Handler()
+ */
 void v_Mode_MoveNext(x_modeWORK_t* px_work){
 	px_work->guide.e_prev = px_work->guide.e_curr;
 	px_work->guide.e_curr = px_work->guide.e_next;
@@ -363,7 +388,16 @@ void v_Mode_Set_Speaker_Mute(int i_mute){
 	}
 }
 
-
+/*
+ * brief	: Handle speaker volume updates via ES8388 codec
+ * param	: void
+ * return	: void
+ * note		: - Updates codec volume when i_spk_update flag is set
+ *			  - Respects mute state (sets volume to 0 when muted)
+ *			  - Multiplies volume by MODE_CODEC_VOL_MULTIPLIER (10x)
+ *			  - Clears update flag after successful codec write
+ *			  - Called periodically from main mode handlers
+ */
 static void v_Mode_Speaker_Vol_Handler(){
 	if(i_spk_update){
 		int volume;
