@@ -72,6 +72,10 @@ static uint16_t u16_adcAvg[ADC_CH_CNT];
 static float f_refVolt;
 static uint16_t adcCpltMask;
 
+// Error state tracking for ADC DMA operations
+static volatile uint8_t u8_adc1_dma_err = 0;
+static volatile uint8_t u8_adc3_dma_err = 0;
+
 
 
 
@@ -176,9 +180,13 @@ void v_ADC_Handler(){
 		//conversion start
 		v_ADC_Test();
 
-
-		HAL_ADC_Start_DMA(p_adc1, (uint32_t*)u16_adc1_raw, ADC1_CH_CNT);
-		HAL_ADC_Start_DMA(p_adc3, (uint32_t*)u16_adc3_raw, ADC3_CH_CNT);
+		// HIGH: Check return value to detect DMA start failures
+		if(HAL_ADC_Start_DMA(p_adc1, (uint32_t*)u16_adc1_raw, ADC1_CH_CNT) != HAL_OK){
+			u8_adc1_dma_err++;
+		}
+		if(HAL_ADC_Start_DMA(p_adc3, (uint32_t*)u16_adc3_raw, ADC3_CH_CNT) != HAL_OK){
+			u8_adc3_dma_err++;
+		}
 	}
 }
 
