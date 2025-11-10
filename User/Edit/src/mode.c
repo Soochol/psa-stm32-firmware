@@ -311,8 +311,8 @@ static void v_Mode_GyroAI_Handler(){
 		float actL = -L.y;
 #endif
 
-		int actAngle = 90 - i_actAngle;					//90 - 10
-		int relAngle = 90 - i_actAngle + i_relAngle;	//90 - 10 + 5
+		int actAngle = MODE_GYRO_ANGLE_BASELINE - i_actAngle;					//90 - 10
+		int relAngle = MODE_GYRO_ANGLE_BASELINE - i_actAngle + i_relAngle;	//90 - 10 + 5
 		e_modeID_t mode = e_Mode_Get_CurrID();
 
 		if(actL <= actAngle){
@@ -345,11 +345,11 @@ int i_Mode_Get_Speaker_Vol(){
 }
 
 void v_Mode_Set_Speaker_Vol(int i_vol){
-	if(i_vol > 10){
-		i_vol = 10;
+	if(i_vol > MODE_SPEAKER_VOL_MAX){
+		i_vol = MODE_SPEAKER_VOL_MAX;
 	}
-	else if(i_vol < 0){
-		i_vol = 0;
+	else if(i_vol < MODE_SPEAKER_VOL_MIN){
+		i_vol = MODE_SPEAKER_VOL_MIN;
 	}
 	i_speaker_vol = i_vol;
 
@@ -367,9 +367,9 @@ void v_Mode_Set_Speaker_Mute(int i_mute){
 static void v_Mode_Speaker_Vol_Handler(){
 	if(i_spk_update){
 		int volume;
-		if(i_spk_mute)	{volume = 0;}
+		if(i_spk_mute)	{volume = MODE_SPEAKER_VOL_MIN;}
 		else			{volume = i_speaker_vol;}
-		if(i_Codec_Volume_Ctrl(volume * 10) == 1){
+		if(i_Codec_Volume_Ctrl(volume * MODE_CODEC_VOL_MULTIPLIER) == 1){
 			i_spk_update = 0;
 		}
 	}
@@ -457,9 +457,9 @@ static void v_Mode_CoolFan_PWM(x_modeSTEP_t x_step){
 		}
 		pwm = pwm_prev;
 		if(pwm_prev != 0){
-			float lv = round(((float)now / max) * 3.0);
-			if(lv < 1){
-				led_lv = 1;
+			float lv = round(((float)now / max) * MODE_LED_LEVEL_STEPS);
+			if(lv < MODE_LED_LEVEL_MIN){
+				led_lv = MODE_LED_LEVEL_MIN;
 			}
 			else{
 				led_lv = (uint16_t)lv;
@@ -546,9 +546,9 @@ static void v_Mode_HeatPad_PWM(x_modeSTEP_t x_step){
 		}
 		pwm = pwm_prev;
 		if(pwm_prev != 0){
-			float lv = round(((float)now / max) * 3.0);
-			if(lv < 1){
-				led_lv = 1;
+			float lv = round(((float)now / max) * MODE_LED_LEVEL_STEPS);
+			if(lv < MODE_LED_LEVEL_MIN){
+				led_lv = MODE_LED_LEVEL_MIN;
 			}
 			else{
 				led_lv = (uint16_t)lv;
@@ -646,9 +646,9 @@ static void v_Mode_BlowFan_PWM(x_modeSTEP_t x_step){
 		pwm = pwm_prev;
 
 		if(pwm_prev != 0){
-			float lv = round(((float)now / max) * 3.0);
-			if(lv < 1){
-				led_lv = 1;
+			float lv = round(((float)now / max) * MODE_LED_LEVEL_STEPS);
+			if(lv < MODE_LED_LEVEL_MIN){
+				led_lv = MODE_LED_LEVEL_MIN;
 			}
 			else{
 				led_lv = (uint16_t)lv;
@@ -711,8 +711,8 @@ static void v_Mode_Heater_PID_Init(){
 	x_currPID.Ki = MODE_HEATER_PID_COEF_I;	//overshoot
 	x_currPID.Kd = MODE_HEATER_PID_COEF_D;	//steady-state error	//0.05 -> 0.1
 
-	x_currPID.T = 0.1;
-	x_currPID.tau = 0.1;
+	x_currPID.T = MODE_HEATER_PID_TIME_T;
+	x_currPID.tau = MODE_HEATER_PID_TAU;
 
 	x_currPID.limMax = MODE_HEATER_PID_COEF_MAX;	//pwm max
 	x_currPID.limMin = MODE_HEATER_PID_COEF_MIN;		//pwm min	//500
@@ -733,7 +733,7 @@ static float f_Mode_Heater_PID_Handler(float f_tempTarget){
 	else{
 		i_heater_on = 1;
 		u32_heater_toutRef = u32_Tim_1msGet();
-		if(_b_Tim_Is_OVR(u32_Tim_1msGet(), timRef, 100)){
+		if(_b_Tim_Is_OVR(u32_Tim_1msGet(), timRef, MODE_HEATER_PID_UPDATE_ITV)){
 			timRef = u32_Tim_1msGet();
 			float output;
 
@@ -755,7 +755,7 @@ static int i_Mode_Is_TempHeater_Over(int* pi_renew, float f_temp_lmt){
 	float temp = f_IR_Temp_Get();
 	float offset;
 	if(*pi_renew)	{offset = 0.0;}
-	else			{offset = 1.5;}
+	else			{offset = MODE_TEMP_HYSTERESIS_OFFSET;}
 
 	if(temp >= f_temp_lmt){	//52.0 + 1.5
 		over = 1;
@@ -775,7 +775,7 @@ static int i_Mode_Is_TempHeater_Under(int* pi_renew, float f_temp_lmt){
 	float temp = f_IR_Temp_Get();
 	float offset;
 	if(*pi_renew)	{offset = 0.0;}
-	else			{offset = 1.5;}
+	else			{offset = MODE_TEMP_HYSTERESIS_OFFSET;}
 
 	if(temp <= f_temp_lmt){
 		over = 1;
@@ -795,7 +795,7 @@ static int i_Mode_TempHeater_FB(){
 	static uint32_t timRef;
 	static uint32_t tick;
 
-	if(_b_Tim_Is_OVR(u32_Tim_1msGet(), timRef, 100)){
+	if(_b_Tim_Is_OVR(u32_Tim_1msGet(), timRef, MODE_HEATER_FB_CHECK_ITV)){
 		timRef = u32_Tim_1msGet();
 		if(f_ADC_Get_HeaterCurr() > MODE_HEATER_LMT_CURRENT){
 			tick++;
@@ -859,13 +859,13 @@ static int i_Mode_Battery(int* pi_sound){
 			float batRef[] = {MODE_BAT_VOL_ALERT, MODE_BAT_VOL_LV1, MODE_BAT_VOL_LV2};
 			if(bat_prev != modeBAT_LV_INIT){
 				if(i_Mode_Is_CoolFan_Act()){
-					bat += 0.12;
+					bat += MODE_BAT_COMP_COOLFAN;
 				}
 				if(i_Mode_Is_BlowFan_Act()){
 					uint16_t lv = u16_Mode_Get_BlowFan_Now();
-					if(lv == 1)		{bat += 0.05;}
-					else if(lv == 2){bat += 0.08;}
-					else			{bat += 0.12;}
+					if(lv == 1)		{bat += MODE_BAT_COMP_BLOWFAN_LOW;}
+					else if(lv == 2){bat += MODE_BAT_COMP_BLOWFAN_MED;}
+					else			{bat += MODE_BAT_COMP_BLOWFAN_HIGH;}
 				}
 
 				if(bat_prev > modeBAT_LV_ALERT){
@@ -894,7 +894,7 @@ static int i_Mode_Battery(int* pi_sound){
 		if(i_Mode_Get_MP3_Play()){
 			if(bat_curr == modeBAT_LV_ALERT && sound_alert){
 				if(i_MP3_Get_Stat() != MP3_BUSY){
-					i_MP3_Begin(14);
+					i_MP3_Begin(MODE_MP3_BATTERY_ALERT);
 					playing = 1;
 					sound_alert = 0;
 				}
@@ -956,7 +956,7 @@ static void v_Mode_Bat_Handler(){
 /////////////////////////////////
 static void v_Mode_Sensing_toESP(){
 	static uint32_t timRef;
-	if(_b_Tim_Is_OVR(u32_Tim_1msGet(), timRef, 100)){
+	if(_b_Tim_Is_OVR(u32_Tim_1msGet(), timRef, MODE_SENSING_SEND_ITV)){
 		timRef = u32_Tim_1msGet();
 
 		uint8_t imu_evt_left = u8_IMU_Get_EVT_Left();
@@ -1145,7 +1145,7 @@ static void v_Mode_Booting(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t* 
 
 		//tilt calculation
 		v_IMU_Handler();
-		if(_b_Tim_Is_OVR(u32_Tim_1msGet(), timTiltRef, 2000)){
+		if(_b_Tim_Is_OVR(u32_Tim_1msGet(), timTiltRef, MODE_TILT_CENTER_TIMEOUT)){
 			v_IMU_Tilt_Center_Disable();
 		}
 	}
@@ -1185,7 +1185,7 @@ static void v_Mode_Healing(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t* 
 
 		if(px_work->cr.bit.b1_on){
 			px_pub->u32_timToutRef = u32_Tim_1msGet();
-			tout = 1000;
+			tout = MODE_HEALING_INITIAL_TOUT;
 			//temperature condition renew
 			px_pub->i_tempRenew = 1;
 		}
@@ -1225,7 +1225,7 @@ static void v_Mode_Waiting(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t* 
 		if(px_work->cr.bit.b1_on){
 			//timeout
 			px_pub->u32_timToutRef = u32_Tim_1msGet();
-			tout = u32_Mode_Get_Waiting_Tout() * 1000;
+			tout = u32_Mode_Get_Waiting_Tout() * MODE_TOUT_TO_MS_MULT;
 			if(i_Mode_Get_MP3_Play())	{px_pub->i_sound = 1;}
 			else						{px_pub->i_sound = 0;}
 			//status led
@@ -1244,7 +1244,7 @@ static void v_Mode_Waiting(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t* 
 			//add end condition
 			if(px_pub->i_sound){
 				if(i_MP3_Is_Ready()){
-					i_MP3_Begin(21);
+					i_MP3_Begin(MODE_MP3_WAITING_TIMEOUT);
 					px_pub->i_sound = 0;
 				}
 			}
@@ -1305,7 +1305,7 @@ static void v_Mode_ForceUp(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t* 
 		if(px_work->cr.bit.b1_on){
 			//timeout
 			px_pub->u32_timToutRef = u32_Tim_1msGet();
-			tout = u32_Mode_Get_ForceUp_Tout() * 1000;
+			tout = u32_Mode_Get_ForceUp_Tout() * MODE_TOUT_TO_MS_MULT;
 			//sound
 			if(i_Mode_Get_MP3_Play() && i_Mode_Get_ToggleSw()){
 				px_pub->i_sound = 1;
@@ -1344,7 +1344,7 @@ static void v_Mode_ForceUp(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t* 
 
 		if(px_pub->i_sound){
 			if(i_MP3_Is_Ready()){
-				i_MP3_Begin(19);
+				i_MP3_Begin(MODE_MP3_FORCE_UP);
 				px_pub->i_sound = 0;
 			}
 		}
@@ -1393,7 +1393,7 @@ static void v_Mode_ForceOn(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t* 
 		if(px_work->cr.bit.b1_on){
 			//timeout
 			px_pub->u32_timToutRef = u32_Tim_1msGet();
-			tout = u32_Mode_Get_ForceOn_Tout() * 1000;
+			tout = u32_Mode_Get_ForceOn_Tout() * MODE_TOUT_TO_MS_MULT;
 			if(i_Mode_Get_MP3_Play())	{px_pub->i_sound = 1;}
 			else						{px_pub->i_sound = 0;}
 			//led
@@ -1409,7 +1409,7 @@ static void v_Mode_ForceOn(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t* 
 		if(_b_Tim_Is_OVR(u32_Tim_1msGet(), px_pub->u32_timToutRef, tout)){
 			if(px_pub->i_sound){
 				if(i_MP3_Is_Ready()){
-					i_MP3_Begin(23);
+					i_MP3_Begin(MODE_MP3_FORCE_ON_TIMEOUT);
 					px_pub->i_sound = 0;
 				}
 			}
@@ -1476,7 +1476,7 @@ static void v_Mode_ForceDown(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t
 		if(px_work->cr.bit.b1_on){
 			//timeout
 			px_pub->u32_tim_ref = u32_Tim_1msGet();
-			tout = u32_Mode_Get_ForceDown_Tout() * 1000;
+			tout = u32_Mode_Get_ForceDown_Tout() * MODE_TOUT_TO_MS_MULT;
 			//led
 			px_pub->u32_timLedItv = 0;
 			ledToggle = 0;
@@ -1486,7 +1486,7 @@ static void v_Mode_ForceDown(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t
 			v_ESP_Send_EvtModeChange(ESP_EVT_MODE_FORCE_DOWN);
 			//delay
 			coolDelayRef = u32_Tim_1msGet();
-			coolDelay = u32_Mode_Get_ForceDownDelay() * 100;
+			coolDelay = u32_Mode_Get_ForceDownDelay() * MODE_DELAY_TO_MS_MULT;
 			//sound
 			if(i_Mode_Get_MP3_Play() && i_Mode_Get_ToggleSw()){
 				px_pub->i_sound = 1;
@@ -1526,7 +1526,7 @@ static void v_Mode_ForceDown(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t
 
 		if(px_pub->i_sound){
 			if(i_MP3_Is_Ready()){
-				i_MP3_Begin(20);
+				i_MP3_Begin(MODE_MP3_FORCE_DOWN);
 				px_pub->i_sound = 0;
 			}
 		}
@@ -1639,7 +1639,7 @@ void v_Mode_Off(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t* px_pub){
 	if(px_work->cr.bit.b1_on){
 		//HAL_NVIC_SystemReset();
 		//sensor off
-		if(_b_Tim_Is_OVR(u32_Tim_1msGet(), px_pub->u32_timLedRef, 100)){
+		if(_b_Tim_Is_OVR(u32_Tim_1msGet(), px_pub->u32_timLedRef, MODE_POWEROFF_DELAY)){
 			if(pwr_off == 0){
 				pwr_off = 1;
 				v_IO_Disable_12V();
@@ -1665,7 +1665,7 @@ void v_Mode_Off(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t* px_pub){
 			px_pub->u32_timToutRef = u32_Tim_1msGet();
 		}
 
-		if(_b_Tim_Is_OVR(u32_Tim_1msGet(), px_pub->u32_timToutRef, 1000)){
+		if(_b_Tim_Is_OVR(u32_Tim_1msGet(), px_pub->u32_timToutRef, MODE_LOWPWR_ENTRY_DELAY)){
 			if(low_pwr == 0){
 				low_pwr = 1;
 				HAL_SuspendTick();
@@ -1719,7 +1719,7 @@ void v_Mode_WakeUp(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t* px_pub){
 		}
 	}
 	if(px_work->cr.bit.b1_on){
-		if(_b_Tim_Is_OVR(u32_Tim_1msGet(), px_pub->u32_timToutRef, 1000)){
+		if(_b_Tim_Is_OVR(u32_Tim_1msGet(), px_pub->u32_timToutRef, MODE_WAKEUP_DELAY)){
 
 			v_IO_Disable_12V();	//add : 1.00.34
 
@@ -2149,7 +2149,7 @@ void v_Mode_Handler(){
 /////////////////////////////////
 void v_Mode_CoolFan(){
 	static uint32_t timRef;
-	if(_b_Tim_Is_OVR(u32_Tim_1msGet(), timRef, 100)){
+	if(_b_Tim_Is_OVR(u32_Tim_1msGet(), timRef, MODE_COOLFAN_HANDLER_ITV)){
 		timRef = u32_Tim_1msGet();
 		v_Mode_CoolFan_Enable();
 		v_Mode_CoolFan_Handler();
@@ -2180,7 +2180,7 @@ void v_Mode_Sound_Test(){
 		}
 		if(i_Mode_Get_ToggleSw()){
 			v_Mode_Clear_ToggleSW();
-			if(volume < 10){volume++;}
+			if(volume < MODE_SPEAKER_VOL_MAX){volume++;}
 			v_Mode_Set_Speaker_Vol(volume);
 
 			if(i_MP3_Is_Ready()){
@@ -2191,7 +2191,7 @@ void v_Mode_Sound_Test(){
 		v_Mode_Speaker_Vol_Handler();
 
 
-		if(play && _b_Tim_Is_OVR(u32_Tim_1msGet(), timRef, 1000)){
+		if(play && _b_Tim_Is_OVR(u32_Tim_1msGet(), timRef, MODE_SOUND_TEST_DELAY)){
 			if(i_MP3_Player(1) == MP3_DONE){
 				play = 0;
 			}
@@ -2203,7 +2203,7 @@ void v_Mode_Sound_Test(){
 
 __attribute__((unused)) static void v_Mode_SubBD_Print(){
 	static uint32_t timRef;
-	if(_b_Tim_Is_OVR(u32_Tim_1msGet(), timRef, 250)){
+	if(_b_Tim_Is_OVR(u32_Tim_1msGet(), timRef, MODE_SUBBD_PRINT_ITV)){
 		timRef = u32_Tim_1msGet();
 		int16_t* imu_L = pi16_IMU_Get_Left();
 		int16_t* imu_R = pi16_IMU_Get_Right();

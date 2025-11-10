@@ -312,6 +312,80 @@ void v_Mode_BlowFan_Disable();
 #define MODE_BAT_OFFSET		0.3f	//unit : volt
 #define MODE_BAT_TIME_REFRESH	100	//unit : ms
 
+// Battery voltage compensation for fan speed
+#define MODE_BAT_COMP_COOLFAN		0.12f	//unit : volt
+#define MODE_BAT_COMP_BLOWFAN_LOW	0.05f	//unit : volt
+#define MODE_BAT_COMP_BLOWFAN_MED	0.08f	//unit : volt
+#define MODE_BAT_COMP_BLOWFAN_HIGH	0.12f	//unit : volt
+
+/////////////////////////////////
+//	TEMPERATURE CONTROL
+/////////////////////////////////
+// Temperature hysteresis offset to prevent oscillation
+#define MODE_TEMP_HYSTERESIS_OFFSET	1.5f	//unit : degree Celsius
+
+/////////////////////////////////
+//	TIMING INTERVALS
+/////////////////////////////////
+// Update and check intervals (unit: milliseconds)
+#define MODE_HEATER_PID_UPDATE_ITV		100		// PID controller update interval
+#define MODE_HEATER_FB_CHECK_ITV		100		// Heater feedback check interval
+#define MODE_BAT_CHECK_ITV				100		// Battery voltage check interval
+#define MODE_COOLFAN_HANDLER_ITV		100		// Cool fan handler interval
+#define MODE_SENSING_SEND_ITV			100		// Sensor data send to ESP interval
+#define MODE_SUBBD_PRINT_ITV			250		// Sub-board debug print interval
+
+// State transition delays
+#define MODE_HEALING_INITIAL_TOUT		1000	// Healing mode initial timeout
+#define MODE_POWEROFF_DELAY				100		// Power-off delay
+#define MODE_LOWPWR_ENTRY_DELAY			1000	// Low power mode entry delay
+#define MODE_WAKEUP_DELAY				1000	// Wake-up delay
+#define MODE_SOUND_TEST_DELAY			1000	// Sound test MP3 start delay
+#define MODE_TILT_CENTER_TIMEOUT		2000	// Tilt center calculation timeout
+#define MODE_TILT_DISABLE_TIMEOUT		2000	// Tilt disable timeout
+
+/////////////////////////////////
+//	PID CONTROLLER
+/////////////////////////////////
+// PID time constants
+#define MODE_HEATER_PID_TIME_T			0.1f	// PID time constant T
+#define MODE_HEATER_PID_TAU				0.1f	// PID tau (filter time)
+
+/////////////////////////////////
+//	LED CONTROL
+/////////////////////////////////
+// LED level calculation step size
+#define MODE_LED_LEVEL_STEPS			3.0f	// Steps for dividing 0-10 range into 0-3 levels
+#define MODE_LED_LEVEL_MIN				1		// Minimum LED level
+
+/////////////////////////////////
+//	SPEAKER VOLUME
+/////////////////////////////////
+#define MODE_SPEAKER_VOL_MIN			0		// Minimum volume (mute)
+#define MODE_SPEAKER_VOL_MAX			10		// Maximum volume
+#define MODE_CODEC_VOL_MULTIPLIER		10		// Multiplier for codec volume setting
+
+/////////////////////////////////
+//	GYRO/TILT
+/////////////////////////////////
+#define MODE_GYRO_ANGLE_BASELINE		90		// Gyro angle baseline for tilt calculation
+
+/////////////////////////////////
+//	MP3 TRACK NUMBERS
+/////////////////////////////////
+// MP3 track numbers for different events
+#define MODE_MP3_BATTERY_ALERT			14		// Battery low alert sound
+#define MODE_MP3_FORCE_UP				19		// Force-up mode start sound
+#define MODE_MP3_FORCE_DOWN				20		// Force-down mode start sound
+#define MODE_MP3_WAITING_TIMEOUT		21		// Waiting mode timeout sound
+#define MODE_MP3_FORCE_ON_TIMEOUT		23		// Force-on mode timeout sound
+
+/////////////////////////////////
+//	CONVERSION MULTIPLIERS
+/////////////////////////////////
+#define MODE_TOUT_TO_MS_MULT			1000	// Convert timeout seconds to milliseconds
+#define MODE_DELAY_TO_MS_MULT			100		// Convert delay units (100ms) to milliseconds
+
 
 /////////////////////////////////
 //	Mode - Handler

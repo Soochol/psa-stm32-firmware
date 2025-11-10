@@ -3,6 +3,25 @@
 
 #include "uart.h"
 
+/*******************************************/
+//	ESP COMMUNICATION CONSTANTS
+/*******************************************/
+// Buffer sizes
+#define ESP_RX_DATA_BUF_SIZE		32		// Receive data buffer size
+#define ESP_RESP_DATA_BUF_SIZE		32		// Response data buffer size
+#define ESP_SENSING_DATA_BUF_SIZE	64		// Sensing data buffer size
+#define ESP_TX_FMT_BUF_SIZE			64		// Transmission format buffer size
+#define ESP_TX_TO_RX_BUF_SIZE		64		// Transmit to RX buffer size
+#define ESP_DATA_LEN_MAX			32		// Maximum data length for validation
+
+// Communication timing
+#define ESP_COMM_TIMEOUT			1000	// Communication timeout (ms)
+#define ESP_CMD_TEST_ITV			5000	// Command test interval (ms)
+
+// Temperature conversion
+#define ESP_TEMP_DECIMAL_LIMIT		10		// Temperature decimal digit limit
+#define ESP_TEMP_DECIMAL_DIV		10		// Temperature conversion divisor
+#define ESP_TEMP_TO_INT_MULT		100		// Temperature to integer multiplier
 
 typedef enum {
 	ESP_EVT_MODE_SLEEP=0,
