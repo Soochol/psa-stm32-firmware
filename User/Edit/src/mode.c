@@ -637,7 +637,7 @@ static void v_Mode_BlowFan_PWM(x_modeSTEP_t x_step){
 	static uint16_t led_lv;
 
 	if(x_step.u16_on){
-		//v_IO_Enable_Fan();
+		// LOW: Removed unused commented code
 		if(now_prev != now || max_prev != max){
 			now_prev = now;
 			max_prev = max;
@@ -676,7 +676,7 @@ static void v_Mode_BlowFan_PWM(x_modeSTEP_t x_step){
 		v_RGB_Set_Heat(led_lv);
 	}
 	else{
-		//v_IO_Disable_Fan();
+		// LOW: Removed unused commented code
 		v_RGB_Set_Heat(0);
 		pwm = 0;
 	}
@@ -1380,7 +1380,7 @@ static void v_Mode_ForceUp(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t* 
 		px_pub->u32_timLedRef = u32_Tim_1msGet();
 		px_pub->u32_timLedItv = MODE_LED_BLINK_ITV;
 		v_Mode_ForceUp_Led(ledToggle++);
-		//v_RGB_Refresh_Enable();
+		// LOW: Removed unused commented code
 	}
 
 	v_Mode_Sensing_Handler();
@@ -1562,7 +1562,7 @@ static void v_Mode_ForceDown(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t
 		px_pub->u32_timLedRef = u32_Tim_1msGet();
 		px_pub->u32_timLedItv = MODE_LED_BLINK_ITV;
 		v_Mode_ForceDown_Led(ledToggle++);
-		//v_RGB_Refresh_Enable();
+		// LOW: Removed unused commented code
 	}
 
 	v_Mode_Sensing_Handler();
@@ -1649,7 +1649,7 @@ void v_Mode_Off(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t* px_pub){
 			//pwr_off = 1;
 			//sensor stop..
 			i_mode_off = 1;
-			//v_IO_Disable_12V();
+			// LOW: Removed unused commented code
 			pwr_off = low_pwr = 0;
 		}
 		else{
@@ -1809,18 +1809,19 @@ static void v_Mode_Error(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t* px
 
 			v_Mode_Error_Led(ledToggle);
 			ledToggle++;
-			//v_RGB_Refresh_Enable();
+			// LOW: Removed unused commented code
 		}
 
 		if(sound){
 			e_modeERR_t err = e_Mode_Get_Error();
 			uint16_t mp3=0;
-			if(err & modeERR_TEMP_IR)		{mp3=27;}
-			else if(err & modeERR_TEMP_OUT)	{mp3=28;}  // LOW: Fixed duplicate condition
-			else if(err & modeERR_IMU)		{mp3=29;}
-			else if(err & modeERR_BLOW_FAN)	{mp3=30;}
-			else if(err & modeERR_COOL_FAN)	{mp3=31;}
-			else if(err & modeERR_TOF)		{mp3=32;}
+			// LOW: Use named constants instead of magic numbers
+			if(err & modeERR_TEMP_IR)		{mp3=MODE_MP3_ERROR_TEMP_IR;}
+			else if(err & modeERR_TEMP_OUT)	{mp3=MODE_MP3_ERROR_TEMP_OUT;}
+			else if(err & modeERR_IMU)		{mp3=MODE_MP3_ERROR_IMU;}
+			else if(err & modeERR_BLOW_FAN)	{mp3=MODE_MP3_ERROR_BLOW_FAN;}
+			else if(err & modeERR_COOL_FAN)	{mp3=MODE_MP3_ERROR_COOL_FAN;}
+			else if(err & modeERR_TOF)		{mp3=MODE_MP3_ERROR_TOF;}
 
 			if(mp3 != 0){
 				if(i_MP3_Is_Ready()){
@@ -2050,7 +2051,7 @@ static void v_Mode_TEST(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t* px_
 		px_pub->u32_timLedItv = MODE_LED_BLINK_ITV;
 
 		v_Mode_TEST_Led(ledToggle++);
-		//v_RGB_Refresh_Enable();
+		// LOW: Removed unused commented code
 	}
 
 	v_Mode_Sensing_Handler();
@@ -2175,7 +2176,7 @@ void v_Mode_CoolFan(){
 		timRef = u32_Tim_1msGet();
 		v_Mode_CoolFan_Enable();
 		v_Mode_CoolFan_Handler();
-		//v_RGB_Refresh_Enable();
+		// LOW: Removed unused commented code
 	}
 }
 

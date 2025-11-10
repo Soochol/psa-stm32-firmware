@@ -380,6 +380,14 @@ void v_Mode_BlowFan_Disable();
 #define MODE_MP3_WAITING_TIMEOUT		21		// Waiting mode timeout sound
 #define MODE_MP3_FORCE_ON_TIMEOUT		23		// Force-on mode timeout sound
 
+// Error sound MP3 track numbers
+#define MODE_MP3_ERROR_TEMP_IR			27		// IR temperature sensor error
+#define MODE_MP3_ERROR_TEMP_OUT			28		// Outdoor temperature sensor error
+#define MODE_MP3_ERROR_IMU				29		// IMU sensor error
+#define MODE_MP3_ERROR_BLOW_FAN			30		// Blow fan error
+#define MODE_MP3_ERROR_COOL_FAN			31		// Cool fan error
+#define MODE_MP3_ERROR_TOF				32		// Time-of-flight sensor error
+
 /////////////////////////////////
 //	CONVERSION MULTIPLIERS
 /////////////////////////////////
