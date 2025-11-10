@@ -500,10 +500,18 @@ uint16_t u16_Mode_Get_HeatPad_Now(){
 }
 
 void v_Mode_Set_HeatPad_Max(uint16_t u16_max){
+	// LOW: Validate PWM value to prevent undefined behavior
+	if(u16_max > TIM2_ARR_MAX){
+		u16_max = TIM2_ARR_MAX;
+	}
 	x_modeHeatPad.u16_max= u16_max;
 }
 
 void v_Mode_Set_HeatPad_Now(uint16_t u16_now){
+	// LOW: Validate PWM value to prevent undefined behavior
+	if(u16_now > TIM2_ARR_MAX){
+		u16_now = TIM2_ARR_MAX;
+	}
 	x_modeHeatPad.u16_now = u16_now;
 }
 
@@ -1707,7 +1715,7 @@ void v_Mode_Off(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t* px_pub){
 /////////////////////////////////
 //	MODE - WakeUp
 /////////////////////////////////
-int i_mode_off;
+// LOW: Removed duplicate declaration (already declared at line 1630)
 
 void v_Mode_WakeUp_LED(){
 	v_RGB_Set_Top(MODE_OFF_LED_R, MODE_OFF_LED_G, MODE_OFF_LED_B);
@@ -1808,7 +1816,7 @@ static void v_Mode_Error(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t* px
 			e_modeERR_t err = e_Mode_Get_Error();
 			uint16_t mp3=0;
 			if(err & modeERR_TEMP_IR)		{mp3=27;}
-			else if(err & modeERR_TEMP_IR)	{mp3=28;}
+			else if(err & modeERR_TEMP_OUT)	{mp3=28;}  // LOW: Fixed duplicate condition
 			else if(err & modeERR_IMU)		{mp3=29;}
 			else if(err & modeERR_BLOW_FAN)	{mp3=30;}
 			else if(err & modeERR_COOL_FAN)	{mp3=31;}
@@ -1832,7 +1840,7 @@ static void v_Mode_Error(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t* px
 //	MODE - TEST (JIG)
 /////////////////////////////////
 static float f_dbg_temp_max;
-static int i_dbg_fan_spped;
+static int i_dbg_fan_speed;  // LOW: Fixed typo (spped -> speed)
 static float f_dbg_temp_forceUp;
 static float f_dbg_temp_forceDown;
 static float f_dbg_temp_waiting;
@@ -1848,7 +1856,7 @@ void v_Mode_Set_DBG_TempMax(float f_max){
 }
 
 void v_Mode_Set_DBG_FanSpeed(int i_speed){
-	i_dbg_fan_spped = i_speed;
+	i_dbg_fan_speed = i_speed;
 }
 
 void v_Mode_Set_DBG_FoceUp(float f_temp){

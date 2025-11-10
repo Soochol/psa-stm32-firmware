@@ -22,7 +22,8 @@
       "Bash(\"C:\\Users\\bless\\.platformio\\packages\\tool-openocd\\bin\\openocd.exe\" -f interface/stlink.cfg -f target/stm32h7x.cfg -c \"transport select hla_swd\" -c \"adapter speed 1000\" -c \"reset_config srst_only\" -c \"init\" -c \"reset halt\" -c \"program .pio/build/debug/firmware.bin 0x08000000\" -c \"reset run\" -c \"exit\")",
       "Bash(where:*)",
       "Bash(cat:*)",
-      "Bash(find:*)"
+      "Bash(find:*)",
+      "Bash(git log:*)"
     ],
     "deny": [],
     "ask": []
