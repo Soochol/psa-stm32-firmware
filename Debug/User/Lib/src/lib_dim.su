@@ -1,0 +1,4 @@
+../User/Lib/src/lib_dim.c:6:6:_v_Dim_CFG	0	static
+../User/Lib/src/lib_dim.c:23:10:_u32_Dim_Get_IDX	8	static
+../User/Lib/src/lib_dim.c:53:6:_b_Dim_Is_On	8	static
+../User/Lib/src/lib_dim.c:62:6:v_LED_Output	0	static

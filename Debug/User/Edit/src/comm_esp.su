@@ -1,0 +1,12 @@
+../User/Edit/src/comm_esp.c:121:13:v_ESP_Transmit	72	static
+../User/Edit/src/comm_esp.c:106:6:v_ESP_Recive	8	static
+../User/Edit/src/comm_esp.c:662:13:v_ESP_Transmit_toRx	80	static
+../User/Edit/src/comm_esp.c:158:6:b_ESP_CmdCompare	0	static
+../User/Edit/src/comm_esp.c:96:6:v_ESP_Handler	72	static
+../User/Edit/src/comm_esp.c:533:6:v_ESP_Send_InitStart	8	static
+../User/Edit/src/comm_esp.c:537:6:v_ESP_Send_InitEnd	8	static
+../User/Edit/src/comm_esp.c:548:6:v_ESP_Send_EvtModeChange	16	static
+../User/Edit/src/comm_esp.c:552:6:v_ESP_Send_Sensing	112	static
+../User/Edit/src/comm_esp.c:639:6:v_ESP_Tout_Handler	8	static
+../User/Edit/src/comm_esp.c:649:6:v_ESP_Send_Error	16	static
+../User/Edit/src/comm_esp.c:695:6:v_ESP_CmdTest	24	static

@@ -1,0 +1,2 @@
+../User/Lib/src/lib_drgb.c:14:10:_u16_DRGB_Add	0	static
+../User/Lib/src/lib_drgb.c:32:10:_u16_DRGB_Out	28	static

@@ -1,0 +1,3 @@
+../User/Lib/src/lib_ssf.c:10:13:_v_SSF_SlopeSum	20	static
+../User/Lib/src/lib_ssf.c:32:10:_u16_SSF_Handler	56	dynamic
+../User/Lib/src/lib_ssf.c:92:10:_u16_SSF_HandlerT	48	dynamic

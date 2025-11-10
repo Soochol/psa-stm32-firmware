@@ -1,0 +1,9 @@
+../User/Edit/src/comm_dbg.c:37:6:v_DBG_Receive	1
+../User/Edit/src/comm_dbg.c:50:6:b_DBG_Ascii_RxHandler	5
+../User/Edit/src/comm_dbg.c:75:6:v_DBG_Ascii_Handler	5
+../User/Edit/src/comm_dbg.c:106:6:v_DBG_RxTest	2
+../User/Edit/src/comm_dbg.c:140:6:b_DBG_CmdCompare	1
+../User/Edit/src/comm_dbg.c:303:6:v_DBG_Transmit	4
+../User/Edit/src/comm_dbg.c:100:6:v_DBG_Handler	17
+../User/Edit/src/comm_dbg.c:331:6:v_DBG_BootComplete	1
+../User/Edit/src/comm_dbg.c:337:6:v_DBG_CmdTest	11

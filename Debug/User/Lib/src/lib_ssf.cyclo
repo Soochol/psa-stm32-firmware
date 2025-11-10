@@ -1,0 +1,3 @@
+../User/Lib/src/lib_ssf.c:10:13:_v_SSF_SlopeSum	7
+../User/Lib/src/lib_ssf.c:32:10:_u16_SSF_Handler	13
+../User/Lib/src/lib_ssf.c:92:10:_u16_SSF_HandlerT	13

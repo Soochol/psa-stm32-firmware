@@ -1,0 +1,9 @@
+../User/Edit/src/comm_dbg.c:37:6:v_DBG_Receive	8	static
+../User/Edit/src/comm_dbg.c:50:6:b_DBG_Ascii_RxHandler	16	static
+../User/Edit/src/comm_dbg.c:75:6:v_DBG_Ascii_Handler	8	static
+../User/Edit/src/comm_dbg.c:106:6:v_DBG_RxTest	136	static
+../User/Edit/src/comm_dbg.c:140:6:b_DBG_CmdCompare	0	static
+../User/Edit/src/comm_dbg.c:303:6:v_DBG_Transmit	80	static
+../User/Edit/src/comm_dbg.c:100:6:v_DBG_Handler	296	static
+../User/Edit/src/comm_dbg.c:331:6:v_DBG_BootComplete	8	static
+../User/Edit/src/comm_dbg.c:337:6:v_DBG_CmdTest	24	static

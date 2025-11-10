@@ -1,0 +1,8 @@
+../ICM42670P/core/src/icm42670p_transport.c:15:20:_e_ICM42670P_Read_BANK0	2
+../ICM42670P/core/src/icm42670p_transport.c:27:20:_e_ICM42670P_Write_BANK0	2
+../ICM42670P/core/src/icm42670p_transport.c:39:20:_e_ICM42670P_Read_MREG	2
+../ICM42670P/core/src/icm42670p_transport.c:78:20:_e_ICM42670P_Write_MREG	2
+../ICM42670P/core/src/icm42670p_transport.c:91:6:Init	1
+../ICM42670P/core/src/icm42670p_transport.c:100:5:_i_ICM422670_ConfigInterface	1
+../ICM42670P/core/src/icm42670p_transport.c:108:5:_i_ICM42670P_DeviceReset	1
+../ICM42670P/core/src/icm42670p_transport.c:118:5:_i_ICM42670P_Init	1

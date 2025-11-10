@@ -1,0 +1,5 @@
+../User/Lib/src/lib_console.c:9:6:_v_Console_NodeLink	0	static
+../User/Lib/src/lib_console.c:23:19:_px_Console_GetNode	16	static
+../User/Lib/src/lib_console.c:40:6:_b_Console_CallFunct	16	static
+../User/Lib/src/lib_console.c:58:6:_b_Console_ShowName	24	static
+../User/Lib/src/lib_console.c:95:6:_b_Console_Create	48	static

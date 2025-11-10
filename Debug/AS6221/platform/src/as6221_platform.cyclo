@@ -1,0 +1,12 @@
+../AS6221/platform/src/as6221_platform.c:49:6:v_AS6221_Write_DoneHandler	2
+../AS6221/platform/src/as6221_platform.c:68:6:v_AS6221_Read_DoneHandler	2
+../AS6221/platform/src/as6221_platform.c:86:5:i_Temp_InOut_Write	2
+../AS6221/platform/src/as6221_platform.c:99:5:i_Temp_InOut_Read	2
+../AS6221/platform/src/as6221_platform.c:113:6:v_Temp_InOut_Tout_Handler	5
+../AS6221/platform/src/as6221_platform.c:149:6:v_Temp_InOut_Deinit	1
+../AS6221/platform/src/as6221_platform.c:155:15:e_Temp_InOut_Ready	9
+../AS6221/platform/src/as6221_platform.c:182:6:v_Temp_InOut_Handler	10
+../AS6221/platform/src/as6221_platform.c:210:7:f_Temp_In_Get	1
+../AS6221/platform/src/as6221_platform.c:214:7:f_Temp_Out_Get	1
+../AS6221/platform/src/as6221_platform.c:226:6:v_AS6221_Test	6
+../AS6221/platform/src/as6221_platform.c:314:6:v_TempOut_Test	3

@@ -1,0 +1,9 @@
+../User/Drv/src/adc.c:84:6:HAL_ADC_ConvCpltCallback	3
+../User/Drv/src/adc.c:104:6:v_ADC_Init	7
+../User/Drv/src/adc.c:210:7:f_ADC_Get_CoolFanCurr	1
+../User/Drv/src/adc.c:227:7:f_ADC_Get_FanCurr	1
+../User/Drv/src/adc.c:244:7:f_ADC_Get_HeatPadCurr	1
+../User/Drv/src/adc.c:263:7:f_ADC_Get_HeaterCurr	1
+../User/Drv/src/adc.c:285:7:f_ADC_Get_BatVolt	1
+../User/Drv/src/adc.c:301:7:f_ADC_Get_RefVolt	1
+../User/Drv/src/adc.c:165:6:v_ADC_Handler	7

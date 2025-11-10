@@ -1,0 +1,15 @@
+../SK6812/platform/src/sk6812_platform.c:99:6:v_RGB_Enable_Duty	1
+../SK6812/platform/src/sk6812_platform.c:103:6:v_RGB_Disable_Duty	1
+../SK6812/platform/src/sk6812_platform.c:111:6:v_RGB_Done_Handler	8
+../SK6812/platform/src/sk6812_platform.c:152:6:v_RGB_PWM_Out	6
+../SK6812/platform/src/sk6812_platform.c:184:6:b_RGB_Set_Color	2
+../SK6812/platform/src/sk6812_platform.c:198:6:v_RGB_Set_Top	1
+../SK6812/platform/src/sk6812_platform.c:216:6:v_RGB_Set_Bot	1
+../SK6812/platform/src/sk6812_platform.c:234:6:v_RGB_Set_Cool	4
+../SK6812/platform/src/sk6812_platform.c:259:6:v_RGB_Set_Heat	4
+../SK6812/platform/src/sk6812_platform.c:284:6:v_RGB_Set_Bat	4
+../SK6812/platform/src/sk6812_platform.c:309:6:v_RGB_Refresh_Enable	1
+../SK6812/platform/src/sk6812_platform.c:313:6:v_RGB_Clear	2
+../SK6812/platform/src/sk6812_platform.c:83:6:v_RGB_Init	2
+../SK6812/platform/src/sk6812_platform.c:320:6:v_RGB_PWM_Test	21
+../SK6812/platform/src/sk6812_platform.c:434:6:v_RGB_Test	12

@@ -1,0 +1,16 @@
+../User/Drv/src/io.c:7:6:v_IO_Check_12V	8	static
+../User/Drv/src/io.c:21:6:v_IO_Enable_12V	8	static
+../User/Drv/src/io.c:25:6:v_IO_Disable_12V	8	static
+../User/Drv/src/io.c:32:6:v_IO_Enable_HeatPad	8	static
+../User/Drv/src/io.c:36:6:v_IO_Disable_HeadPad	8	static
+../User/Drv/src/io.c:43:6:v_IO_Enable_Fan	8	static
+../User/Drv/src/io.c:47:6:v_IO_Disable_Fan	8	static
+../User/Drv/src/io.c:53:6:v_IO_Init	8	static
+../User/Drv/src/io.c:67:6:v_AUDIO_Init	40	static
+../User/Drv/src/io.c:96:6:v_I2C1_Pin_Deinit	40	static
+../User/Drv/src/io.c:113:6:v_I2C2_Pin_Deinit	40	static
+../User/Drv/src/io.c:130:6:v_I2C3_Pin_Deinit	56	static
+../User/Drv/src/io.c:151:6:v_I2C4_Pin_Deinit	40	static
+../User/Drv/src/io.c:172:6:v_I2C5_Pin_Deinit	40	static
+../User/Drv/src/io.c:191:6:v_IO_PWR_WakeUp_Enable	32	static
+../User/Drv/src/io.c:201:6:v_IO_PWR_WakeUp_Disable	32	static

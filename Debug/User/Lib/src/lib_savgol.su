@@ -1,0 +1,9 @@
+../User/Lib/src/lib_savgol.c:36:6:SavizkGolayFilter	32	dynamic
+../User/Lib/src/lib_savgol.c:70:6:SavizkGolayFilter_TTT	32	dynamic
+../User/Lib/src/lib_savgol.c:107:6:Savitzky_Golay_smoothing	72	static
+../User/Lib/src/lib_savgol.c:162:7:trnm	12	static
+../User/Lib/src/lib_savgol.c:186:6:psinv	40	static
+../User/Lib/src/lib_savgol.c:232:6:SavizkGolayFilter_Coeff	72	dynamic
+../User/Lib/src/lib_savgol.c:278:5:gcd	0	static
+../User/Lib/src/lib_savgol.c:288:6:float_to_fraction	32	static
+../User/Lib/src/lib_savgol.c:313:6:SavizkGolayFilter_Merge	48	dynamic

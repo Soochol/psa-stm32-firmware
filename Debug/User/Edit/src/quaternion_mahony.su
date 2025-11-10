@@ -1,0 +1,9 @@
+../User/Edit/src/quaternion_mahony.c:19:10:x_Quaternion_Mahony_Compute	136	static
+../User/Edit/src/quaternion_mahony.c:89:6:v_Quaternion_Mahony_Compute	64	static
+../User/Edit/src/quaternion_mahony.c:156:7:f_Quaternion_TiltAngleX_Compute	24	static
+../User/Edit/src/quaternion_mahony.c:165:7:f_Quaternion_TiltAngleY_Compute	24	static
+../User/Edit/src/quaternion_mahony.c:174:7:f_Quaternion_TiltAngleZ_Compute	24	static
+../User/Edit/src/quaternion_mahony.c:209:6:MahonyAHRSupdateIMU	0	static
+../User/Edit/src/quaternion_mahony.c:271:6:v_Mahony_Test	40	static
+../User/Edit/src/quaternion_mahony.c:309:10:Quaternion_Inverse	48	static
+../User/Edit/src/quaternion_mahony.c:318:10:Quaternion_Multiply	64	static

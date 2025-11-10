@@ -1,0 +1,7 @@
+../User/Edit/src/key.c:20:6:v_Key_ForceToggle_Handler	5
+../User/Edit/src/key.c:51:6:v_Key_BlowFan_Handler	5
+../User/Edit/src/key.c:86:6:v_Key_Power_Init	1
+../User/Edit/src/key.c:90:14:e_Key_Read_PWR	1
+../User/Edit/src/key.c:94:6:v_Key_Power_Handler	9
+../User/Edit/src/key.c:13:6:v_Key_Handler	1
+../User/Edit/src/key.c:142:6:HAL_GPIO_EXTI_Callback	2

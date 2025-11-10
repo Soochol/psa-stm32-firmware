@@ -1,0 +1,13 @@
+../User/Drv/src/sd.c:56:6:v_SD_Init	0	static
+../User/Drv/src/sd.c:60:6:v_SD_Deinit	8	static
+../User/Drv/src/sd.c:69:6:v_MountSD	8	static
+../User/Drv/src/sd.c:119:6:v_UnMountSD	8	static
+../User/Drv/src/sd.c:137:6:v_OpenFile	8	static
+../User/Drv/src/sd.c:160:6:v_CloseFile	8	static
+../User/Drv/src/sd.c:180:6:v_ReadFile	8	static
+../User/Drv/src/sd.c:196:6:v_WriteFile	16	static
+../User/Drv/src/sd.c:230:6:v_SD_Test	8	static
+../User/Drv/src/sd.c:261:6:b_IsMountSD	0	static
+../User/Drv/src/sd.c:270:6:b_MountSD	8	static
+../User/Drv/src/sd.c:316:6:b_UnMountSD	8	static
+../User/Drv/src/sd.c:339:9:BSP_SD_ReadBlocks_DMA	16	static,ignoring_inline_asm

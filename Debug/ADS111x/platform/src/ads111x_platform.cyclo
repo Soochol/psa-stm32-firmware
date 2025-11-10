@@ -1,0 +1,13 @@
+../ADS111x/platform/src/ads111x_platform.c:42:6:v_ADS111X_RdDone	4
+../ADS111x/platform/src/ads111x_platform.c:71:6:v_ADS111X_WrDone	2
+../ADS111x/platform/src/ads111x_platform.c:79:5:i_FSR_Write	2
+../ADS111x/platform/src/ads111x_platform.c:91:5:i_FSR_Read	2
+../ADS111x/platform/src/ads111x_platform.c:105:6:v_FSR_Tout_Handler	5
+../ADS111x/platform/src/ads111x_platform.c:126:6:v_FSR_Deinit	1
+../ADS111x/platform/src/ads111x_platform.c:130:15:e_FSR_Ready	6
+../ADS111x/platform/src/ads111x_platform.c:166:6:v_FSR_Data_Handler	6
+../ADS111x/platform/src/ads111x_platform.c:207:7:f_FSR_Convert_Gram	3
+../ADS111x/platform/src/ads111x_platform.c:271:7:f_FSR_Get_Left	1
+../ADS111x/platform/src/ads111x_platform.c:275:7:f_FSR_Get_Right	1
+../ADS111x/platform/src/ads111x_platform.c:280:10:u16_FSR_Get_Left	1
+../ADS111x/platform/src/ads111x_platform.c:284:10:u16_FSR_Get_Right	1

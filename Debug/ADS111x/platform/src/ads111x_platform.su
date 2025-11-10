@@ -1,0 +1,13 @@
+../ADS111x/platform/src/ads111x_platform.c:42:6:v_ADS111X_RdDone	0	static
+../ADS111x/platform/src/ads111x_platform.c:71:6:v_ADS111X_WrDone	0	static
+../ADS111x/platform/src/ads111x_platform.c:79:5:i_FSR_Write	24	static
+../ADS111x/platform/src/ads111x_platform.c:91:5:i_FSR_Read	16	static
+../ADS111x/platform/src/ads111x_platform.c:105:6:v_FSR_Tout_Handler	8	static
+../ADS111x/platform/src/ads111x_platform.c:126:6:v_FSR_Deinit	0	static
+../ADS111x/platform/src/ads111x_platform.c:130:15:e_FSR_Ready	16	static
+../ADS111x/platform/src/ads111x_platform.c:166:6:v_FSR_Data_Handler	8	static
+../ADS111x/platform/src/ads111x_platform.c:207:7:f_FSR_Convert_Gram	8	static
+../ADS111x/platform/src/ads111x_platform.c:271:7:f_FSR_Get_Left	0	static
+../ADS111x/platform/src/ads111x_platform.c:275:7:f_FSR_Get_Right	0	static
+../ADS111x/platform/src/ads111x_platform.c:280:10:u16_FSR_Get_Left	0	static
+../ADS111x/platform/src/ads111x_platform.c:284:10:u16_FSR_Get_Right	0	static
