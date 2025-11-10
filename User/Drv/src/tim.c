@@ -108,6 +108,7 @@ void v_TIM1_Init(){
 //	counts	: 1000						//
 //	overflow : 100 Hz					//
 /****************************************/
+#define TIM2_ARR_MAX	1000
 
 
 /*
@@ -121,6 +122,11 @@ void v_TIM1_Init(){
 void v_TIM2_Ch1_Out(uint16_t u16_pwm){
 	static bool on;
 	static uint16_t pwm_prev = 0xFFFF;
+
+	// MEDIUM: Validate PWM value to prevent undefined behavior
+	if(u16_pwm > TIM2_ARR_MAX){
+		u16_pwm = TIM2_ARR_MAX;
+	}
 
 	if(pwm_prev != u16_pwm){
 		pwm_prev = u16_pwm;
@@ -153,6 +159,11 @@ void v_TIM2_Ch2_Out(uint16_t u16_pwm){
 	static bool on;
 	static uint16_t pwm_prev = 0xFFFF;
 
+	// MEDIUM: Validate PWM value to prevent undefined behavior
+	if(u16_pwm > TIM2_ARR_MAX){
+		u16_pwm = TIM2_ARR_MAX;
+	}
+
 	if(pwm_prev != u16_pwm){
 		pwm_prev = u16_pwm;
 
@@ -182,6 +193,11 @@ void v_TIM2_Ch2_Out(uint16_t u16_pwm){
 void v_TIM2_Ch3_Out(uint16_t u16_pwm){
 	static bool on;
 	static uint16_t pwm_prev = 0xFFFF;
+
+	// MEDIUM: Validate PWM value to prevent undefined behavior
+	if(u16_pwm > TIM2_ARR_MAX){
+		u16_pwm = TIM2_ARR_MAX;
+	}
 
 	if(pwm_prev != u16_pwm){
 		pwm_prev = u16_pwm;
@@ -214,6 +230,11 @@ void v_TIM2_Ch3_Out(uint16_t u16_pwm){
 void v_TIM2_Ch4_Out(uint16_t u16_pwm){
 	static bool on;
 	static uint16_t pwm_prev;
+
+	// MEDIUM: Validate PWM value to prevent undefined behavior
+	if(u16_pwm > TIM2_ARR_MAX){
+		u16_pwm = TIM2_ARR_MAX;
+	}
 
 	if(pwm_prev != u16_pwm){
 		pwm_prev = u16_pwm;

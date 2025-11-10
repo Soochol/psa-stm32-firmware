@@ -23,6 +23,8 @@ void v_1Cycle_Time();
 //	CH3	: PWM (heat pad)				//
 //	CH4 : PWM (cool fan)				//
 /****************************************/
+#define TIM2_ARR_MAX	1000
+
 void v_TIM2_Ch1_Out(uint16_t u16_pwm);
 void v_TIM2_Ch2_Out(uint16_t u16_pwm);
 void v_TIM2_Ch3_Out(uint16_t u16_pwm);

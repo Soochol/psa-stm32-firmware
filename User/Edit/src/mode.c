@@ -402,6 +402,10 @@ void v_Mode_Set_CoolFan_Max(uint16_t u16_max){
 }
 
 void v_Mode_Set_CoolFan_Now(uint16_t u16_now){
+	// MEDIUM: Validate PWM value to prevent undefined behavior
+	if(u16_now > TIM2_ARR_MAX){
+		u16_now = TIM2_ARR_MAX;
+	}
 	x_modeCoolfan.u16_now = u16_now;
 }
 
@@ -590,6 +594,10 @@ void v_Mode_Set_BlowFan_Max(uint16_t u16_max){
 }
 
 void v_Mode_Set_BlowFan_Now(uint16_t u16_now){
+	// MEDIUM: Validate PWM value to prevent undefined behavior
+	if(u16_now > TIM2_ARR_MAX){
+		u16_now = TIM2_ARR_MAX;
+	}
 	x_modeBlowFan.u16_now = u16_now;
 }
 
