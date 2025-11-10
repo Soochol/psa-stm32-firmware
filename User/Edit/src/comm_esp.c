@@ -215,6 +215,14 @@ static void v_ESP_RxHandler(){
 	chk ^= p_arr[out];
 	out = (out + 1) & mask;
 	data_len = len;
+	// CRITICAL FIX: Validate data_len to prevent buffer overflow
+	if(data_len > 32){
+		v_Uart_ESP_DisableIT();
+		espRx->fn.b_Jmp(espRx, 1);
+		v_Uart_ESP_EnableIT();
+		len = 0;
+		return;
+	}
 	//DIR
 	dir = p_arr[out];
 	chk ^= p_arr[out];

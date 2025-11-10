@@ -70,6 +70,11 @@ typedef struct {
 
 
 int i_I2C_BufIn(x_I2C_BUF_t* px, uint8_t u8_addr, uint16_t u16_reg, uint8_t* pu8_arr, uint16_t u16_len, bool b_rd){
+	// CRITICAL FIX: Validate buffer length to prevent overflow
+	if(u16_len > I2C_BUF_ARR_SIZE){
+		return COMM_STAT_ERR_LEN;  // Buffer overflow protection
+	}
+
 	px->comm[px->u16_in].u8_addr = u8_addr;
 	px->comm[px->u16_in].u16_reg = u16_reg;
 	px->comm[px->u16_in].u16_len = u16_len;
@@ -79,7 +84,7 @@ int i_I2C_BufIn(x_I2C_BUF_t* px, uint8_t u8_addr, uint16_t u16_reg, uint8_t* pu8
 			px->u16_arrOut += u16_len;
 		}
 		else{
-			//default
+			// Buffer wrap-around to beginning (validated above)
 			px->comm[px->u16_in].pu8_arr = px->u8_arr;
 			px->u16_arrOut = u16_len;
 		}
@@ -128,7 +133,8 @@ void v_I2C_Deinit(){
 static uint8_t u8_i2c1_wrArr[I2C1_WR_SIZE] __attribute__((section(".my_nocache_section")));
 static uint8_t u8_i2c1_rdArr[I2C1_RD_SIZE] __attribute__((section(".my_nocache_section")));
 
-static e_COMM_STAT_t e_comm_i2c1;
+// CRITICAL FIX: volatile to prevent race conditions with ISR
+static volatile e_COMM_STAT_t e_comm_i2c1;
 static uint8_t u8_i2c1_addr;
 static uint16_t u16_i2c1_rdCnt;
 static x_I2C_BUF_t i2c1_buf;
@@ -194,7 +200,8 @@ static uint8_t u8_i2c2_wrArr[I2C2_WR_SIZE] __attribute__((section(".my_nocache_s
 static uint8_t u8_i2c2_rdArr[I2C2_RD_SIZE] __attribute__((section(".my_nocache_section")));
 
 
-static e_COMM_STAT_t e_comm_i2c2;
+// CRITICAL FIX: volatile to prevent race conditions with ISR
+static volatile e_COMM_STAT_t e_comm_i2c2;
 static uint8_t u8_i2c2_addr;
 static uint16_t u16_i2c2_rdCnt;
 static x_I2C_BUF_t i2c2_buf;
@@ -257,7 +264,8 @@ int i_I2C2_Read(uint8_t u8_addr, uint16_t u16_reg, uint16_t u16_len){
 //////////////////////////////////////
 /*				I2C4				*/
 //////////////////////////////////////
-static e_COMM_STAT_t e_comm_i2c4;
+// CRITICAL FIX: volatile to prevent race conditions with ISR
+static volatile e_COMM_STAT_t e_comm_i2c4;
 
 uint32_t i2c4_ok, i2c4_busy, i2c4_err;
 bool b_i2c4_rdDone, b_i2c4_wrDone;
@@ -331,7 +339,7 @@ int i_I2C4_Config_1MHz(){
 
 
 
-static e_COMM_STAT_t e_comm_i2c4;
+// e_comm_i2c4 already declared above (line 268) - removed duplicate
 static uint8_t u8_i2c4_addr;
 static uint16_t u16_i2c4_rdCnt;
 
@@ -394,7 +402,8 @@ int i_I2C4_Read_DMA(uint8_t u8_addr, uint16_t u16_reg, uint16_t u16_len){
 //////////////////////////////////////
 #define I2C5_CHG	1
 
-static e_COMM_STAT_t e_comm_i2c5;
+// CRITICAL FIX: volatile to prevent race conditions with ISR
+static volatile e_COMM_STAT_t e_comm_i2c5;
 
 #if I2C5_CHG
 

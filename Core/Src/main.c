@@ -143,6 +143,66 @@ static void MPU_Config_Noncache2();
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 
+/*
+ * ================================================================================
+ * DMA CACHE COHERENCY STRATEGY DOCUMENTATION
+ * ================================================================================
+ *
+ * This firmware uses STM32H7 with D-Cache enabled. To prevent cache coherency
+ * issues with DMA transfers, the following strategy is implemented:
+ *
+ * 1. NON-CACHEABLE MEMORY REGIONS (Primary Strategy)
+ *    MPU is configured to mark specific SRAM regions as non-cacheable:
+ *
+ *    Region 1: 0x30004000 (16 KB) - RAM_NOCACHE_D2 (.my_nocache_section)
+ *      • I2C1, I2C2, I2C5 DMA buffers (wrArr, rdArr)
+ *      • ADC1, ADC3 DMA buffers (circular mode)
+ *      • TIM4 PWM DMA buffer for LED control
+ *      • SAI audio buffers (sai_buf, dac_buf)
+ *      • ESP UART TX buffer
+ *
+ *    Region 2: 0x38003000 (4 KB) - RAM_NOCACHE_D3 (.my_nocache_d3)
+ *      • I2C4 DMA buffers (wrArr, rdArr)
+ *
+ *    Configuration functions:
+ *      • MPU_Config_Noncache1() - Configures Region 1 as non-cacheable
+ *      • MPU_Config_Noncache2() - Configures Region 2 as non-cacheable
+ *      • Both called from main() before starting DMA operations
+ *
+ * 2. LINKER SECTION PLACEMENT
+ *    DMA buffers are placed in non-cacheable sections using:
+ *      __attribute__((section(".my_nocache_section"))) - for Region 1
+ *      __attribute__((section(".my_nocache_d3")))       - for Region 2
+ *
+ * 3. CACHE MAINTENANCE (Alternative Strategy - Less Common)
+ *    Some buffers use cacheable memory with explicit cache operations:
+ *      • ALIGN_32BYTES() macro for cache line alignment
+ *      • SCB_CleanDCache_by_Addr() before DMA TX
+ *      • SCB_InvalidateDCache_by_Addr() after DMA RX
+ *    This is used for:
+ *      • SPI buffers (currently disabled with #if 0)
+ *      • FATFS structures when SD_CACHED_USED is defined
+ *
+ * 4. VERIFICATION CHECKLIST
+ *    ✓ All I2C DMA buffers in non-cacheable sections
+ *    ✓ All ADC DMA buffers in non-cacheable sections
+ *    ✓ All audio (SAI/DAC) DMA buffers in non-cacheable sections
+ *    ✓ TIM4 PWM DMA buffer in non-cacheable section
+ *    ✓ ESP UART TX DMA buffer in non-cacheable section
+ *    ✓ MPU configured before DMA initialization
+ *    ✓ D-Cache enabled after MPU configuration
+ *
+ * IMPORTANT: When adding new DMA buffers, ensure they are:
+ *   1. Placed in .my_nocache_section or .my_nocache_d3 linker sections
+ *   2. OR use ALIGN_32BYTES + explicit cache flush/invalidate operations
+ *
+ * See also:
+ *   - STM32H723VGTX_FLASH.ld (linker sections)
+ *   - MPU_Config_Noncache1() and MPU_Config_Noncache2() (this file)
+ *   - Application Note AN4838 (STM32 MPU cache coherency)
+ * ================================================================================
+ */
+
 /* USER CODE END 0 */
 
 /**
@@ -255,7 +315,13 @@ int main(void)
 
     /* USER CODE BEGIN 3 */
 #if IWDG_USED
-	  HAL_IWDG_Refresh(&hiwdg1);
+	  // CRITICAL: Conditional watchdog refresh to detect system failures
+	  // Only refresh watchdog if system is healthy (not in ERROR state)
+	  // This ensures the watchdog resets the MCU if critical failures occur
+	  if(e_Mode_Get_CurrID() != modeERROR){
+		  HAL_IWDG_Refresh(&hiwdg1);
+	  }
+	  // If in ERROR state, watchdog will NOT refresh and will reset MCU after timeout
 #endif
 	  v_Tim_1s_Test();
 
@@ -1587,14 +1653,27 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
+/**
+ * @brief Configure MPU Region 1 as non-cacheable for DMA buffers
+ *
+ * This function configures 16 KB at 0x30004000 (AXI SRAM) as non-cacheable.
+ * This region is used for DMA buffers that require cache coherency:
+ *   - I2C1, I2C2, I2C5 DMA buffers
+ *   - ADC1, ADC3 circular DMA buffers
+ *   - SAI/DAC audio buffers
+ *   - TIM4 PWM DMA buffer
+ *   - ESP UART TX buffer
+ *
+ * See "DMA CACHE COHERENCY STRATEGY DOCUMENTATION" in this file for details.
+ */
 static void MPU_Config_Noncache1(){
   MPU_Region_InitTypeDef MPU_InitStruct = {0};
 
   SCB_CleanDCache_by_Addr((uint32_t*)0x30004000, 1024 * 16);
 
-  HAL_MPU_Disable();  // 일시적으로 비활성화
+  HAL_MPU_Disable();  // Temporarily disable MPU
 
-  /* Region 1: 예시로 0x30000000 ~ 64KB를 Non-Cacheable로 설정 */
+  /* Region 1: Configure 0x30004000 (16KB) as Non-Cacheable */
   MPU_InitStruct.Enable           = MPU_REGION_ENABLE;
   MPU_InitStruct.BaseAddress      = 0x30004000;
   MPU_InitStruct.Size             = MPU_REGION_SIZE_16KB;
@@ -1612,14 +1691,23 @@ static void MPU_Config_Noncache1(){
   HAL_MPU_Enable(MPU_PRIVILEGED_DEFAULT);  // 다시 활성화
 }
 
+/**
+ * @brief Configure MPU Region 2 as non-cacheable for DMA buffers
+ *
+ * This function configures 4 KB at 0x38003000 (SRAM4) as non-cacheable.
+ * This region is used for DMA buffers that require cache coherency:
+ *   - I2C4 DMA buffers (wrArr, rdArr)
+ *
+ * See "DMA CACHE COHERENCY STRATEGY DOCUMENTATION" in this file for details.
+ */
 static void MPU_Config_Noncache2(){
   MPU_Region_InitTypeDef MPU_InitStruct = {0};
 
   SCB_CleanDCache_by_Addr((uint32_t*)0x38003000, 1024 * 4);
 
-  HAL_MPU_Disable();  // 일시적으로 비활성화
+  HAL_MPU_Disable();  // Temporarily disable MPU
 
-  /* Region 1: 예시로 0x30000000 ~ 64KB를 Non-Cacheable로 설정 */
+  /* Region 2: Configure 0x38003000 (4KB) as Non-Cacheable */
   MPU_InitStruct.Enable           = MPU_REGION_ENABLE;
   MPU_InitStruct.BaseAddress      = 0x38003000;
   MPU_InitStruct.Size             = MPU_REGION_SIZE_4KB;
