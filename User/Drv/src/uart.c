@@ -217,7 +217,12 @@ void v_Uart_ESP_Out(uint8_t* pu8_arr, uint16_t u16_cnt){
 		return;
 	}
 
+	// HIGH: Protect ring buffer access from ISR race condition
+	// Ring buffer shared between main loop and TX complete callback
+	uint32_t primask = __get_PRIMASK();
+	__disable_irq();
 	uartEspTx->fn.v_PutArr(uartEspTx, pu8_arr, u16_cnt);
+	__set_PRIMASK(primask);
 
 	if((e_espTx == COMM_STAT_DONE || e_espTx == COMM_STAT_READY) && uartEspTx->u16_cnt){
 		e_espTx = COMM_STAT_BUSY;
@@ -331,7 +336,12 @@ void v_Uart_DBG_Out(uint8_t* pu8_arr, uint16_t u16_cnt){
 		return;
 	}
 
+	// MEDIUM: Protect ring buffer access from ISR race condition
+	// Ring buffer shared between main loop and TX complete callback
+	uint32_t primask = __get_PRIMASK();
+	__disable_irq();
 	uartDbgTx->fn.v_PutArr(uartDbgTx, (uint8_t*)pu8_arr, u16_cnt);
+	__set_PRIMASK(primask);
 
 	if(e_dbgTx == COMM_STAT_DONE || e_dbgTx == COMM_STAT_READY){
 		e_dbgTx = COMM_STAT_BUSY;
