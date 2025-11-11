@@ -606,7 +606,7 @@ static void v_Mode_HeatPad_PWM(x_modeSTEP_t x_step){
 		v_RGB_Set_Heat(led_lv);
 	}
 	else{
-		v_IO_Disable_HeadPad();
+		v_IO_Disable_HeatPad();  // LOW: Fixed typo (HeadPad -> HeatPad)
 		v_RGB_Set_Heat(0);
 		pwm = 0;
 	}
@@ -1099,9 +1099,7 @@ static void v_Mode_Booting(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t* 
 				mp3_wait = 0;
 			}
 		}
-		else{
-
-		}
+		// LOW: Removed empty else block
 	}
 	if(px_work->cr.bit.b1_on){
 		//initialize
@@ -1550,9 +1548,7 @@ static void v_Mode_ForceDown(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t
 				px_pub->i_sound = 0;
 			}
 		}
-		else{
-
-		}
+		// LOW: Removed empty else block
 	}
 	if(px_work->cr.bit.b1_on){
 		if(_b_Tim_Is_OVR(u32_Tim_1msGet(), px_pub->u32_tim_ref, tout)){

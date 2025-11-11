@@ -30,12 +30,12 @@ uint32_t u32_Tim_1msGet(){
 	return HAL_GetTick();
 }
 
-uint32_t u32_tick1s;
+// LOW: Removed unused variable 'u32_tick1s' (only used in commented debug print)
 void v_Tim_1s_Test(){
 	static uint32_t timRef;
 	if(_b_Tim_Is_OVR(u32_Tim_1msGet(), timRef, 1000)){
 		timRef = u32_Tim_1msGet();
-		++u32_tick1s;
+		// LOW: Removed increment of unused variable
 		//v_printf_poll("tim : %d\n", u32_tick1s);
 	}
 	v_1Cycle_Time();

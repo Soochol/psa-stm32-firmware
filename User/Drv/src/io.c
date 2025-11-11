@@ -33,7 +33,8 @@ void v_IO_Enable_HeatPad(){
 	HAL_GPIO_WritePin(DO_PAD_EN_GPIO_Port, DO_PAD_EN_Pin, GPIO_PIN_SET);
 }
 
-void v_IO_Disable_HeadPad(){
+// LOW: Fixed typo (HeadPad -> HeatPad)
+void v_IO_Disable_HeatPad(){
 	HAL_GPIO_WritePin(DO_PAD_EN_GPIO_Port, DO_PAD_EN_Pin, GPIO_PIN_RESET);
 }
 

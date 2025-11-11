@@ -12,7 +12,7 @@ void v_IO_Enable_12V();
 void v_IO_Disable_12V();
 
 void v_IO_Enable_HeatPad();
-void v_IO_Disable_HeadPad();
+void v_IO_Disable_HeatPad();  // LOW: Fixed typo (HeadPad -> HeatPad)
 
 void v_IO_Enable_Fan();
 void v_IO_Disable_Fan();

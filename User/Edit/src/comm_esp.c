@@ -310,7 +310,7 @@ static void v_ESP_RxAck(uint8_t u8_cmd, uint8_t* pu8_data, uint8_t u8_len){
 	}
 }
 
-e_ESP_CMD_t in_cmd;
+// LOW: Removed unused variable 'in_cmd'
 /*
  * brief	: command-init process
  * date
@@ -325,7 +325,7 @@ e_ESP_CMD_t in_cmd;
  */
 static void v_ESP_InitProc(uint8_t u8_cmd, uint8_t* pu8_data, uint8_t u8_len){
 	float typ;
-	in_cmd = u8_cmd;
+	// LOW: Removed unused assignment to 'in_cmd'
 
 	switch(u8_cmd){
 	case ESP_CMD_INIT_TEMP_SLEEP:
