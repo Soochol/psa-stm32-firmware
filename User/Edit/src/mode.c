@@ -15,6 +15,7 @@
 #include "as6221_platform.h"	//temp in, out
 #include "mlx90640_platform.h"	//ir temp
 #include "vl53l0x_platform.h"	//tof
+#include "sam_m10q_platform.h"	//gps
 #include "minimp3_platform.h"	//mp3 play
 #include "es8388_platform.h"	//audio
 #include "sk6812_platform.h"	//led
@@ -1017,12 +1018,19 @@ static void v_Mode_Sensing_toESP(){
 		if(imu_evt_right){
 			v_IMU_Clear_EVT_Right();
 		}
+
+		// Get GPS data (raw int32 format: degrees × 10^7)
+		_x_GPS_PVT_t* px_pvt = px_GPS_GetPVT();
+		int32_t gps_lat = px_pvt->lat;  // Already in degrees × 10^7
+		int32_t gps_lon = px_pvt->lon;  // Already in degrees × 10^7
+
 		//add imu event left and right
 		v_ESP_Send_Sensing(pi16_IMU_Get_Left(), pi16_IMU_Get_Right(), \
 						u16_FSR_Get_Left(), u16_FSR_Get_Right(), \
 						f_Temp_Out_Get(), f_Temp_In_Get(), f_IR_Temp_Get(), \
 						u16_TOF_Get_1(), u16_TOF_Get_2(), f_ADC_Get_BatVolt(),\
-						imu_evt_left, imu_evt_right);
+						imu_evt_left, imu_evt_right, \
+						gps_lat, gps_lon);
 	}
 }
 

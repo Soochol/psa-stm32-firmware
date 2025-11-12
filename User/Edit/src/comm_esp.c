@@ -568,7 +568,8 @@ void v_ESP_Send_Sensing(int16_t* pi16_imu_left, int16_t* pi16_imu_right,\
 						uint16_t u16_fsr_left, uint16_t u16_fsr_right,\
 						float f_tempOut, float f_tempIn, float f_tempIR,\
 						uint16_t u16_tof1, uint16_t u16_tof2, float f_bat,\
-						uint8_t u8_imu_left_evt, uint8_t u8_imu_right_evt){
+						uint8_t u8_imu_left_evt, uint8_t u8_imu_right_evt,\
+						int32_t i32_gps_lat, int32_t i32_gps_lon){
 	uint8_t data[64] = {0,};
 	uint16_t cnt=0;
 	uint16_t idx;
@@ -637,6 +638,18 @@ void v_ESP_Send_Sensing(int16_t* pi16_imu_left, int16_t* pi16_imu_right,\
 	//	IMU EVT	//
 	data[cnt++] = u8_imu_left_evt;
 	data[cnt++] = u8_imu_right_evt;
+
+	// GPS - Latitude (Byte 42-45: big-endian int32, degrees × 10^7)
+	data[cnt++] = (i32_gps_lat >> 24) & 0xFF;  // MSB
+	data[cnt++] = (i32_gps_lat >> 16) & 0xFF;
+	data[cnt++] = (i32_gps_lat >> 8) & 0xFF;
+	data[cnt++] = i32_gps_lat & 0xFF;          // LSB
+
+	// GPS - Longitude (Byte 46-49: big-endian int32, degrees × 10^7)
+	data[cnt++] = (i32_gps_lon >> 24) & 0xFF;  // MSB
+	data[cnt++] = (i32_gps_lon >> 16) & 0xFF;
+	data[cnt++] = (i32_gps_lon >> 8) & 0xFF;
+	data[cnt++] = i32_gps_lon & 0xFF;          // LSB
 
 	v_ESP_Transmit(ESP_DIR_REQ, ESP_CMD_STAT, data, cnt);
 

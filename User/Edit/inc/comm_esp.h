@@ -45,7 +45,8 @@ void v_ESP_Send_Sensing(int16_t* pi16_imu_left, int16_t* pi16_imu_right,\
 						uint16_t u16_fsr_left, uint16_t u16_fsr_right,\
 						float f_tempOut, float f_tempIn, float f_tempIR,\
 						uint16_t u16_tof1, uint16_t u16_tof2, float f_bat,\
-						uint8_t u8_imu_left_evt, uint8_t u8_imu_right_evt);
+						uint8_t u8_imu_left_evt, uint8_t u8_imu_right_evt,\
+						int32_t i32_gps_lat, int32_t i32_gps_lon);
 
 void v_ESP_Tout_Handler();
 void v_ESP_Send_Error(uint16_t u16_error);
