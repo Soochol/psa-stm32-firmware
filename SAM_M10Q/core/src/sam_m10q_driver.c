@@ -77,8 +77,10 @@ int i_SAM_M10Q_Handler(_x_SAM_M10Q_DRV_t* px_drv) {
             // After I2C read complete (callback sets u16_availBytes):
             if(px_drv->u16_availBytes > 0) {
                 // Read data from stream register (0xFF)
-                uint16_t readLen = (px_drv->u16_availBytes < sizeof(px_drv->u8_rxBuf)) ?
-                                    px_drv->u16_availBytes : sizeof(px_drv->u8_rxBuf);
+                // CRITICAL: Limit to 64 bytes to match I2C3 buffer size
+                uint16_t readLen = px_drv->u16_availBytes;
+                if(readLen > 64) readLen = 64;  // I2C3_RD_SIZE limit
+                if(readLen > sizeof(px_drv->u8_rxBuf)) readLen = sizeof(px_drv->u8_rxBuf);
 
                 if(px_drv->tr.i_bus() == 0) {
                     if(px_drv->tr.i_read(px_drv->u8_i2cAddr, SAM_M10Q_REG_STREAM, readLen) == 0) {

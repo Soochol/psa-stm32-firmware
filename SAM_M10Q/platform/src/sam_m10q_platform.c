@@ -28,6 +28,12 @@ static uint32_t u32_toutRef;
 // Initialization state
 static e_COMM_STAT_t e_gps_init;
 
+// Device presence tracking (for runtime disconnection detection)
+static uint8_t u8_consecutiveErrors = 0;
+static uint32_t u32_lastValidData = 0;
+static bool b_devicePresent = false;
+static uint8_t u8_consecutiveZeros = 0;  // Count consecutive "available=0" responses
+
 // Forward declarations of transport functions
 static int i_GPS_Write(uint8_t u8_addr, uint16_t u16_reg, uint8_t* pu8_arr, uint16_t u16_len);
 static int i_GPS_Read(uint8_t u8_addr, uint16_t u16_reg, uint16_t u16_len);
@@ -50,6 +56,12 @@ void v_GPS_Init(void) {
 
     e_gps_comm = COMM_STAT_READY;
     e_gps_init = COMM_STAT_READY;
+
+    // Initialize device presence tracking
+    u8_consecutiveErrors = 0;
+    u8_consecutiveZeros = 0;
+    u32_lastValidData = 0;
+    b_devicePresent = false;
 
     if(ret == SAM_M10Q_RET_OK) {
         v_printf_poll("GPS: Driver initialized (I2C3, addr=0x%02X)\r\n", SAM_M10Q_I2C_ADDR_DEFAULT);
@@ -84,13 +96,63 @@ void v_GPS_Read_DoneHandler(uint8_t u8_addr, uint8_t* pu8_arr, uint16_t u16_len)
         if(u16_len == 2) {
             // Available bytes count (registers 0xFD, 0xFE) - big-endian
             px_gps->u16_availBytes = (pu8_arr[0] << 8) | pu8_arr[1];
-            v_printf_poll("GPS: Available bytes=%d\r\n", px_gps->u16_availBytes);
+
+            // CRITICAL: Detect pullup garbage (0xFFFF indicates disconnected device)
+            if(px_gps->u16_availBytes == 0xFFFF) {
+                u8_consecutiveErrors++;
+                u8_consecutiveZeros = 0;
+                v_printf_poll("GPS: Invalid data 0xFFFF (pullup garbage? err=%d)\r\n", u8_consecutiveErrors);
+            } else if(px_gps->u16_availBytes == 0) {
+                // 0 bytes available *can* be valid (GPS initializing or no data yet)
+                // But if we get 10+ consecutive zeros, device is likely disconnected
+                u8_consecutiveZeros++;
+                if(u8_consecutiveZeros >= 10) {
+                    u8_consecutiveErrors++;
+                    v_printf_poll("GPS: Too many zeros (cnt=%d, err=%d) - device disconnected?\r\n",
+                                  u8_consecutiveZeros, u8_consecutiveErrors);
+                    u8_consecutiveZeros = 0;  // Reset to avoid spam
+                } else {
+                    v_printf_poll("GPS: Available bytes=0 (cnt=%d)\r\n", u8_consecutiveZeros);
+                }
+            } else {
+                // Valid byte count (1-65534)
+                u8_consecutiveErrors = 0;
+                u8_consecutiveZeros = 0;
+                u32_lastValidData = u32_Tim_1msGet();
+                if(!b_devicePresent) {
+                    b_devicePresent = true;
+                    v_printf_poll("GPS: Device connected\r\n");
+                }
+                v_printf_poll("GPS: Available bytes=%d\r\n", px_gps->u16_availBytes);
+            }
         } else {
             // Actual GPS data stream
             if(u16_len < sizeof(px_gps->u8_rxBuf)) {
-                memcpy(px_gps->u8_rxBuf, pu8_arr, u16_len);
-                px_gps->u16_rxLen = u16_len;
-                v_printf_poll("GPS: Received %d bytes\r\n", u16_len);
+                // Check if data is all 0xFF (pullup garbage)
+                bool b_allFF = true;
+                for(uint16_t i = 0; i < u16_len; i++) {
+                    if(pu8_arr[i] != 0xFF) {
+                        b_allFF = false;
+                        break;
+                    }
+                }
+
+                if(b_allFF && u16_len > 10) {
+                    // Likely pullup garbage (all 0xFF for >10 bytes is suspicious)
+                    u8_consecutiveErrors++;
+                    v_printf_poll("GPS: Invalid data all-0xFF (pullup garbage? err=%d)\r\n", u8_consecutiveErrors);
+                } else {
+                    // Valid data
+                    memcpy(px_gps->u8_rxBuf, pu8_arr, u16_len);
+                    px_gps->u16_rxLen = u16_len;
+                    u8_consecutiveErrors = 0;
+                    u32_lastValidData = u32_Tim_1msGet();
+                    if(!b_devicePresent) {
+                        b_devicePresent = true;
+                        v_printf_poll("GPS: Device connected\r\n");
+                    }
+                    v_printf_poll("GPS: Received %d bytes\r\n", u16_len);
+                }
             }
         }
         e_gps_comm = COMM_STAT_DONE;
@@ -129,6 +191,7 @@ void v_GPS_Handler(void) {
  */
 void v_GPS_Tout_Handler(void) {
     static uint32_t debug_log_ref = 0;
+    static bool b_disconnectLogged = false;
 
     // Debug: Log state periodically
     if(_b_Tim_Is_OVR(u32_Tim_1msGet(), debug_log_ref, 5000)) {
@@ -136,6 +199,7 @@ void v_GPS_Tout_Handler(void) {
         v_printf_poll("GPS: ToutHandler called (state=%d, BUSY=%d)\r\n", e_gps_comm, COMM_STAT_BUSY);
     }
 
+    // Check for I2C transaction timeout
     if((e_gps_comm == COMM_STAT_BUSY) &&
        _b_Tim_Is_OVR(u32_Tim_1msGet(), u32_toutRef, 2000)) {
         // Abort I2C transaction
@@ -146,6 +210,27 @@ void v_GPS_Tout_Handler(void) {
         // GPS timeout - log warning but don't enter ERROR mode
         // This allows system to continue operating without GPS
         v_printf_poll("GPS: I2C timeout (no response)\r\n");
+        u8_consecutiveErrors++;
+    }
+
+    // CRITICAL: Device presence detection (runtime disconnection)
+    // If 3+ consecutive errors OR no valid data for 5+ seconds → device disconnected
+    if(u8_consecutiveErrors >= 3 ||
+       (b_devicePresent && _b_Tim_Is_OVR(u32_Tim_1msGet(), u32_lastValidData, 5000))) {
+
+        if(b_devicePresent) {
+            // Device was present, now disconnected
+            b_devicePresent = false;
+            b_disconnectLogged = false;  // Allow new disconnect log
+            v_printf_poll("GPS: Device disconnected (err=%d)\r\n", u8_consecutiveErrors);
+        } else if(!b_disconnectLogged && u8_consecutiveErrors >= 3) {
+            // Device never connected or still disconnected
+            v_printf_poll("GPS: Device not detected (err=%d)\r\n", u8_consecutiveErrors);
+            b_disconnectLogged = true;
+        }
+    } else if(b_devicePresent && !b_disconnectLogged) {
+        // Device is connected and working
+        b_disconnectLogged = false;
     }
 }
 
@@ -155,8 +240,14 @@ static int i_GPS_Write(uint8_t u8_addr, uint16_t u16_reg, uint8_t* pu8_arr, uint
     u32_toutRef = u32_Tim_1msGet();
     e_gps_comm = COMM_STAT_BUSY;
     int ret = i_I2C3_Write(ADDR_GPS, u16_reg, pu8_arr, u16_len);
+
     // Convert: COMM_STAT_OK (1) → 0 (success), others → -1 (error)
-    return (ret == COMM_STAT_OK) ? 0 : -1;
+    if(ret != COMM_STAT_OK) {
+        // CRITICAL: Reset state to READY on error to prevent deadlock
+        e_gps_comm = COMM_STAT_READY;
+        return -1;
+    }
+    return 0;  // Success
 }
 
 static int i_GPS_Read(uint8_t u8_addr, uint16_t u16_reg, uint16_t u16_len) {
@@ -175,11 +266,18 @@ static int i_GPS_Read(uint8_t u8_addr, uint16_t u16_reg, uint16_t u16_len) {
 
     // Convert: COMM_STAT_OK (1) → 0 (success), others → -1 (error)
     if(ret != COMM_STAT_OK) {
-        // Only log if it's an actual error (not just busy)
+        // CRITICAL: Reset state to READY on error to prevent deadlock
+        e_gps_comm = COMM_STAT_READY;
+
+        // Log specific error types
         if(ret == COMM_STAT_ERR) {
             extern I2C_HandleTypeDef hi2c3;
             uint32_t i2c_error = HAL_I2C_GetError(&hi2c3);
             v_printf_poll("GPS: I2C error (HAL_err=0x%04X)\r\n", i2c_error);
+        } else if(ret == COMM_STAT_ERR_LEN) {
+            v_printf_poll("GPS: I2C buffer too small (ret=%d ERR_LEN=%d)\r\n", ret, COMM_STAT_ERR_LEN);
+        } else if(ret == COMM_STAT_BUSY) {
+            v_printf_poll("GPS: I2C bus busy (ret=%d)\r\n", ret);
         }
         return -1;
     }
@@ -187,7 +285,16 @@ static int i_GPS_Read(uint8_t u8_addr, uint16_t u16_reg, uint16_t u16_len) {
 }
 
 static int i_GPS_Bus(void) {
-    return (e_gps_comm == COMM_STAT_READY) ? 0 : -1;
+    // CRITICAL FIX: Bus is ready if state is READY (0) or DONE (4)
+    // DONE means "callback completed, ready for next transaction"
+    if(e_gps_comm == COMM_STAT_READY || e_gps_comm == COMM_STAT_DONE) {
+        // Reset to READY after consuming DONE state
+        if(e_gps_comm == COMM_STAT_DONE) {
+            e_gps_comm = COMM_STAT_READY;
+        }
+        return 0;  // Bus ready
+    }
+    return -1;  // Bus busy
 }
 
 static uint32_t u32_GPS_GetTime(void) {
@@ -195,6 +302,10 @@ static uint32_t u32_GPS_GetTime(void) {
 }
 
 // ========== Application Data Access Functions ==========
+
+bool b_GPS_IsConnected(void) {
+    return b_devicePresent;
+}
 
 bool b_GPS_HasFix(void) {
     return (px_gps->b_pvtValid && px_gps->x_pvt.fixType >= GPS_FIX_2D);

@@ -40,7 +40,10 @@ void v_GPS_Tout_Handler(void);
  * Data Access Functions (application-friendly)
  */
 
-// Status
+// Connection status
+bool b_GPS_IsConnected(void);  // Returns true if device is physically connected
+
+// Fix status
 bool b_GPS_HasFix(void);
 uint8_t u8_GPS_GetFixType(void);
 uint8_t u8_GPS_GetNumSatellites(void);
