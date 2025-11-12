@@ -8,9 +8,11 @@
 #include "icm42670p_platform.h"
 #include "mlx90640_platform.h"
 #include "es8388_platform.h"
+#include "sam_m10q_platform.h"
 
 extern I2C_HandleTypeDef hi2c1;
 extern I2C_HandleTypeDef hi2c2;
+extern I2C_HandleTypeDef hi2c3;
 extern I2C_HandleTypeDef hi2c4;
 
 
@@ -38,6 +40,7 @@ extern I2C_HandleTypeDef hi2c5;
 
 static I2C_HandleTypeDef* p_i2c1 = &hi2c1;
 static I2C_HandleTypeDef* p_i2c2 = &hi2c2;
+static I2C_HandleTypeDef* p_i2c3 = &hi2c3;
 static I2C_HandleTypeDef* p_i2c4 = &hi2c4;
 
 //temp - audio i/f
@@ -120,6 +123,7 @@ x_I2C_COMM_t x_I2C_BufOut(x_I2C_BUF_t* px){
 void v_I2C_Deinit(){
 	HAL_I2C_DeInit(p_i2c1);
 	HAL_I2C_DeInit(p_i2c2);
+	HAL_I2C_DeInit(p_i2c3);
 	HAL_I2C_DeInit(p_i2c4);
 	HAL_I2C_DeInit(p_i2c5);
 }
@@ -267,8 +271,70 @@ int i_I2C2_Read(uint8_t u8_addr, uint16_t u16_reg, uint16_t u16_len){
 //////////////////////////////////////
 /*				I2C3				*/
 //////////////////////////////////////
+#define I2C3_RD_SIZE	64
+#define I2C3_WR_SIZE	64
+
+static uint8_t u8_i2c3_wrArr[I2C3_WR_SIZE] __attribute__((section(".my_nocache_section")));
+static uint8_t u8_i2c3_rdArr[I2C3_RD_SIZE] __attribute__((section(".my_nocache_section")));
+
+// CRITICAL FIX: volatile to prevent race conditions with ISR
+static volatile e_COMM_STAT_t e_comm_i2c3;
+static uint8_t u8_i2c3_addr;
+static uint16_t u16_i2c3_rdCnt;
+static x_I2C_BUF_t i2c3_buf;
 
 
+int i_I2C3_Write(uint8_t u8_addr, uint16_t u16_reg, uint8_t* pu8_arr, uint16_t u16_len){
+	// CRITICAL: Validate pointer parameters to prevent hard fault
+	if(pu8_arr == NULL || u16_len == 0){
+		return COMM_STAT_ERR;
+	}
+
+	if(e_comm_i2c3 == COMM_STAT_READY){
+		if(u16_len + 1 < I2C3_WR_SIZE){
+			u8_i2c3_addr = u8_addr;
+			memcpy(u8_i2c3_wrArr, pu8_arr, u16_len);
+			// I2C3 uses IT mode (not DMA)
+			HAL_StatusTypeDef ret = HAL_I2C_Mem_Write_IT(p_i2c3, u8_i2c3_addr, u16_reg, I2C_MEMADD_SIZE_8BIT, u8_i2c3_wrArr, u16_len);
+			if(ret == HAL_OK)		{e_comm_i2c3 = COMM_STAT_OK;}
+			else{
+				if(ret == HAL_BUSY)	{e_comm_i2c3 = COMM_STAT_BUSY;}
+				else				{e_comm_i2c3 = COMM_STAT_ERR;}
+			}
+		}
+		else{
+			e_comm_i2c3 = COMM_STAT_ERR_LEN;
+		}
+	}
+	else{
+		e_comm_i2c3 = i_I2C_BufIn(&i2c3_buf, u8_addr, u16_reg, pu8_arr, u16_len, false);
+	}
+	return e_comm_i2c3;
+}
+
+
+int i_I2C3_Read(uint8_t u8_addr, uint16_t u16_reg, uint16_t u16_len){
+	if(e_comm_i2c3 == COMM_STAT_READY){
+		if(I2C3_WR_SIZE > 0 && I2C3_RD_SIZE >= u16_len){
+			u8_i2c3_addr = u8_addr;
+			u16_i2c3_rdCnt = u16_len;
+			// I2C3 uses IT mode (not DMA)
+			HAL_StatusTypeDef ret = HAL_I2C_Mem_Read_IT(p_i2c3, u8_i2c3_addr, u16_reg, I2C_MEMADD_SIZE_8BIT, u8_i2c3_rdArr, u16_len);
+			if(ret == HAL_OK)		{e_comm_i2c3 = COMM_STAT_OK;}
+			else{
+				if(ret == HAL_BUSY)	{e_comm_i2c3 = COMM_STAT_BUSY;}
+				else				{e_comm_i2c3 = COMM_STAT_ERR;}
+			}
+		}
+		else{
+			e_comm_i2c3 = COMM_STAT_ERR_LEN;
+		}
+	}
+	else{
+		e_comm_i2c3 = i_I2C_BufIn(&i2c3_buf, u8_addr, u16_reg, NULL, u16_len, true);
+	}
+	return e_comm_i2c3;
+}
 
 
 //////////////////////////////////////
@@ -731,6 +797,12 @@ void HAL_I2C_MemTxCpltCallback(I2C_HandleTypeDef *hi2c){
 
 		}
 	}
+	else if(hi2c == p_i2c3){
+		e_comm_i2c3 = COMM_STAT_READY;
+		if(u8_i2c3_addr == ADDR_GPS){
+			v_GPS_Write_DoneHandler(u8_i2c3_addr);
+		}
+	}
 	else if(hi2c == p_i2c4){
 		e_comm_i2c4 = COMM_STAT_READY;
 		v_Temp_IR_WR_Done();
@@ -761,6 +833,17 @@ void HAL_I2C_MemTxCpltCallback(I2C_HandleTypeDef *hi2c){
 			}
 			else{
 				i_I2C2_Write(comm.u8_addr, comm.u16_reg, comm.pu8_arr, comm.u16_len);
+			}
+		}
+	}
+	if(e_comm_i2c3 == COMM_STAT_READY){
+		if(i2c3_buf.u16_cnt){
+			x_I2C_COMM_t comm = x_I2C_BufOut(&i2c3_buf);
+			if(comm.b_rd){
+				i_I2C3_Read(comm.u8_addr, comm.u16_reg, comm.u16_len);
+			}
+			else{
+				i_I2C3_Write(comm.u8_addr, comm.u16_reg, comm.pu8_arr, comm.u16_len);
 			}
 		}
 	}
@@ -807,6 +890,14 @@ void HAL_I2C_MemRxCpltCallback(I2C_HandleTypeDef *hi2c){
 		u8_i2c2_addr = 0;
 		u16_i2c2_rdCnt = 0;
 	}
+	else if(hi2c == p_i2c3){
+		e_comm_i2c3 = COMM_STAT_READY;
+		if(u8_i2c3_addr == ADDR_GPS){
+			v_GPS_Read_DoneHandler(u8_i2c3_addr, u8_i2c3_rdArr, u16_i2c3_rdCnt);
+		}
+		u8_i2c3_addr = 0;
+		u16_i2c3_rdCnt = 0;
+	}
 	else if(hi2c == p_i2c4){
 		e_comm_i2c4 = COMM_STAT_READY;
 		v_Temp_IR_RD_Done(u8_i2c4_rdArr, u16_i2c4_rdCnt);
@@ -842,6 +933,17 @@ void HAL_I2C_MemRxCpltCallback(I2C_HandleTypeDef *hi2c){
 			}
 			else{
 				i_I2C2_Write(comm.u8_addr, comm.u16_reg, comm.pu8_arr, comm.u16_len);
+			}
+		}
+	}
+	if(e_comm_i2c3 == COMM_STAT_READY){
+		if(i2c3_buf.u16_cnt){
+			x_I2C_COMM_t comm = x_I2C_BufOut(&i2c3_buf);
+			if(comm.b_rd){
+				i_I2C3_Read(comm.u8_addr, comm.u16_reg, comm.u16_len);
+			}
+			else{
+				i_I2C3_Write(comm.u8_addr, comm.u16_reg, comm.pu8_arr, comm.u16_len);
 			}
 		}
 	}

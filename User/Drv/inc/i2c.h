@@ -34,6 +34,7 @@ void v_I2C_Deinit();
 //				I2C3				//
 //////////////////////////////////////
 #define ADDR_TOF2		(0x29 << 1)	//0x52
+#define ADDR_GPS		(0x42 << 1)	// SAM-M10Q GPS module
 
 //////////////////////////////////////
 //				I2C4				//
@@ -60,6 +61,13 @@ int i_I2C1_Read(uint8_t u8_addr, uint16_t u16_reg, uint16_t u16_len);
 //////////////////////////////////////
 int i_I2C2_Write(uint8_t u8_addr, uint16_t u16_reg, uint8_t* pu8_arr, uint16_t u16_len);
 int i_I2C2_Read(uint8_t u8_addr, uint16_t u16_reg, uint16_t u16_len);
+
+
+//////////////////////////////////////
+/*				I2C3				*/
+//////////////////////////////////////
+int i_I2C3_Write(uint8_t u8_addr, uint16_t u16_reg, uint8_t* pu8_arr, uint16_t u16_len);
+int i_I2C3_Read(uint8_t u8_addr, uint16_t u16_reg, uint16_t u16_len);
 
 
 //////////////////////////////////////

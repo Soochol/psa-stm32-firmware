@@ -38,6 +38,7 @@
 #include "icm42670p_platform.h"	//IMU
 #include "ads111x_platform.h"	//FSR
 #include "mlx90640_platform.h"	//IR - Temperature
+#include "sam_m10q_platform.h"	//GPS
 #include "mode.h"
 #include "comm_esp.h"
 /* USER CODE END Includes */
@@ -68,6 +69,7 @@ DMA_HandleTypeDef hdma_dac1_ch1;
 
 I2C_HandleTypeDef hi2c1;
 I2C_HandleTypeDef hi2c2;
+I2C_HandleTypeDef hi2c3;
 I2C_HandleTypeDef hi2c4;
 I2C_HandleTypeDef hi2c5;
 DMA_HandleTypeDef hdma_i2c1_tx;
@@ -121,6 +123,7 @@ static void MX_ADC3_Init(void);
 static void MX_DAC1_Init(void);
 static void MX_I2C1_Init(void);
 static void MX_I2C2_Init(void);
+static void MX_I2C3_Init(void);
 static void MX_I2C4_Init(void);
 static void MX_SDMMC2_SD_Init(void);
 static void MX_TIM2_Init(void);
@@ -269,6 +272,7 @@ int main(void)
   MX_DAC1_Init();
   MX_I2C1_Init();
   MX_I2C2_Init();
+  MX_I2C3_Init();
   MX_I2C4_Init();
   MX_SDMMC2_SD_Init();
   MX_TIM2_Init();
@@ -292,6 +296,7 @@ int main(void)
   v_MP3_Init();
   v_Uart_Init();
   v_IMU_Init();
+  v_GPS_Init();
   v_ADC_Init();
 
   v_RGB_Init();
@@ -328,6 +333,7 @@ int main(void)
 	  v_ADC_Handler();
 	  v_Uart_Handler();
 	  v_Key_Handler();
+	  v_GPS_Handler();
 	  v_Mode_Handler();
 	  v_RGB_PWM_Out();
 
@@ -747,6 +753,54 @@ static void MX_I2C2_Init(void)
   /* USER CODE BEGIN I2C2_Init 2 */
 
   /* USER CODE END I2C2_Init 2 */
+
+}
+
+/**
+  * @brief I2C3 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_I2C3_Init(void)
+{
+
+  /* USER CODE BEGIN I2C3_Init 0 */
+
+  /* USER CODE END I2C3_Init 0 */
+
+  /* USER CODE BEGIN I2C3_Init 1 */
+
+  /* USER CODE END I2C3_Init 1 */
+  hi2c3.Instance = I2C3;
+  hi2c3.Init.Timing = 0x009032AE;
+  hi2c3.Init.OwnAddress1 = 0;
+  hi2c3.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
+  hi2c3.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
+  hi2c3.Init.OwnAddress2 = 0;
+  hi2c3.Init.OwnAddress2Masks = I2C_OA2_NOMASK;
+  hi2c3.Init.GeneralCallMode = I2C_GENERALCALL_DISABLE;
+  hi2c3.Init.NoStretchMode = I2C_NOSTRETCH_DISABLE;
+  if (HAL_I2C_Init(&hi2c3) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Configure Analogue filter
+  */
+  if (HAL_I2CEx_ConfigAnalogFilter(&hi2c3, I2C_ANALOGFILTER_ENABLE) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Configure Digital filter
+  */
+  if (HAL_I2CEx_ConfigDigitalFilter(&hi2c3, 0) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN I2C3_Init 2 */
+
+  /* USER CODE END I2C3_Init 2 */
 
 }
 

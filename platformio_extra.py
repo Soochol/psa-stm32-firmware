@@ -21,6 +21,8 @@ source_dirs = [
     "MINIMP3/platform/src",
     "MLX90640/core/src",
     "MLX90640/platform/src",
+    "SAM_M10Q/core/src",
+    "SAM_M10Q/platform/src",
     "SK6812/platform/src",
     "SK6812/platform/src/src",
     "VL53L0X/core/src",
