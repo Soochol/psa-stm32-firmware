@@ -62,6 +62,7 @@ typedef struct {
     // Timing
     uint32_t u32_lastUpdate;    // Last successful update timestamp
     uint32_t u32_pollInterval;  // Poll interval (ms)
+    uint32_t u32_stateEnterTime;// State entry timestamp for timeout detection
 
 } _x_SAM_M10Q_DRV_t;
 

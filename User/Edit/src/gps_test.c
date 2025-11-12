@@ -120,10 +120,29 @@ void v_GPS_Test_Read_Data(void) {
  * Runs all tests in sequence
  */
 void v_GPS_Test_Full_Diagnostic(void) {
+    extern I2C_HandleTypeDef hi2c3;
+
     v_printf_poll("\r\n");
-    v_printf_poll("╔════════════════════════════════════════╗\r\n");
-    v_printf_poll("║   GPS I2C3 Full Diagnostic Test       ║\r\n");
-    v_printf_poll("╚════════════════════════════════════════╝\r\n");
+    v_printf_poll("╔═══════════════════════════════════════════╗\r\n");
+    v_printf_poll("║   GPS I2C3 ROOT CAUSE DIAGNOSTIC TEST    ║\r\n");
+    v_printf_poll("╚═══════════════════════════════════════════╝\r\n\r\n");
+
+    // Test 0: I2C3 HAL State
+    v_printf_poll("=== I2C3 HAL Status ===\r\n");
+    HAL_I2C_StateTypeDef i2c_state = HAL_I2C_GetState(&hi2c3);
+    uint32_t i2c_error = HAL_I2C_GetError(&hi2c3);
+    v_printf_poll("HAL State: %d (0=READY, 1=BUSY, 2=BUSY_TX, 3=BUSY_RX)\r\n", i2c_state);
+    v_printf_poll("HAL Error: 0x%04X\r\n", i2c_error);
+    if(i2c_error == HAL_I2C_ERROR_NONE) {
+        v_printf_poll("[OK] No I2C errors\r\n");
+    } else {
+        v_printf_poll("[ERROR] I2C has errors!\r\n");
+        if(i2c_error & HAL_I2C_ERROR_AF) v_printf_poll("  -> NACK/AF error\r\n");
+        if(i2c_error & HAL_I2C_ERROR_TIMEOUT) v_printf_poll("  -> Timeout error\r\n");
+        if(i2c_error & HAL_I2C_ERROR_BERR) v_printf_poll("  -> Bus error\r\n");
+    }
+    v_printf_poll("=======================\r\n\r\n");
+    HAL_Delay(100);
 
     // Test 1: Ping
     v_GPS_Test_I2C_Ping();
@@ -139,7 +158,8 @@ void v_GPS_Test_Full_Diagnostic(void) {
 
     // Test 4: Driver status
     v_printf_poll("\r\n=== GPS Driver Status ===\r\n");
-    v_printf_poll("Fix Type:     %d\r\n", u8_GPS_GetFixType());
+    v_printf_poll("Connected:    %d\r\n", b_GPS_IsConnected());
+    v_printf_poll("Fix Type:     %d (0=none, 2=2D, 3=3D)\r\n", u8_GPS_GetFixType());
     v_printf_poll("Satellites:   %d\r\n", u8_GPS_GetNumSatellites());
     v_printf_poll("Latitude:     %.6f°\r\n", f_GPS_GetLatitude());
     v_printf_poll("Longitude:    %.6f°\r\n", f_GPS_GetLongitude());
@@ -147,7 +167,14 @@ void v_GPS_Test_Full_Diagnostic(void) {
     v_printf_poll("Speed:        %.2f m/s\r\n", f_GPS_GetSpeed());
     v_printf_poll("=========================\r\n\r\n");
 
-    v_printf_poll("Diagnostic complete!\r\n\r\n");
+    v_printf_poll("╔═══════════════════════════════════════════╗\r\n");
+    v_printf_poll("║         DIAGNOSTIC COMPLETE!              ║\r\n");
+    v_printf_poll("║                                           ║\r\n");
+    v_printf_poll("║ Next: Watch main loop logs for:          ║\r\n");
+    v_printf_poll("║  - GPS_DRV: State transitions            ║\r\n");
+    v_printf_poll("║  - GPS_I2C: Error messages               ║\r\n");
+    v_printf_poll("║  - GPS: Timeout/recovery logs            ║\r\n");
+    v_printf_poll("╚═══════════════════════════════════════════╝\r\n\r\n");
 }
 
 /*

@@ -83,7 +83,11 @@ void v_GPS_Deinit(void) {
  */
 void v_GPS_Write_DoneHandler(uint8_t u8_addr) {
     if(u8_addr == ADDR_GPS) {
+        // Write completed successfully
         e_gps_comm = COMM_STAT_DONE;
+        // Reset error counter on successful transaction
+        u8_consecutiveErrors = 0;
+        u32_lastValidData = u32_Tim_1msGet();
     }
 }
 
@@ -111,9 +115,8 @@ void v_GPS_Read_DoneHandler(uint8_t u8_addr, uint8_t* pu8_arr, uint16_t u16_len)
                     v_printf_poll("GPS: Too many zeros (cnt=%d, err=%d) - device disconnected?\r\n",
                                   u8_consecutiveZeros, u8_consecutiveErrors);
                     u8_consecutiveZeros = 0;  // Reset to avoid spam
-                } else {
-                    v_printf_poll("GPS: Available bytes=0 (cnt=%d)\r\n", u8_consecutiveZeros);
                 }
+                // Don't log every zero - too verbose
             } else {
                 // Valid byte count (1-65534)
                 u8_consecutiveErrors = 0;
@@ -123,7 +126,12 @@ void v_GPS_Read_DoneHandler(uint8_t u8_addr, uint8_t* pu8_arr, uint16_t u16_len)
                     b_devicePresent = true;
                     v_printf_poll("GPS: Device connected\r\n");
                 }
-                v_printf_poll("GPS: Available bytes=%d\r\n", px_gps->u16_availBytes);
+                // Reduce log verbosity - only log when data > 0
+                static uint8_t u8_logCounter = 0;
+                if(++u8_logCounter >= 20) {  // Log every 20th read with data
+                    v_printf_poll("GPS: Available bytes=%d\r\n", px_gps->u16_availBytes);
+                    u8_logCounter = 0;
+                }
             }
         } else {
             // Actual GPS data stream
@@ -151,7 +159,12 @@ void v_GPS_Read_DoneHandler(uint8_t u8_addr, uint8_t* pu8_arr, uint16_t u16_len)
                         b_devicePresent = true;
                         v_printf_poll("GPS: Device connected\r\n");
                     }
-                    v_printf_poll("GPS: Received %d bytes\r\n", u16_len);
+                    // Reduce log verbosity - only log occasionally
+                    static uint8_t u8_dataLogCounter = 0;
+                    if(++u8_dataLogCounter >= 20) {  // Log every 20th data read
+                        v_printf_poll("GPS: Received %d bytes\r\n", u16_len);
+                        u8_dataLogCounter = 0;
+                    }
                 }
             }
         }
@@ -207,9 +220,12 @@ void v_GPS_Tout_Handler(void) {
         HAL_I2C_Master_Abort_IT(&hi2c3, ADDR_GPS);
         e_gps_comm = COMM_STAT_READY;
 
+        // CRITICAL: Reset driver state machine to IDLE
+        v_SAM_M10Q_Reset(px_gps);
+
         // GPS timeout - log warning but don't enter ERROR mode
         // This allows system to continue operating without GPS
-        v_printf_poll("GPS: I2C timeout (no response)\r\n");
+        v_printf_poll("GPS: I2C timeout - driver and bus reset\r\n");
         u8_consecutiveErrors++;
     }
 
@@ -237,16 +253,22 @@ void v_GPS_Tout_Handler(void) {
 // ========== Transport Layer Functions ==========
 
 static int i_GPS_Write(uint8_t u8_addr, uint16_t u16_reg, uint8_t* pu8_arr, uint16_t u16_len) {
+    // Start transaction - set timeout reference
     u32_toutRef = u32_Tim_1msGet();
-    e_gps_comm = COMM_STAT_BUSY;
+
+    // Attempt I2C write
     int ret = i_I2C3_Write(ADDR_GPS, u16_reg, pu8_arr, u16_len);
 
     // Convert: COMM_STAT_OK (1) → 0 (success), others → -1 (error)
     if(ret != COMM_STAT_OK) {
-        // CRITICAL: Reset state to READY on error to prevent deadlock
+        // I2C write failed to start - keep state READY
         e_gps_comm = COMM_STAT_READY;
         return -1;
     }
+
+    // I2C IT started successfully - set BUSY state
+    // Will be changed to DONE by callback
+    e_gps_comm = COMM_STAT_BUSY;
     return 0;  // Success
 }
 
@@ -254,47 +276,81 @@ static int i_GPS_Read(uint8_t u8_addr, uint16_t u16_reg, uint16_t u16_len) {
     static uint32_t read_count = 0;
     read_count++;
 
+    // Start transaction - set timeout reference
     u32_toutRef = u32_Tim_1msGet();
-    e_gps_comm = COMM_STAT_BUSY;
-    int ret = i_I2C3_Read(ADDR_GPS, u16_reg, u16_len);
 
-    // Debug: Log every 10th read
-    if((read_count % 10) == 0) {
-        v_printf_poll("GPS: i_GPS_Read #%d, i_I2C3_Read returned %d (OK=%d, BUSY=%d, ERR=%d)\r\n",
-                      read_count, ret, COMM_STAT_OK, COMM_STAT_BUSY, COMM_STAT_ERR);
-    }
+    // Attempt I2C read
+    int ret = i_I2C3_Read(ADDR_GPS, u16_reg, u16_len);
 
     // Convert: COMM_STAT_OK (1) → 0 (success), others → -1 (error)
     if(ret != COMM_STAT_OK) {
-        // CRITICAL: Reset state to READY on error to prevent deadlock
+        // I2C read failed to start - keep state READY
         e_gps_comm = COMM_STAT_READY;
 
-        // Log specific error types
+        // Log specific error types with detailed I2C state
+        extern I2C_HandleTypeDef hi2c3;
+        uint32_t i2c_error = HAL_I2C_GetError(&hi2c3);
+        HAL_I2C_StateTypeDef i2c_state = HAL_I2C_GetState(&hi2c3);
+
         if(ret == COMM_STAT_ERR) {
-            extern I2C_HandleTypeDef hi2c3;
-            uint32_t i2c_error = HAL_I2C_GetError(&hi2c3);
-            v_printf_poll("GPS: I2C error (HAL_err=0x%04X)\r\n", i2c_error);
+            v_printf_poll("GPS_I2C: Read start FAILED (HAL_err=0x%04X, HAL_state=%d)\r\n",
+                          i2c_error, i2c_state);
+            // Decode common HAL errors
+            if(i2c_error & HAL_I2C_ERROR_AF) {
+                v_printf_poll("  -> NACK (device not responding)\r\n");
+            }
+            if(i2c_error & HAL_I2C_ERROR_TIMEOUT) {
+                v_printf_poll("  -> Timeout\r\n");
+            }
         } else if(ret == COMM_STAT_ERR_LEN) {
-            v_printf_poll("GPS: I2C buffer too small (ret=%d ERR_LEN=%d)\r\n", ret, COMM_STAT_ERR_LEN);
+            v_printf_poll("GPS_I2C: Buffer too small (len=%d > max)\r\n", u16_len);
         } else if(ret == COMM_STAT_BUSY) {
-            v_printf_poll("GPS: I2C bus busy (ret=%d)\r\n", ret);
+            v_printf_poll("GPS_I2C: Bus BUSY (HAL_state=%d, err=0x%04X)\r\n",
+                          i2c_state, i2c_error);
+        } else {
+            v_printf_poll("GPS_I2C: Unknown error (ret=%d, HAL_err=0x%04X)\r\n",
+                          ret, i2c_error);
         }
         return -1;
     }
+
+    // I2C IT started successfully - set BUSY state
+    // Will be changed to DONE by callback
+    e_gps_comm = COMM_STAT_BUSY;
+
+    // Debug: Log every 50th read (reduced verbosity)
+    if((read_count % 50) == 0) {
+        v_printf_poll("GPS: Read #%d started\r\n", read_count);
+    }
+
     return 0;  // Success
 }
 
 static int i_GPS_Bus(void) {
-    // CRITICAL FIX: Bus is ready if state is READY (0) or DONE (4)
-    // DONE means "callback completed, ready for next transaction"
-    if(e_gps_comm == COMM_STAT_READY || e_gps_comm == COMM_STAT_DONE) {
-        // Reset to READY after consuming DONE state
-        if(e_gps_comm == COMM_STAT_DONE) {
+    // Bus state check: READY or DONE means available for new transaction
+    switch(e_gps_comm) {
+        case COMM_STAT_READY:
+            return 0;  // Bus ready
+
+        case COMM_STAT_DONE:
+            // Callback completed - consume DONE state and mark ready
             e_gps_comm = COMM_STAT_READY;
-        }
-        return 0;  // Bus ready
+            return 0;  // Bus ready
+
+        case COMM_STAT_BUSY:
+            // Transaction in progress
+            return -1;  // Bus busy
+
+        case COMM_STAT_OK:
+            // I2C IT started but callback not yet called
+            // This is a transient state - treat as busy
+            return -1;  // Bus busy
+
+        default:
+            // Error states - reset to READY for recovery
+            e_gps_comm = COMM_STAT_READY;
+            return 0;  // Allow retry
     }
-    return -1;  // Bus busy
 }
 
 static uint32_t u32_GPS_GetTime(void) {
