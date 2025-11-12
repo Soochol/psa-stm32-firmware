@@ -42,17 +42,6 @@ int i_SAM_M10Q_Handler(_x_SAM_M10Q_DRV_t* px_drv) {
     if(!px_drv) return SAM_M10Q_RET_ERR_ARG;
 
     uint32_t currentTime = px_drv->tr.u32_getTime();
-    static _e_SAM_M10Q_STATE_t prev_state = SAM_M10Q_STATE_IDLE;
-
-    // Debug: Print state changes
-    if(px_drv->e_state != prev_state && px_drv->e_state != SAM_M10Q_STATE_IDLE) {
-        const char* state_names[] = {"IDLE", "CHECK_AVAIL", "WAIT_AVAIL", "READ_DATA",
-                                     "WAIT_DATA", "PARSE", "POLL_PVT", "WAIT_POLL", "ERROR"};
-        if(px_drv->e_state < 9) {
-            v_printf_poll("GPS State: %s\r\n", state_names[px_drv->e_state]);
-        }
-        prev_state = px_drv->e_state;
-    }
 
     switch(px_drv->e_state) {
         case SAM_M10Q_STATE_IDLE:
@@ -70,13 +59,10 @@ int i_SAM_M10Q_Handler(_x_SAM_M10Q_DRV_t* px_drv) {
                     int read_ret = px_drv->tr.i_read(px_drv->u8_i2cAddr, SAM_M10Q_REG_AVAIL_MSB, 2);
                     if(read_ret == 0) {
                         px_drv->e_state = SAM_M10Q_STATE_WAIT_AVAIL;
-                    } else {
-                        // I2C read failed, stay in this state
-                        v_printf_poll("GPS State: CHECK_AVAIL - I2C read returned error %d\r\n", read_ret);
                     }
-                } else {
-                    v_printf_poll("GPS State: CHECK_AVAIL - Bus BUSY (not ready)\r\n");
+                    // I2C read failed, stay in this state
                 }
+                // Bus busy, stay in this state
             }
             break;
 

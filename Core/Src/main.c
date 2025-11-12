@@ -253,6 +253,7 @@ int main(void)
   v_I2C3_Pin_Deinit();
   v_I2C4_Pin_Deinit();
   v_I2C5_Pin_Deinit();
+  HAL_Delay(50);  // Allow GPIO pins to settle after deinit
 
   //position after cube create
   MX_GPIO_Init();
@@ -273,6 +274,9 @@ int main(void)
   MX_DAC1_Init();
   MX_I2C1_Init();
   MX_I2C2_Init();
+  // Reset I2C3 HAL state before reinit (fixes Bus BUSY issue)
+  HAL_I2C_DeInit(&hi2c3);
+  HAL_Delay(10);  // Allow peripheral to settle
   MX_I2C3_Init();
   MX_I2C4_Init();
   MX_SDMMC2_SD_Init();

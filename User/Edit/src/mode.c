@@ -1065,7 +1065,16 @@ typedef enum {
 	modeCONFIG_AUDIO	=0x10,
 #if MODE_FSR_USED
 	modeCONFIG_FSR		=0x20,
+#endif
+#if MODE_GPS_USED
+	modeCONFIG_GPS		=0x40,
+#endif
+#if MODE_FSR_USED && MODE_GPS_USED
+	modeCONFIG_CPLT		=0x7F,
+#elif MODE_FSR_USED
 	modeCONFIG_CPLT		=0x3F,
+#elif MODE_GPS_USED
+	modeCONFIG_CPLT		=0x5F,
 #else
 	modeCONFIG_CPLT		=0x1F,
 #endif
@@ -1132,6 +1141,13 @@ static void v_Mode_Booting(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t* 
 				if(ret == COMM_STAT_DONE)		{ready_mask |= modeCONFIG_AUDIO;}
 				else if(ret == COMM_STAT_ERR)	{v_Mode_Set_Error(modeERR_AUDIO);}
 			}
+#if MODE_GPS_USED
+			if(!(ready_mask & modeCONFIG_GPS)){
+				e_COMM_STAT_t ret = e_GPS_Ready();
+				if(ret == COMM_STAT_DONE)		{ready_mask |= modeCONFIG_GPS;}
+				else if(ret == COMM_STAT_ERR)	{v_Mode_Set_Error(modeERR_GPS);}
+			}
+#endif
 			if(!(ready_mask & modeCONFIG_TEMP_OUT)){
 				e_COMM_STAT_t ret = e_Temp_InOut_Ready();
 				if(ret == COMM_STAT_DONE)		{ready_mask |= modeCONFIG_TEMP_OUT;}
@@ -1144,7 +1160,15 @@ static void v_Mode_Booting(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t* 
 					else if(ret == COMM_STAT_ERR)	{v_Mode_Set_Error(modeERR_TOF);}
 				}
 			}
-			if(ready_mask == (modeCONFIG_IMU | modeCONFIG_AUDIO | modeCONFIG_TEMP_OUT | modeCONFIG_TOF)){
+			// IR_TEMP initializes after all other sensors are ready
+			uint16_t required_mask = modeCONFIG_IMU | modeCONFIG_AUDIO | modeCONFIG_TEMP_OUT | modeCONFIG_TOF;
+#if MODE_FSR_USED
+			required_mask |= modeCONFIG_FSR;
+#endif
+#if MODE_GPS_USED
+			required_mask |= modeCONFIG_GPS;
+#endif
+			if(ready_mask == required_mask){
 				if(!(ready_mask & modeCONFIG_IR_TEMP)){
 					e_COMM_STAT_t ret = e_IR_Temp_Ready();
 					if(ret == COMM_STAT_DONE)		{ready_mask |= modeCONFIG_IR_TEMP;}
@@ -1190,6 +1214,9 @@ static void v_Mode_Booting(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t* 
 			if(!(ready_mask & modeCONFIG_TEMP_OUT)){err |= modeERR_TEMP_OUT;}
 #if MODE_FSR_USED
 			if(!(ready_mask & modeCONFIG_FSR)){err |= modeERR_FSR;}
+#endif
+#if MODE_GPS_USED
+			if(!(ready_mask & modeCONFIG_GPS)){err |= modeERR_GPS;}
 #endif
 			v_Mode_Set_Error(err);
 		}
@@ -2188,6 +2215,7 @@ void v_Mode_Handler(){
 	v_Codec_Tout_Handler();
 	v_Temp_InOut_Tout_Handler();
 	v_Temp_IR_Tout_Handler();
+	v_GPS_Tout_Handler();
 	v_ESP_Tout_Handler();
 	//spkear
 	v_Mode_Speaker_Vol_Handler();

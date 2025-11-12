@@ -38,23 +38,6 @@ static uint32_t u32_GPS_GetTime(void);
  * brief: Initialize GPS module
  */
 void v_GPS_Init(void) {
-    // Test if GPS responds on I2C3
-    extern I2C_HandleTypeDef hi2c3;
-    v_printf_poll("\r\n=== GPS I2C3 Device Presence Test ===\r\n");
-    v_printf_poll("GPS: Testing address 0x%02X (7-bit) / 0x%02X (8-bit)...\r\n",
-                  SAM_M10Q_I2C_ADDR_DEFAULT, ADDR_GPS);
-
-    HAL_StatusTypeDef status = HAL_I2C_IsDeviceReady(&hi2c3, ADDR_GPS, 3, 100);
-    if(status == HAL_OK) {
-        v_printf_poll("GPS: Device ACK - HARDWARE DETECTED!\r\n");
-    } else {
-        v_printf_poll("GPS: Device NACK (status=%d) - HARDWARE NOT RESPONDING!\r\n", status);
-        if(status == HAL_TIMEOUT) v_printf_poll("  -> I2C bus timeout (SDA/SCL stuck or no pull-ups)\r\n");
-        if(status == HAL_ERROR)   v_printf_poll("  -> I2C bus error (check wiring/power)\r\n");
-        if(status == HAL_BUSY)    v_printf_poll("  -> I2C bus busy (previous transaction not finished)\r\n");
-    }
-    v_printf_poll("=====================================\r\n\r\n");
-
     // Setup transport layer
     _x_SAM_M10Q_TRANS_t trans;
     trans.i_write = i_GPS_Write;
@@ -62,7 +45,7 @@ void v_GPS_Init(void) {
     trans.i_bus = i_GPS_Bus;
     trans.u32_getTime = u32_GPS_GetTime;
 
-    // Initialize driver
+    // Initialize driver (no immediate I2C communication)
     int ret = i_SAM_M10Q_Init(px_gps, &trans, SAM_M10Q_I2C_ADDR_DEFAULT);
 
     e_gps_comm = COMM_STAT_READY;
@@ -116,10 +99,12 @@ void v_GPS_Read_DoneHandler(uint8_t u8_addr, uint8_t* pu8_arr, uint16_t u16_len)
 
 /*
  * brief: Initialization state machine
+ * note: Simplified to avoid I2C bus conflicts with handler
+ *       Device detection happens naturally when handler tries to communicate
  */
 e_COMM_STAT_t e_GPS_Ready(void) {
-    // Simple initialization - driver handles protocol
     if(e_gps_init == COMM_STAT_READY) {
+        v_printf_poll("GPS: Ready - handler will detect device\r\n");
         e_gps_init = COMM_STAT_DONE;
     }
     return e_gps_init;
@@ -143,6 +128,14 @@ void v_GPS_Handler(void) {
  * brief: Timeout handler (2 second timeout)
  */
 void v_GPS_Tout_Handler(void) {
+    static uint32_t debug_log_ref = 0;
+
+    // Debug: Log state periodically
+    if(_b_Tim_Is_OVR(u32_Tim_1msGet(), debug_log_ref, 5000)) {
+        debug_log_ref = u32_Tim_1msGet();
+        v_printf_poll("GPS: ToutHandler called (state=%d, BUSY=%d)\r\n", e_gps_comm, COMM_STAT_BUSY);
+    }
+
     if((e_gps_comm == COMM_STAT_BUSY) &&
        _b_Tim_Is_OVR(u32_Tim_1msGet(), u32_toutRef, 2000)) {
         // Abort I2C transaction
@@ -161,32 +154,36 @@ void v_GPS_Tout_Handler(void) {
 static int i_GPS_Write(uint8_t u8_addr, uint16_t u16_reg, uint8_t* pu8_arr, uint16_t u16_len) {
     u32_toutRef = u32_Tim_1msGet();
     e_gps_comm = COMM_STAT_BUSY;
-    return i_I2C3_Write(ADDR_GPS, u16_reg, pu8_arr, u16_len);
+    int ret = i_I2C3_Write(ADDR_GPS, u16_reg, pu8_arr, u16_len);
+    // Convert: COMM_STAT_OK (1) → 0 (success), others → -1 (error)
+    return (ret == COMM_STAT_OK) ? 0 : -1;
 }
 
 static int i_GPS_Read(uint8_t u8_addr, uint16_t u16_reg, uint16_t u16_len) {
-    v_printf_poll("GPS: Attempting I2C read (reg=0x%02X, len=%d)\r\n", u16_reg, u16_len);
+    static uint32_t read_count = 0;
+    read_count++;
 
     u32_toutRef = u32_Tim_1msGet();
     e_gps_comm = COMM_STAT_BUSY;
     int ret = i_I2C3_Read(ADDR_GPS, u16_reg, u16_len);
 
-    v_printf_poll("GPS: I2C read result = %d\r\n", ret);
-
-    if(ret != 0) {
-        extern I2C_HandleTypeDef hi2c3;
-        uint32_t i2c_error = HAL_I2C_GetError(&hi2c3);
-        v_printf_poll("GPS: I2C Read FAILED (reg=0x%02X, len=%d, ret=%d, HAL_err=0x%04X)\r\n",
-                      u16_reg, u16_len, ret, i2c_error);
-
-        // Decode HAL errors
-        if(i2c_error & HAL_I2C_ERROR_BERR)    v_printf_poll("  - Bus Error (BERR)\r\n");
-        if(i2c_error & HAL_I2C_ERROR_ARLO)    v_printf_poll("  - Arbitration Lost (ARLO)\r\n");
-        if(i2c_error & HAL_I2C_ERROR_AF)      v_printf_poll("  - NACK / Acknowledge Failure (device not responding)\r\n");
-        if(i2c_error & HAL_I2C_ERROR_TIMEOUT) v_printf_poll("  - Timeout\r\n");
-        if(i2c_error == HAL_I2C_ERROR_NONE)   v_printf_poll("  - No HAL error (ret=%d = comm state busy?)\r\n", ret);
+    // Debug: Log every 10th read
+    if((read_count % 10) == 0) {
+        v_printf_poll("GPS: i_GPS_Read #%d, i_I2C3_Read returned %d (OK=%d, BUSY=%d, ERR=%d)\r\n",
+                      read_count, ret, COMM_STAT_OK, COMM_STAT_BUSY, COMM_STAT_ERR);
     }
-    return ret;
+
+    // Convert: COMM_STAT_OK (1) → 0 (success), others → -1 (error)
+    if(ret != COMM_STAT_OK) {
+        // Only log if it's an actual error (not just busy)
+        if(ret == COMM_STAT_ERR) {
+            extern I2C_HandleTypeDef hi2c3;
+            uint32_t i2c_error = HAL_I2C_GetError(&hi2c3);
+            v_printf_poll("GPS: I2C error (HAL_err=0x%04X)\r\n", i2c_error);
+        }
+        return -1;
+    }
+    return 0;  // Success
 }
 
 static int i_GPS_Bus(void) {

@@ -138,7 +138,8 @@ static uint8_t u8_i2c1_wrArr[I2C1_WR_SIZE] __attribute__((section(".my_nocache_s
 static uint8_t u8_i2c1_rdArr[I2C1_RD_SIZE] __attribute__((section(".my_nocache_section")));
 
 // CRITICAL FIX: volatile to prevent race conditions with ISR
-static volatile e_COMM_STAT_t e_comm_i2c1;
+// CRITICAL FIX: Explicit initialization to COMM_STAT_READY (fixes GPS I2C deadlock)
+static volatile e_COMM_STAT_t e_comm_i2c1 = COMM_STAT_READY;
 static uint8_t u8_i2c1_addr;
 static uint16_t u16_i2c1_rdCnt;
 static x_I2C_BUF_t i2c1_buf;
@@ -210,7 +211,8 @@ static uint8_t u8_i2c2_rdArr[I2C2_RD_SIZE] __attribute__((section(".my_nocache_s
 
 
 // CRITICAL FIX: volatile to prevent race conditions with ISR
-static volatile e_COMM_STAT_t e_comm_i2c2;
+// CRITICAL FIX: Explicit initialization to COMM_STAT_READY (fixes GPS I2C deadlock)
+static volatile e_COMM_STAT_t e_comm_i2c2 = COMM_STAT_READY;
 static uint8_t u8_i2c2_addr;
 static uint16_t u16_i2c2_rdCnt;
 static x_I2C_BUF_t i2c2_buf;
@@ -278,7 +280,8 @@ static uint8_t u8_i2c3_wrArr[I2C3_WR_SIZE] __attribute__((section(".my_nocache_s
 static uint8_t u8_i2c3_rdArr[I2C3_RD_SIZE] __attribute__((section(".my_nocache_section")));
 
 // CRITICAL FIX: volatile to prevent race conditions with ISR
-static volatile e_COMM_STAT_t e_comm_i2c3;
+// CRITICAL FIX: Explicit initialization to COMM_STAT_READY (fixes GPS I2C deadlock)
+static volatile e_COMM_STAT_t e_comm_i2c3 = COMM_STAT_READY;
 static uint8_t u8_i2c3_addr;
 static uint16_t u16_i2c3_rdCnt;
 static x_I2C_BUF_t i2c3_buf;
@@ -341,7 +344,8 @@ int i_I2C3_Read(uint8_t u8_addr, uint16_t u16_reg, uint16_t u16_len){
 /*				I2C4				*/
 //////////////////////////////////////
 // CRITICAL FIX: volatile to prevent race conditions with ISR
-static volatile e_COMM_STAT_t e_comm_i2c4;
+// CRITICAL FIX: Explicit initialization to COMM_STAT_READY (fixes GPS I2C deadlock)
+static volatile e_COMM_STAT_t e_comm_i2c4 = COMM_STAT_READY;
 
 uint32_t i2c4_ok, i2c4_busy, i2c4_err;
 bool b_i2c4_rdDone, b_i2c4_wrDone;
@@ -502,7 +506,8 @@ int i_I2C4_Read_DMA(uint8_t u8_addr, uint16_t u16_reg, uint16_t u16_len){
 #define I2C5_CHG	1
 
 // CRITICAL FIX: volatile to prevent race conditions with ISR
-static volatile e_COMM_STAT_t e_comm_i2c5;
+// CRITICAL FIX: Explicit initialization to COMM_STAT_READY (fixes GPS I2C deadlock)
+static volatile e_COMM_STAT_t e_comm_i2c5 = COMM_STAT_READY;
 
 #if I2C5_CHG
 
@@ -765,9 +770,16 @@ void HAL_I2C_MasterRxCpltCallback(I2C_HandleTypeDef *hi2c){
 
 uint32_t i2c_error;
 void HAL_I2C_ErrorCallback(I2C_HandleTypeDef *hi2c){
+	extern void v_printf_poll(const char* format, ...);
 	i2c_error++;
 	if(hi2c == p_i2c2){
 
+	}
+	else if(hi2c == p_i2c3){
+		// GPS I2C3 error handling (NACK, timeout, etc.)
+		v_printf_poll("GPS: I2C3 ErrorCallback fired (NACK/error detected)\r\n");
+		e_comm_i2c3 = COMM_STAT_READY;
+		// Note: Timeout handler will log the error
 	}
 }
 

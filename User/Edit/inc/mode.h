@@ -5,6 +5,7 @@
 
 //Module Enabled
 #define MODE_FSR_USED		1	//FSR
+#define MODE_GPS_USED		1	//GPS (SAM-M10Q on I2C3)
 #define HEAT_PAD_USED		0	//Heat-pad
 
 #define TEST_MODE_ONLY		0	//Booting - only test
@@ -181,6 +182,8 @@ typedef enum {
 	modeERR_HEATER_CURR	=(1<<11),
 	//add : 1.00.27
 	modeERR_ESP_COMM	=(1<<12),
+	//add : 1.00.34
+	modeERR_GPS			=(1<<13),
 } e_modeERR_t;
 void v_Mode_Set_Error(e_modeERR_t e_type);
 
