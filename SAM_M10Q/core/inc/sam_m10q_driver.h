@@ -24,9 +24,12 @@ extern "C" {
 typedef enum {
     SAM_M10Q_STATE_IDLE = 0,
     SAM_M10Q_STATE_CHECK_AVAIL,
+    SAM_M10Q_STATE_WAIT_AVAIL,      // Wait for available bytes read
     SAM_M10Q_STATE_READ_DATA,
+    SAM_M10Q_STATE_WAIT_DATA,       // Wait for data stream read
     SAM_M10Q_STATE_PARSE,
     SAM_M10Q_STATE_POLL_PVT,
+    SAM_M10Q_STATE_WAIT_POLL,       // Wait for poll write
     SAM_M10Q_STATE_ERROR,
 } _e_SAM_M10Q_STATE_t;
 

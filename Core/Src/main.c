@@ -39,6 +39,7 @@
 #include "ads111x_platform.h"	//FSR
 #include "mlx90640_platform.h"	//IR - Temperature
 #include "sam_m10q_platform.h"	//GPS
+#include "gps_test.h"			//GPS Test
 #include "mode.h"
 #include "comm_esp.h"
 /* USER CODE END Includes */
@@ -352,6 +353,7 @@ int main(void)
 	  //v_Mode_Sound_Test();		//sound test
 	  //v_ESP_CmdTest();			//ESP receive test
 	  //v_Mode_Heater_Fan_Test();
+	  v_GPS_Test_Monitor();		//GPS debug output (2s interval)
 
 	  //	not used	//
 	  //v_Mode_Heater_Test();	//act heater on or off	//not used

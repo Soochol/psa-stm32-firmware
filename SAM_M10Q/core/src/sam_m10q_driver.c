@@ -39,6 +39,18 @@ int i_SAM_M10Q_Handler(_x_SAM_M10Q_DRV_t* px_drv) {
     if(!px_drv) return SAM_M10Q_RET_ERR_ARG;
 
     uint32_t currentTime = px_drv->tr.u32_getTime();
+    static _e_SAM_M10Q_STATE_t prev_state = SAM_M10Q_STATE_IDLE;
+
+    // Debug: Print state changes
+    if(px_drv->e_state != prev_state && px_drv->e_state != SAM_M10Q_STATE_IDLE) {
+        extern void v_printf_poll(const char* format, ...);
+        const char* state_names[] = {"IDLE", "CHECK_AVAIL", "WAIT_AVAIL", "READ_DATA",
+                                     "WAIT_DATA", "PARSE", "POLL_PVT", "WAIT_POLL", "ERROR"};
+        if(px_drv->e_state < 9) {
+            v_printf_poll("GPS State: %s\r\n", state_names[px_drv->e_state]);
+        }
+        prev_state = px_drv->e_state;
+    }
 
     switch(px_drv->e_state) {
         case SAM_M10Q_STATE_IDLE:
@@ -51,9 +63,19 @@ int i_SAM_M10Q_Handler(_x_SAM_M10Q_DRV_t* px_drv) {
         case SAM_M10Q_STATE_CHECK_AVAIL:
             // Read available byte count from registers 0xFD, 0xFE
             if(px_drv->tr.i_bus() == 0) {  // Check if bus is ready
-                if(px_drv->tr.i_read(px_drv->u8_i2cAddr, SAM_M10Q_REG_AVAIL_MSB, 2) == 0) {
-                    px_drv->e_state = SAM_M10Q_STATE_READ_DATA;
+                int read_ret = px_drv->tr.i_read(px_drv->u8_i2cAddr, SAM_M10Q_REG_AVAIL_MSB, 2);
+                if(read_ret == 0) {
+                    px_drv->e_state = SAM_M10Q_STATE_WAIT_AVAIL;
+                } else {
+                    // I2C read failed, stay in this state
                 }
+            }
+            break;
+
+        case SAM_M10Q_STATE_WAIT_AVAIL:
+            // Wait for I2C read callback to complete
+            if(px_drv->tr.i_bus() == 0) {  // Callback finished, bus is ready
+                px_drv->e_state = SAM_M10Q_STATE_READ_DATA;
             }
             break;
 
@@ -66,7 +88,7 @@ int i_SAM_M10Q_Handler(_x_SAM_M10Q_DRV_t* px_drv) {
 
                 if(px_drv->tr.i_bus() == 0) {
                     if(px_drv->tr.i_read(px_drv->u8_i2cAddr, SAM_M10Q_REG_STREAM, readLen) == 0) {
-                        px_drv->e_state = SAM_M10Q_STATE_PARSE;
+                        px_drv->e_state = SAM_M10Q_STATE_WAIT_DATA;
                     }
                 }
             } else {
@@ -75,15 +97,25 @@ int i_SAM_M10Q_Handler(_x_SAM_M10Q_DRV_t* px_drv) {
             }
             break;
 
+        case SAM_M10Q_STATE_WAIT_DATA:
+            // Wait for data stream read callback
+            if(px_drv->tr.i_bus() == 0) {  // Callback finished
+                px_drv->e_state = SAM_M10Q_STATE_PARSE;
+            }
+            break;
+
         case SAM_M10Q_STATE_PARSE:
             // Parse received UBX message (callback provides data in u8_rxBuf)
-            if(i_UBX_ValidateMessage(px_drv->u8_rxBuf, px_drv->u16_rxLen) == SAM_M10Q_RET_OK) {
-                // Check if NAV-PVT message
-                if(px_drv->u8_rxBuf[2] == UBX_CLASS_NAV &&
-                   px_drv->u8_rxBuf[3] == UBX_NAV_PVT) {
-                    i_UBX_ParsePVT(&px_drv->u8_rxBuf[6], &px_drv->x_pvt);
-                    px_drv->b_pvtValid = true;
-                    px_drv->u32_lastUpdate = currentTime;
+            if(px_drv->u16_rxLen > 0) {
+                int validate_ret = i_UBX_ValidateMessage(px_drv->u8_rxBuf, px_drv->u16_rxLen);
+                if(validate_ret == SAM_M10Q_RET_OK) {
+                    // Check if NAV-PVT message
+                    if(px_drv->u8_rxBuf[2] == UBX_CLASS_NAV &&
+                       px_drv->u8_rxBuf[3] == UBX_NAV_PVT) {
+                        i_UBX_ParsePVT(&px_drv->u8_rxBuf[6], &px_drv->x_pvt);
+                        px_drv->b_pvtValid = true;
+                        px_drv->u32_lastUpdate = currentTime;
+                    }
                 }
             }
             px_drv->e_state = SAM_M10Q_STATE_IDLE;
@@ -96,9 +128,16 @@ int i_SAM_M10Q_Handler(_x_SAM_M10Q_DRV_t* px_drv) {
             if(px_drv->u16_txLen > 0 && px_drv->tr.i_bus() == 0) {
                 if(px_drv->tr.i_write(px_drv->u8_i2cAddr, SAM_M10Q_REG_STREAM,
                                        px_drv->u8_txBuf, px_drv->u16_txLen) == 0) {
-                    px_drv->u32_lastUpdate = currentTime;
-                    px_drv->e_state = SAM_M10Q_STATE_IDLE;
+                    px_drv->e_state = SAM_M10Q_STATE_WAIT_POLL;
                 }
+            }
+            break;
+
+        case SAM_M10Q_STATE_WAIT_POLL:
+            // Wait for poll write callback
+            if(px_drv->tr.i_bus() == 0) {  // Callback finished
+                px_drv->u32_lastUpdate = currentTime;
+                px_drv->e_state = SAM_M10Q_STATE_IDLE;
             }
             break;
 

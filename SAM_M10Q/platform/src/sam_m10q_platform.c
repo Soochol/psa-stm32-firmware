@@ -84,11 +84,13 @@ void v_GPS_Read_DoneHandler(uint8_t u8_addr, uint8_t* pu8_arr, uint16_t u16_len)
         if(u16_len == 2) {
             // Available bytes count (registers 0xFD, 0xFE) - big-endian
             px_gps->u16_availBytes = (pu8_arr[0] << 8) | pu8_arr[1];
+            v_printf_poll("GPS: Available bytes=%d\r\n", px_gps->u16_availBytes);
         } else {
             // Actual GPS data stream
             if(u16_len < sizeof(px_gps->u8_rxBuf)) {
                 memcpy(px_gps->u8_rxBuf, pu8_arr, u16_len);
                 px_gps->u16_rxLen = u16_len;
+                v_printf_poll("GPS: Received %d bytes\r\n", u16_len);
             }
         }
         e_gps_comm = COMM_STAT_DONE;
@@ -148,7 +150,11 @@ static int i_GPS_Write(uint8_t u8_addr, uint16_t u16_reg, uint8_t* pu8_arr, uint
 static int i_GPS_Read(uint8_t u8_addr, uint16_t u16_reg, uint16_t u16_len) {
     u32_toutRef = u32_Tim_1msGet();
     e_gps_comm = COMM_STAT_BUSY;
-    return i_I2C3_Read(ADDR_GPS, u16_reg, u16_len);
+    int ret = i_I2C3_Read(ADDR_GPS, u16_reg, u16_len);
+    if(ret != 0) {
+        v_printf_poll("GPS: I2C Read failed (reg=0x%02X, len=%d, ret=%d)\r\n", u16_reg, u16_len, ret);
+    }
+    return ret;
 }
 
 static int i_GPS_Bus(void) {
