@@ -10,6 +10,9 @@
 #include "sam_m10q_driver.h"
 #include <string.h>
 
+// External debug printf function
+extern void v_printf_poll(const char* format, ...);
+
 /*
  * brief: Initialize SAM-M10Q driver instance
  * return: SAM_M10Q_RET_OK if successful
@@ -43,7 +46,6 @@ int i_SAM_M10Q_Handler(_x_SAM_M10Q_DRV_t* px_drv) {
 
     // Debug: Print state changes
     if(px_drv->e_state != prev_state && px_drv->e_state != SAM_M10Q_STATE_IDLE) {
-        extern void v_printf_poll(const char* format, ...);
         const char* state_names[] = {"IDLE", "CHECK_AVAIL", "WAIT_AVAIL", "READ_DATA",
                                      "WAIT_DATA", "PARSE", "POLL_PVT", "WAIT_POLL", "ERROR"};
         if(px_drv->e_state < 9) {
@@ -62,12 +64,18 @@ int i_SAM_M10Q_Handler(_x_SAM_M10Q_DRV_t* px_drv) {
 
         case SAM_M10Q_STATE_CHECK_AVAIL:
             // Read available byte count from registers 0xFD, 0xFE
-            if(px_drv->tr.i_bus() == 0) {  // Check if bus is ready
-                int read_ret = px_drv->tr.i_read(px_drv->u8_i2cAddr, SAM_M10Q_REG_AVAIL_MSB, 2);
-                if(read_ret == 0) {
-                    px_drv->e_state = SAM_M10Q_STATE_WAIT_AVAIL;
+            {
+                int bus_ready = px_drv->tr.i_bus();
+                if(bus_ready == 0) {  // Check if bus is ready
+                    int read_ret = px_drv->tr.i_read(px_drv->u8_i2cAddr, SAM_M10Q_REG_AVAIL_MSB, 2);
+                    if(read_ret == 0) {
+                        px_drv->e_state = SAM_M10Q_STATE_WAIT_AVAIL;
+                    } else {
+                        // I2C read failed, stay in this state
+                        v_printf_poll("GPS State: CHECK_AVAIL - I2C read returned error %d\r\n", read_ret);
+                    }
                 } else {
-                    // I2C read failed, stay in this state
+                    v_printf_poll("GPS State: CHECK_AVAIL - Bus BUSY (not ready)\r\n");
                 }
             }
             break;

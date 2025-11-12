@@ -38,6 +38,23 @@ static uint32_t u32_GPS_GetTime(void);
  * brief: Initialize GPS module
  */
 void v_GPS_Init(void) {
+    // Test if GPS responds on I2C3
+    extern I2C_HandleTypeDef hi2c3;
+    v_printf_poll("\r\n=== GPS I2C3 Device Presence Test ===\r\n");
+    v_printf_poll("GPS: Testing address 0x%02X (7-bit) / 0x%02X (8-bit)...\r\n",
+                  SAM_M10Q_I2C_ADDR_DEFAULT, ADDR_GPS);
+
+    HAL_StatusTypeDef status = HAL_I2C_IsDeviceReady(&hi2c3, ADDR_GPS, 3, 100);
+    if(status == HAL_OK) {
+        v_printf_poll("GPS: Device ACK - HARDWARE DETECTED!\r\n");
+    } else {
+        v_printf_poll("GPS: Device NACK (status=%d) - HARDWARE NOT RESPONDING!\r\n", status);
+        if(status == HAL_TIMEOUT) v_printf_poll("  -> I2C bus timeout (SDA/SCL stuck or no pull-ups)\r\n");
+        if(status == HAL_ERROR)   v_printf_poll("  -> I2C bus error (check wiring/power)\r\n");
+        if(status == HAL_BUSY)    v_printf_poll("  -> I2C bus busy (previous transaction not finished)\r\n");
+    }
+    v_printf_poll("=====================================\r\n\r\n");
+
     // Setup transport layer
     _x_SAM_M10Q_TRANS_t trans;
     trans.i_write = i_GPS_Write;
@@ -148,11 +165,26 @@ static int i_GPS_Write(uint8_t u8_addr, uint16_t u16_reg, uint8_t* pu8_arr, uint
 }
 
 static int i_GPS_Read(uint8_t u8_addr, uint16_t u16_reg, uint16_t u16_len) {
+    v_printf_poll("GPS: Attempting I2C read (reg=0x%02X, len=%d)\r\n", u16_reg, u16_len);
+
     u32_toutRef = u32_Tim_1msGet();
     e_gps_comm = COMM_STAT_BUSY;
     int ret = i_I2C3_Read(ADDR_GPS, u16_reg, u16_len);
+
+    v_printf_poll("GPS: I2C read result = %d\r\n", ret);
+
     if(ret != 0) {
-        v_printf_poll("GPS: I2C Read failed (reg=0x%02X, len=%d, ret=%d)\r\n", u16_reg, u16_len, ret);
+        extern I2C_HandleTypeDef hi2c3;
+        uint32_t i2c_error = HAL_I2C_GetError(&hi2c3);
+        v_printf_poll("GPS: I2C Read FAILED (reg=0x%02X, len=%d, ret=%d, HAL_err=0x%04X)\r\n",
+                      u16_reg, u16_len, ret, i2c_error);
+
+        // Decode HAL errors
+        if(i2c_error & HAL_I2C_ERROR_BERR)    v_printf_poll("  - Bus Error (BERR)\r\n");
+        if(i2c_error & HAL_I2C_ERROR_ARLO)    v_printf_poll("  - Arbitration Lost (ARLO)\r\n");
+        if(i2c_error & HAL_I2C_ERROR_AF)      v_printf_poll("  - NACK / Acknowledge Failure (device not responding)\r\n");
+        if(i2c_error & HAL_I2C_ERROR_TIMEOUT) v_printf_poll("  - Timeout\r\n");
+        if(i2c_error == HAL_I2C_ERROR_NONE)   v_printf_poll("  - No HAL error (ret=%d = comm state busy?)\r\n", ret);
     }
     return ret;
 }
