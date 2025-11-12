@@ -202,6 +202,9 @@ const char* mp3_list[] = {
 };
 
 void v_MP3_Init(){
+	extern void v_printf_poll(const char* format, ...);
+	v_printf_poll("MP3: Decoder initialized (MINIMP3)\r\n");
+
 	mp3dec_init(&mp3dec);
 }
 

@@ -1501,6 +1501,9 @@ void v_IMU_Decode_FIFO(IMU_FIFO_t* px_dest, uint8_t* pu8_src){
 //////////////////////////
 
 void v_IMU_Init(){
+	extern void v_printf_poll(const char* format, ...);
+	v_printf_poll("IMU: Driver initialized (I2C2, addr=0x%02X/0x%02X)\r\n", ADDR_IMU_LEFT, ADDR_IMU_RIGHT);
+
 	b_imu_evt = true;
 
 	__HAL_I2C_ENABLE_IT(p_i2c, I2C_IT_ERRI);

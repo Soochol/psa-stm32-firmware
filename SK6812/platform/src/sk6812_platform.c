@@ -81,6 +81,9 @@ const uint8_t gamma_lut[256] = {
   };
 
 void v_RGB_Init(){
+	extern void v_printf_poll(const char* format, ...);
+	v_printf_poll("RGB: Driver initialized (PWM/TIM4, count=%d)\r\n", RGB_TOTAL_CNT);
+
 	//memset(u16_led_pwm, 0, sizeof(u16_led_pwm));
 	v_RGB_Clear();
 	v_RGB_Enable_Duty();
