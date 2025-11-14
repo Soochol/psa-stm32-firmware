@@ -69,6 +69,7 @@ int i_I2C2_Read(uint8_t u8_addr, uint16_t u16_reg, uint16_t u16_len);
 int i_I2C3_Write(uint8_t u8_addr, uint16_t u16_reg, uint8_t* pu8_arr, uint16_t u16_len);
 int i_I2C3_Read(uint8_t u8_addr, uint16_t u16_reg, uint16_t u16_len);
 
+void v_I2C3_Set_Comm_Ready();
 
 //////////////////////////////////////
 /*				I2C4				*/

@@ -443,6 +443,10 @@ static uint16_t u16_i2c4_rdCnt;
 static uint8_t u8_i2c4_wrArr[I2C4_WR_SIZE] __attribute__((section(".my_nocache_d3")));
 static uint8_t u8_i2c4_rdArr[I2C4_RD_SIZE] __attribute__((section(".my_nocache_d3")));
 
+void v_I2C3_Set_Comm_Ready(){
+	e_comm_i2c3 = COMM_STAT_READY;
+}
+
 void v_I2C4_Set_Comm_Ready(){
 	e_comm_i2c4 = COMM_STAT_READY;
 }
