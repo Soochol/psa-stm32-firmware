@@ -11,6 +11,7 @@
 #include "uart.h"
 #include "tim.h"
 #include "sam_m10q_platform.h"
+#include "sam_m10q_driver.h"
 
 // Test state
 static uint32_t test_count = 0;
@@ -168,20 +169,57 @@ void v_GPS_Test_Monitor(void) {
         HAL_IWDG_Refresh(&hiwdg1);
 #endif
 
-        v_printf_poll("[GPS-%04lu] ", test_count);
+        v_printf_poll("\r\n╔════════════════════ GPS STATUS [%04lu] ════════════════════╗\r\n", test_count);
 
         // Check if GPS has fix
         if(b_GPS_HasFix()) {
-            v_printf_poll("FIX | Lat=%.6f Lon=%.6f Alt=%.1fm | Sats=%d Speed=%.2fm/s\r\n",
-                          f_GPS_GetLatitude(),
-                          f_GPS_GetLongitude(),
-                          f_GPS_GetAltitude(),
-                          u8_GPS_GetNumSatellites(),
-                          f_GPS_GetSpeed());
+            v_printf_poll("║ STATUS: ✓ FIX ACQUIRED                                    ║\r\n");
+            v_printf_poll("║ -------------------------------------------------------- ║\r\n");
+            v_printf_poll("║ Latitude:    %11.7f°                           ║\r\n", f_GPS_GetLatitude());
+            v_printf_poll("║ Longitude:   %11.7f°                           ║\r\n", f_GPS_GetLongitude());
+            v_printf_poll("║ Altitude:    %8.2f m (MSL)                         ║\r\n", f_GPS_GetAltitude());
+            v_printf_poll("║ Speed:       %7.2f m/s                               ║\r\n", f_GPS_GetSpeed());
+            v_printf_poll("║ Satellites:  %2d                                         ║\r\n", u8_GPS_GetNumSatellites());
+            v_printf_poll("║ Fix Type:    %d (3=3D Fix)                              ║\r\n", u8_GPS_GetFixType());
+
+            // Get raw PVT data for additional info
+            _x_GPS_PVT_t* pvt = px_GPS_GetPVT();
+            if(pvt) {
+                v_printf_poll("║ Accuracy:    H=%lu.%03lum, V=%lu.%03lum                      ║\r\n",
+                              (unsigned long)(pvt->hAcc / 1000),
+                              (unsigned long)(pvt->hAcc % 1000),
+                              (unsigned long)(pvt->vAcc / 1000),
+                              (unsigned long)(pvt->vAcc % 1000));
+                v_printf_poll("║ PDOP:        %d.%02d                                     ║\r\n",
+                              pvt->pDOP / 100, pvt->pDOP % 100);
+                v_printf_poll("║ Time (UTC):  %04d-%02d-%02d %02d:%02d:%02d                    ║\r\n",
+                              pvt->year, pvt->month, pvt->day,
+                              pvt->hour, pvt->min, pvt->sec);
+                v_printf_poll("║ GPS TOW:     %lu ms                                  ║\r\n",
+                              (unsigned long)pvt->iTOW);
+
+                // Heading (if moving)
+                int32_t head_deg = pvt->headMot / 100000;
+                int32_t head_frac = pvt->headMot % 100000;
+                if(head_frac < 0) head_frac = -head_frac;
+                v_printf_poll("║ Heading:     %ld.%05ld°                              ║\r\n",
+                              head_deg, head_frac);
+            }
         } else {
-            v_printf_poll("NO FIX | Sats=%d FixType=%d\r\n",
-                          u8_GPS_GetNumSatellites(),
-                          u8_GPS_GetFixType());
+            v_printf_poll("║ STATUS: ✗ NO FIX                                          ║\r\n");
+            v_printf_poll("║ -------------------------------------------------------- ║\r\n");
+            v_printf_poll("║ Fix Type:    %d (0=No Fix, 2=2D, 3=3D)                  ║\r\n", u8_GPS_GetFixType());
+            v_printf_poll("║ Satellites:  %2d (Need 4+ for 3D fix)                   ║\r\n", u8_GPS_GetNumSatellites());
+            v_printf_poll("║ Status:      Waiting for satellite lock...              ║\r\n");
+
+            // Show raw data if available
+            _x_GPS_PVT_t* pvt = px_GPS_GetPVT();
+            if(pvt && pvt->numSV > 0) {
+                v_printf_poll("║ Info:        %d satellites visible                      ║\r\n",
+                              pvt->numSV);
+            }
         }
+
+        v_printf_poll("╚═══════════════════════════════════════════════════════════╝\r\n\r\n");
     }
 }
