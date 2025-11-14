@@ -95,20 +95,24 @@ int i_SAM_M10Q_Handler(_x_SAM_M10Q_DRV_t* px_drv) {
             // After I2C read complete (callback sets u16_availBytes):
             if(px_drv->u16_availBytes > 0) {
                 // Read data from stream register (0xFF)
-                uint16_t readLen = (px_drv->u16_availBytes < sizeof(px_drv->u8_rxBuf)) ?
-                                    px_drv->u16_availBytes : sizeof(px_drv->u8_rxBuf);
-
-                extern void v_printf_poll(const char* format, ...);
-                v_printf_poll("GPS: Reading %d bytes from stream...\r\n", readLen);
-
                 if(px_drv->tr.i_bus() == 0) {
+                    uint16_t readLen = (px_drv->u16_availBytes < sizeof(px_drv->u8_rxBuf)) ?
+                                        px_drv->u16_availBytes : sizeof(px_drv->u8_rxBuf);
+
+                    extern void v_printf_poll(const char* format, ...);
+                    v_printf_poll("GPS: Reading %d bytes from stream...\r\n", readLen);
+
                     int read_ret = px_drv->tr.i_read(px_drv->u8_i2cAddr, SAM_M10Q_REG_STREAM, readLen);
                     if(read_ret == 0) {
+                        px_drv->u16_availBytes = 0;  // Clear to prevent re-entry
                         px_drv->e_state = SAM_M10Q_STATE_WAIT_DATA;
                     } else {
                         v_printf_poll("GPS: Read failed (ret=%d)\r\n", read_ret);
+                        px_drv->u16_availBytes = 0;  // Clear on error
+                        px_drv->e_state = SAM_M10Q_STATE_IDLE;
                     }
                 }
+                // If bus busy, stay in READ_DATA, will retry next iteration silently
             } else {
                 // No data available, poll for PVT
                 px_drv->e_state = SAM_M10Q_STATE_POLL_PVT;

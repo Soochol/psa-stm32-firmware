@@ -340,6 +340,19 @@ void v_GPS_Init(void) {
         if(cfg_ack_status == 1) {
             // ACK received - GPS accepted the command
             v_printf_poll("GPS: CFG-VALSET accepted! NMEA disabled, UBX only\r\n");
+
+            // CRITICAL: Wait 500ms for GNSS subsystem restart
+            // Per u-blox documentation: "Any change to the signal configuration items triggers
+            // a restart of the GNSS subsystem. This takes a short time period, so the host
+            // application should wait for message acknowledgement and a margin of 0.5 seconds
+            // prior to sending any further commands."
+            v_printf_poll("GPS: Waiting 500ms for GNSS subsystem restart...\r\n");
+            HAL_Delay(500);
+#if IWDG_USED
+            HAL_IWDG_Refresh(&hiwdg1);
+#endif
+            v_printf_poll("GPS: GNSS subsystem ready\r\n");
+
             break;
         } else if(cfg_ack_status == 0) {
             // NAK received - GPS rejected the command
