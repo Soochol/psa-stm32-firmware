@@ -108,6 +108,54 @@ int i_UBX_ParsePVT(uint8_t* pu8_payload, _x_GPS_PVT_t* px_pvt);
  */
 int i_UBX_CreatePollPVT(uint8_t* pu8_buf, uint16_t u16_bufSize);
 
+/*
+ * Create UBX CFG-VALSET Message for I2C Port Configuration
+ * pu8_buf: Output buffer
+ * u16_bufSize: Buffer size (must be >= 64)
+ * u8_layer: Configuration layer (CFG_LAYER_RAM, BBR, or FLASH)
+ * u8_i2cAddr: I2C address (7-bit, e.g., 0x42)
+ * b_enableNMEA: Enable NMEA protocol on I2C (true/false)
+ * return: Message length or error code
+ *
+ * This function creates a CFG-VALSET message to configure the GPS I2C port:
+ * - Enables I2C interface
+ * - Sets I2C address
+ * - Enables UBX protocol on I2C input/output
+ * - Optionally enables NMEA protocol
+ */
+int i_UBX_CreateCfgI2C(uint8_t* pu8_buf, uint16_t u16_bufSize,
+                       uint8_t u8_layer, uint8_t u8_i2cAddr, bool b_enableNMEA);
+
+/*
+ * Create UBX CFG-PRT Message for I2C Port Configuration (Legacy but simpler)
+ * pu8_buf: Output buffer
+ * u16_bufSize: Buffer size (must be >= 28)
+ * u8_i2cAddr: I2C address (7-bit, e.g., 0x42)
+ * b_enableNMEA: Enable NMEA protocol on I2C (true/false)
+ * return: Message length (28 bytes) or error code
+ *
+ * CFG-PRT is deprecated but still supported. It's simpler and smaller than CFG-VALSET.
+ * ProtoMask: 0x0001=UBX, 0x0002=NMEA, 0x0003=Both
+ */
+int i_UBX_CreateCfgPRT(uint8_t* pu8_buf, uint16_t u16_bufSize,
+                       uint8_t u8_i2cAddr, bool b_enableNMEA);
+
+/*
+ * Create UBX CFG-CFG Message to Save Configuration to Flash/BBR
+ * pu8_buf: Output buffer
+ * u16_bufSize: Buffer size (must be >= 21)
+ * u32_saveMask: Bitmask of sections to save (0x1F = I/O Port settings)
+ * return: Message length (21 bytes) or error code
+ *
+ * This saves the current RAM configuration to non-volatile memory.
+ * Must be called after CFG-PRT to persist settings across resets.
+ *
+ * Common save masks:
+ * - 0x0000001F: I/O Port settings only (recommended after CFG-PRT)
+ * - 0xFFFFFFFF: All configuration sections
+ */
+int i_UBX_CreateCfgSave(uint8_t* pu8_buf, uint16_t u16_bufSize, uint32_t u32_saveMask);
+
 #ifdef __cplusplus
 }
 #endif

@@ -297,16 +297,32 @@ int main(void)
   v_MP3_Init();
   v_Uart_Init();
   v_IMU_Init();
-  v_GPS_Init();
+  // v_GPS_Init();  // ← Moved after 12V enable (GPS needs 12V power)
   v_ADC_Init();
 
   v_RGB_Init();
   v_Mode_Init();
+
   //power enable
   v_IO_Enable_12V();
 #if IWDG_USED
   HAL_IWDG_Refresh(&hiwdg1);
 #endif
+
+  // Wait for GPS module to boot (SAM-M10Q needs ~1-2 seconds)
+  HAL_Delay(2000);
+
+#if IWDG_USED
+  HAL_IWDG_Refresh(&hiwdg1);  // Refresh after GPS boot delay
+#endif
+
+  // Initialize GPS after 12V power is stable
+  v_GPS_Init();
+
+#if IWDG_USED
+  HAL_IWDG_Refresh(&hiwdg1);  // Refresh after GPS init
+#endif
+
   HAL_Delay(100);
 
   if(b_MountSD())	{v_Mode_Set_MP3_Play(1);}
@@ -353,6 +369,17 @@ int main(void)
 	  //v_Mode_Sound_Test();		//sound test
 	  //v_ESP_CmdTest();			//ESP receive test
 	  //v_Mode_Heater_Fan_Test();
+
+	  // GPS I2C Diagnostic (DISABLED - testing UBX configuration)
+	  // static bool gps_diag_done = false;
+	  // if(!gps_diag_done) {
+	  //     v_GPS_Test_Full_Diagnostic();
+	  //     v_I2C3_Set_Comm_Ready();  // Reset I2C3 driver state
+	  //     v_GPS_Reset_Comm();       // Reset GPS communication state
+	  //     v_printf_poll("DEBUG: GPS comm reset after diagnostic (I2C3=%d)\r\n", e_I2C3_Get_Comm_Stat());
+	  //     gps_diag_done = true;
+	  // }
+
 	  v_GPS_Test_Monitor();		//GPS debug output (2s interval)
 
 	  //	not used	//

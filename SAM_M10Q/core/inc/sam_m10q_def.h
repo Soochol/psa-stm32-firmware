@@ -36,6 +36,7 @@ extern "C" {
 #define UBX_CLASS_NAV                0x01  // Navigation results
 #define UBX_CLASS_CFG                0x06  // Configuration input
 #define UBX_CLASS_RXM                0x02  // Receiver manager
+#define UBX_CLASS_ACK                0x05  // ACK/NAK messages
 
 // UBX Message IDs (Class NAV)
 #define UBX_NAV_PVT                  0x07  // Position, Velocity, Time
@@ -45,6 +46,50 @@ extern "C" {
 // UBX Message IDs (Class CFG)
 #define UBX_CFG_VALSET               0x8A  // Set configuration values
 #define UBX_CFG_VALGET               0x8B  // Get configuration values
+#define UBX_CFG_CFG                  0x09  // Save/Load/Clear configuration
+
+// UBX Message IDs (Class ACK)
+#define UBX_ACK_NAK                  0x00  // Message not acknowledged
+#define UBX_ACK_ACK                  0x01  // Message acknowledged
+
+/*
+ * CFG-VALSET Layers (transaction control)
+ */
+#define CFG_LAYER_RAM                0x01  // Volatile RAM (lost on reset)
+#define CFG_LAYER_BBR                0x02  // Battery-backed RAM
+#define CFG_LAYER_FLASH              0x04  // Flash memory (persistent)
+
+/*
+ * CFG-VALSET Configuration Keys for I2C Port
+ * Format: Group_Item_ItemType (e.g., CFG-I2C-ENABLED is 0x10510003)
+ * Bit 31-28: Reserved
+ * Bit 27-16: Group ID (0x051 = I2C)
+ * Bit 15-8:  Item ID
+ * Bit 7-0:   Item Type (L=bool, U1=uint8, U2=uint16, U4=uint32, etc.)
+ */
+#define CFG_KEY_I2C_ENABLED          0x10510003  // Enable I2C interface (L)
+#define CFG_KEY_I2C_ADDRESS          0x20510001  // I2C address (U1)
+#define CFG_KEY_I2CINPROT_UBX        0x10710001  // UBX protocol on I2C input (L)
+#define CFG_KEY_I2CINPROT_NMEA       0x10710002  // NMEA protocol on I2C input (L)
+#define CFG_KEY_I2COUTPROT_UBX       0x10720001  // UBX protocol on I2C output (L)
+#define CFG_KEY_I2COUTPROT_NMEA      0x10720002  // NMEA protocol on I2C output (L)
+
+/*
+ * CFG-MSGOUT: Individual NMEA Message Output Control for I2C
+ * Setting rate to 0 disables the message completely
+ * Type: U1 (uint8) - output rate per navigation solution
+ */
+#define CFG_MSGOUT_NMEA_ID_GGA_I2C   0x209100CA  // GGA - Global Positioning System Fix Data
+#define CFG_MSGOUT_NMEA_ID_GLL_I2C   0x209100C9  // GLL - Geographic Position
+#define CFG_MSGOUT_NMEA_ID_GSA_I2C   0x209100BF  // GSA - GNSS DOP and Active Satellites
+#define CFG_MSGOUT_NMEA_ID_GSV_I2C   0x209100C3  // GSV - GNSS Satellites in View
+#define CFG_MSGOUT_NMEA_ID_RMC_I2C   0x209100AB  // RMC - Recommended Minimum Data
+#define CFG_MSGOUT_NMEA_ID_VTG_I2C   0x209100B0  // VTG - Course Over Ground and Ground Speed
+#define CFG_MSGOUT_NMEA_ID_GBS_I2C   0x209100DD  // GBS - GNSS Satellite Fault Detection
+#define CFG_MSGOUT_NMEA_ID_GNS_I2C   0x209100B5  // GNS - GNSS Fix Data
+#define CFG_MSGOUT_NMEA_ID_GST_I2C   0x209100E2  // GST - GNSS Pseudorange Error Statistics
+#define CFG_MSGOUT_NMEA_ID_VLW_I2C   0x209100E7  // VLW - Dual Ground/Water Distance
+#define CFG_MSGOUT_NMEA_ID_ZDA_I2C   0x209100D8  // ZDA - Time and Date
 
 /*
  * GPS Fix Types

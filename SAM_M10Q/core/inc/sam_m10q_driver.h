@@ -45,9 +45,9 @@ typedef struct {
     uint8_t u8_i2cAddr;
 
     // Buffers
-    uint8_t u8_rxBuf[256];      // I2C receive buffer
+    uint8_t u8_rxBuf[128];      // I2C receive buffer (matches I2C3_RD_SIZE, holds 100-byte UBX frames)
     uint16_t u16_rxLen;
-    uint8_t u8_txBuf[16];       // I2C transmit buffer (poll messages)
+    uint8_t u8_txBuf[128];      // I2C transmit buffer (poll & config messages) - INCREASED for NMEA disable
     uint16_t u16_txLen;
 
     // UBX message parsing
@@ -103,6 +103,27 @@ bool b_SAM_M10Q_IsPVTValid(_x_SAM_M10Q_DRV_t* px_drv);
  * px_drv: Driver instance
  */
 void v_SAM_M10Q_Reset(_x_SAM_M10Q_DRV_t* px_drv);
+
+/*
+ * Configure GPS I2C Port
+ * px_drv: Driver instance
+ * u8_layer: Configuration layer (IGNORED - CFG-PRT saves to all layers)
+ * b_enableNMEA: Enable NMEA protocol in addition to UBX
+ * return: SAM_M10Q_RET_OK if command sent successfully
+ *
+ * This function sends a UBX-CFG-PRT (legacy) message to:
+ * - Configure the I2C port (Port ID = 0)
+ * - Set the I2C address to the driver's configured address
+ * - Set protocol mask: UBX only (0x0001) or UBX+NMEA (0x0003)
+ *
+ * CFG-PRT is deprecated but simpler and more reliable (28 bytes vs 97 bytes).
+ * Configuration is automatically saved to all layers (RAM/BBR/FLASH).
+ *
+ * Call this during initialization BEFORE starting main handler loop.
+ */
+int i_SAM_M10Q_ConfigureI2C(_x_SAM_M10Q_DRV_t* px_drv,
+                             uint8_t u8_layer,
+                             bool b_enableNMEA);
 
 #ifdef __cplusplus
 }

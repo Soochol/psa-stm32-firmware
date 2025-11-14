@@ -31,6 +31,7 @@ void v_GPS_Read_DoneHandler(uint8_t u8_addr, uint8_t* pu8_arr, uint16_t u16_len)
 
 // Communication status
 e_COMM_STAT_t e_GPS_Ready(void);
+void v_GPS_Reset_Comm(void);  // Reset communication state to READY
 
 // Main processing
 void v_GPS_Handler(void);

@@ -41,8 +41,8 @@ int i_SAM_M10Q_Handler(_x_SAM_M10Q_DRV_t* px_drv) {
     uint32_t currentTime = px_drv->tr.u32_getTime();
     static _e_SAM_M10Q_STATE_t prev_state = SAM_M10Q_STATE_IDLE;
 
-    // Debug: Print state changes
-    if(px_drv->e_state != prev_state && px_drv->e_state != SAM_M10Q_STATE_IDLE) {
+    // Debug: Print state changes (including IDLE transitions)
+    if(px_drv->e_state != prev_state) {
         extern void v_printf_poll(const char* format, ...);
         const char* state_names[] = {"IDLE", "CHECK_AVAIL", "WAIT_AVAIL", "READ_DATA",
                                      "WAIT_DATA", "PARSE", "POLL_PVT", "WAIT_POLL", "ERROR"};
@@ -62,12 +62,23 @@ int i_SAM_M10Q_Handler(_x_SAM_M10Q_DRV_t* px_drv) {
 
         case SAM_M10Q_STATE_CHECK_AVAIL:
             // Read available byte count from registers 0xFD, 0xFE
-            if(px_drv->tr.i_bus() == 0) {  // Check if bus is ready
-                int read_ret = px_drv->tr.i_read(px_drv->u8_i2cAddr, SAM_M10Q_REG_AVAIL_MSB, 2);
-                if(read_ret == 0) {
-                    px_drv->e_state = SAM_M10Q_STATE_WAIT_AVAIL;
+            {
+                int bus_status = px_drv->tr.i_bus();
+                if(bus_status == 0) {  // Check if bus is ready
+                    int read_ret = px_drv->tr.i_read(px_drv->u8_i2cAddr, SAM_M10Q_REG_AVAIL_MSB, 2);
+                    if(read_ret == 0) {
+                        px_drv->e_state = SAM_M10Q_STATE_WAIT_AVAIL;
+                    } else {
+                        extern void v_printf_poll(const char* format, ...);
+                        v_printf_poll("GPS: CHECK_AVAIL - I2C read failed (ret=%d)\r\n", read_ret);
+                    }
                 } else {
-                    // I2C read failed, stay in this state
+                    extern void v_printf_poll(const char* format, ...);
+                    static uint32_t last_bus_log = 0;
+                    if((currentTime - last_bus_log) > 5000) {  // Log every 5s
+                        v_printf_poll("GPS: CHECK_AVAIL - Bus not ready (status=%d)\r\n", bus_status);
+                        last_bus_log = currentTime;
+                    }
                 }
             }
             break;
@@ -75,6 +86,7 @@ int i_SAM_M10Q_Handler(_x_SAM_M10Q_DRV_t* px_drv) {
         case SAM_M10Q_STATE_WAIT_AVAIL:
             // Wait for I2C read callback to complete
             if(px_drv->tr.i_bus() == 0) {  // Callback finished, bus is ready
+                // Data is already set by callback (u16_availBytes)
                 px_drv->e_state = SAM_M10Q_STATE_READ_DATA;
             }
             break;
@@ -86,9 +98,15 @@ int i_SAM_M10Q_Handler(_x_SAM_M10Q_DRV_t* px_drv) {
                 uint16_t readLen = (px_drv->u16_availBytes < sizeof(px_drv->u8_rxBuf)) ?
                                     px_drv->u16_availBytes : sizeof(px_drv->u8_rxBuf);
 
+                extern void v_printf_poll(const char* format, ...);
+                v_printf_poll("GPS: Reading %d bytes from stream...\r\n", readLen);
+
                 if(px_drv->tr.i_bus() == 0) {
-                    if(px_drv->tr.i_read(px_drv->u8_i2cAddr, SAM_M10Q_REG_STREAM, readLen) == 0) {
+                    int read_ret = px_drv->tr.i_read(px_drv->u8_i2cAddr, SAM_M10Q_REG_STREAM, readLen);
+                    if(read_ret == 0) {
                         px_drv->e_state = SAM_M10Q_STATE_WAIT_DATA;
+                    } else {
+                        v_printf_poll("GPS: Read failed (ret=%d)\r\n", read_ret);
                     }
                 }
             } else {
@@ -100,24 +118,88 @@ int i_SAM_M10Q_Handler(_x_SAM_M10Q_DRV_t* px_drv) {
         case SAM_M10Q_STATE_WAIT_DATA:
             // Wait for data stream read callback
             if(px_drv->tr.i_bus() == 0) {  // Callback finished
-                px_drv->e_state = SAM_M10Q_STATE_PARSE;
+                // FIX: Verify data was received before parsing
+                if(px_drv->u16_rxLen > 0) {
+                    px_drv->e_state = SAM_M10Q_STATE_PARSE;
+                } else {
+                    // No data received, return to idle
+                    extern void v_printf_poll(const char* format, ...);
+                    v_printf_poll("GPS: No data received after read\r\n");
+                    px_drv->e_state = SAM_M10Q_STATE_IDLE;
+                }
             }
             break;
 
         case SAM_M10Q_STATE_PARSE:
             // Parse received UBX message (callback provides data in u8_rxBuf)
             if(px_drv->u16_rxLen > 0) {
-                int validate_ret = i_UBX_ValidateMessage(px_drv->u8_rxBuf, px_drv->u16_rxLen);
-                if(validate_ret == SAM_M10Q_RET_OK) {
-                    // Check if NAV-PVT message
-                    if(px_drv->u8_rxBuf[2] == UBX_CLASS_NAV &&
-                       px_drv->u8_rxBuf[3] == UBX_NAV_PVT) {
-                        i_UBX_ParsePVT(&px_drv->u8_rxBuf[6], &px_drv->x_pvt);
-                        px_drv->b_pvtValid = true;
-                        px_drv->u32_lastUpdate = currentTime;
+                // Check message type and silently discard non-UBX data
+                // UBX sync: 0xB5 0x62 (must be at start)
+                if(px_drv->u16_rxLen >= 2 &&
+                   px_drv->u8_rxBuf[0] == 0xB5 &&
+                   px_drv->u8_rxBuf[1] == 0x62) {
+                    // Valid UBX sync - proceed with validation
+                    int validate_ret = i_UBX_ValidateMessage(px_drv->u8_rxBuf, px_drv->u16_rxLen);
+                    if(validate_ret == SAM_M10Q_RET_OK) {
+                        // Check if NAV-PVT message
+                        if(px_drv->u8_rxBuf[2] == UBX_CLASS_NAV &&
+                           px_drv->u8_rxBuf[3] == UBX_NAV_PVT) {
+                            i_UBX_ParsePVT(&px_drv->u8_rxBuf[6], &px_drv->x_pvt);
+                            px_drv->b_pvtValid = true;
+                            px_drv->u32_lastUpdate = currentTime;
+                            extern void v_printf_poll(const char* format, ...);
+
+                            // Enhanced UBX-NAV-PVT output with full data structure
+                            v_printf_poll("GPS: NAV-PVT parsed:\r\n");
+                            v_printf_poll("  Fix=%d, Sats=%d, pDOP=%d.%02d\r\n",
+                                          px_drv->x_pvt.fixType, px_drv->x_pvt.numSV,
+                                          px_drv->x_pvt.pDOP / 100, px_drv->x_pvt.pDOP % 100);
+
+                            // Position (lat/lon in 1e-7 degrees, convert to decimal)
+                            int32_t lat_deg = px_drv->x_pvt.lat / 10000000;
+                            int32_t lat_frac = px_drv->x_pvt.lat % 10000000;
+                            if(lat_frac < 0) lat_frac = -lat_frac;
+                            int32_t lon_deg = px_drv->x_pvt.lon / 10000000;
+                            int32_t lon_frac = px_drv->x_pvt.lon % 10000000;
+                            if(lon_frac < 0) lon_frac = -lon_frac;
+                            v_printf_poll("  Lat=%ld.%07ld° Lon=%ld.%07ld°\r\n",
+                                          lat_deg, lat_frac, lon_deg, lon_frac);
+
+                            // Altitude (hMSL in mm), Speed (gSpeed in mm/s), Heading (headMot in 1e-5 degrees)
+                            int32_t alt_m = px_drv->x_pvt.hMSL / 1000;
+                            int32_t alt_mm = px_drv->x_pvt.hMSL % 1000;
+                            if(alt_mm < 0) alt_mm = -alt_mm;
+                            int32_t spd_ms = px_drv->x_pvt.gSpeed / 1000;
+                            int32_t spd_mms = px_drv->x_pvt.gSpeed % 1000;
+                            if(spd_mms < 0) spd_mms = -spd_mms;
+                            int32_t head_deg = px_drv->x_pvt.headMot / 100000;
+                            int32_t head_frac = px_drv->x_pvt.headMot % 100000;
+                            if(head_frac < 0) head_frac = -head_frac;
+                            v_printf_poll("  Alt=%ld.%03ldm Speed=%ld.%03dm/s Head=%ld.%05ld°\r\n",
+                                          alt_m, alt_mm, spd_ms, spd_mms, head_deg, head_frac);
+
+                            // Accuracy (hAcc, vAcc in mm - uint32_t)
+                            v_printf_poll("  Acc H=%lu.%03lum V=%lu.%03lum\r\n",
+                                          (unsigned long)(px_drv->x_pvt.hAcc / 1000),
+                                          (unsigned long)(px_drv->x_pvt.hAcc % 1000),
+                                          (unsigned long)(px_drv->x_pvt.vAcc / 1000),
+                                          (unsigned long)(px_drv->x_pvt.vAcc % 1000));
+
+                            // Time (UTC)
+                            v_printf_poll("  Time=%04d-%02d-%02d %02d:%02d:%02d UTC (valid=0x%02X)\r\n",
+                                          px_drv->x_pvt.year, px_drv->x_pvt.month, px_drv->x_pvt.day,
+                                          px_drv->x_pvt.hour, px_drv->x_pvt.min, px_drv->x_pvt.sec,
+                                          px_drv->x_pvt.valid);
+                        }
                     }
+                    // UBX validation failed - silently discard
+                } else {
+                    // Not UBX format (NMEA or garbage data) - silently discard
+                    // No logging to reduce clutter in UBX-only mode
                 }
             }
+            // Clear rx length after parsing
+            px_drv->u16_rxLen = 0;
             px_drv->e_state = SAM_M10Q_STATE_IDLE;
             break;
 

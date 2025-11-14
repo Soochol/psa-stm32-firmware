@@ -1,0 +1,46 @@
+# u-blox GPS Configuration File
+# Purpose: Enable I2C mode on SAM-M10Q GPS module
+# Created: 2025-01-14
+# Usage: Load this file in u-center (Tools → Receiver Configuration → Load Configuration)
+
+# Configuration 1: Enable I2C Port (Port 0 = DDC/I2C)
+# CFG-PRT (Port Configuration)
+# PortID: 0 (DDC/I2C)
+# Reserved: 0
+# TxReady: Disabled
+# Mode: I2C Address 0x42 (66 decimal)
+# Reserved: 0
+# InProtoMask: 0x0001 (UBX only)
+# OutProtoMask: 0x0001 (UBX only)
+# Flags: 0
+# Reserved: 0
+CFG-PRT - 06 00 14 00 00 00 00 00 42 00 00 00 00 00 00 00 01 00 01 00 00 00 00 00
+
+# Configuration 2: Disable UART Port (Port 1) to ensure I2C is primary
+# CFG-PRT (Port Configuration)
+# PortID: 1 (UART)
+# InProtoMask: 0x0000 (Disabled)
+# OutProtoMask: 0x0000 (Disabled)
+CFG-PRT - 06 00 14 00 01 00 00 00 D0 08 00 00 00 C2 01 00 00 00 00 00 00 00 00 00
+
+# Configuration 3: Enable NAV-PVT message output (for testing)
+# CFG-MSG (Message Configuration)
+# MsgClass: 0x01 (NAV)
+# MsgID: 0x07 (PVT)
+# Rate: 1 (output every solution)
+CFG-MSG - 06 01 08 00 01 07 00 01 00 00 00 00
+
+# Configuration 4: Set Navigation Rate to 1 Hz
+# CFG-RATE (Navigation/Measurement Rate Settings)
+# MeasRate: 1000 ms
+# NavRate: 1 (every measurement)
+# TimeRef: 1 (GPS time)
+CFG-RATE - 06 08 06 00 E8 03 01 00 01 00
+
+# Configuration 5: Save configuration to flash memory (permanent)
+# CFG-CFG (Save Configuration)
+# ClearMask: 0x00000000 (don't clear anything)
+# SaveMask: 0x0000001F (save all sections)
+# LoadMask: 0x00000000 (don't load anything)
+# DeviceMask: 0x00000003 (BBR + Flash)
+CFG-CFG - 06 09 0D 00 00 00 00 00 1F 00 00 00 00 00 00 00 03 00 00 00 00
