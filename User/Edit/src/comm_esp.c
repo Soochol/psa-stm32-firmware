@@ -4,6 +4,7 @@
 #include "mode.h"
 #include "tim.h"
 #include "math.h"
+#include "sam_m10q_platform.h"
 
 
 //STX	| LEN	| DIR	| CMD	| DATA	| CHK	| ETX
@@ -637,6 +638,43 @@ void v_ESP_Send_Sensing(int16_t* pi16_imu_left, int16_t* pi16_imu_right,\
 	//	IMU EVT	//
 	data[cnt++] = u8_imu_left_evt;
 	data[cnt++] = u8_imu_right_evt;
+
+	// ===== GPS Data (10 bytes) =====
+	_x_GPS_PVT_t* px_gps = px_GPS_GetPVT();
+
+	if (px_gps != NULL && px_gps->fixType != GPS_FIX_NONE) {
+		// 1. Convert int32 → float (1e-7 → degrees)
+		float latitude  = (float)px_gps->lat / 1e7f;
+		float longitude = (float)px_gps->lon / 1e7f;
+
+		// 2. Big-Endian packing for ESP32
+		uint32_t lat_bits, lon_bits;
+		memcpy(&lat_bits, &latitude, 4);
+		memcpy(&lon_bits, &longitude, 4);
+
+		// Latitude (4 bytes, Big-Endian)
+		data[cnt++] = (lat_bits >> 24) & 0xFF;  // MSB
+		data[cnt++] = (lat_bits >> 16) & 0xFF;
+		data[cnt++] = (lat_bits >> 8)  & 0xFF;
+		data[cnt++] = lat_bits & 0xFF;          // LSB
+
+		// Longitude (4 bytes, Big-Endian)
+		data[cnt++] = (lon_bits >> 24) & 0xFF;  // MSB
+		data[cnt++] = (lon_bits >> 16) & 0xFF;
+		data[cnt++] = (lon_bits >> 8)  & 0xFF;
+		data[cnt++] = lon_bits & 0xFF;          // LSB
+
+		// Satellites (1 byte)
+		data[cnt++] = px_gps->numSV;
+
+		// Fix Type (1 byte)
+		data[cnt++] = px_gps->fixType;
+	} else {
+		// GPS unavailable or no fix - send zeros
+		for (int i = 0; i < 10; i++) {
+			data[cnt++] = 0;
+		}
+	}
 
 	v_ESP_Transmit(ESP_DIR_REQ, ESP_CMD_STAT, data, cnt);
 
