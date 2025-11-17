@@ -271,8 +271,8 @@ int i_I2C2_Read(uint8_t u8_addr, uint16_t u16_reg, uint16_t u16_len){
 //////////////////////////////////////
 /*				I2C3				*/
 //////////////////////////////////////
-#define I2C3_RD_SIZE	64
-#define I2C3_WR_SIZE	64
+#define I2C3_RD_SIZE	128   // Increased from 64 to support GPS UBX-NAV-PVT messages (~100 bytes)
+#define I2C3_WR_SIZE	128   // Increased from 64 to match read buffer size
 
 static uint8_t u8_i2c3_wrArr[I2C3_WR_SIZE] __attribute__((section(".my_nocache_section")));
 static uint8_t u8_i2c3_rdArr[I2C3_RD_SIZE] __attribute__((section(".my_nocache_section")));
@@ -294,7 +294,7 @@ int i_I2C3_Write(uint8_t u8_addr, uint16_t u16_reg, uint8_t* pu8_arr, uint16_t u
 		if(u16_len + 1 < I2C3_WR_SIZE){
 			u8_i2c3_addr = u8_addr;
 			memcpy(u8_i2c3_wrArr, pu8_arr, u16_len);
-			// I2C3 uses IT mode (not DMA)
+			// I2C3 uses IT mode (interrupt, no DMA)
 			HAL_StatusTypeDef ret = HAL_I2C_Mem_Write_IT(p_i2c3, u8_i2c3_addr, u16_reg, I2C_MEMADD_SIZE_8BIT, u8_i2c3_wrArr, u16_len);
 			if(ret == HAL_OK)		{e_comm_i2c3 = COMM_STAT_OK;}
 			else{
@@ -318,7 +318,7 @@ int i_I2C3_Read(uint8_t u8_addr, uint16_t u16_reg, uint16_t u16_len){
 		if(I2C3_WR_SIZE > 0 && I2C3_RD_SIZE >= u16_len){
 			u8_i2c3_addr = u8_addr;
 			u16_i2c3_rdCnt = u16_len;
-			// I2C3 uses IT mode (not DMA)
+			// I2C3 uses IT mode (interrupt, no DMA)
 			HAL_StatusTypeDef ret = HAL_I2C_Mem_Read_IT(p_i2c3, u8_i2c3_addr, u16_reg, I2C_MEMADD_SIZE_8BIT, u8_i2c3_rdArr, u16_len);
 			if(ret == HAL_OK)		{e_comm_i2c3 = COMM_STAT_OK;}
 			else{
