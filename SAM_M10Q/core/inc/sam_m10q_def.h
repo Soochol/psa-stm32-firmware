@@ -92,6 +92,26 @@ extern "C" {
 #define CFG_MSGOUT_NMEA_ID_ZDA_I2C   0x209100D8  // ZDA - Time and Date
 
 /*
+ * Additional I2C Protocol Configuration Keys
+ * Input protocol must be configured for GPS to accept UBX commands
+ */
+#define CFG_KEY_I2CINPROT_UBX        0x10710001  // UBX protocol on I2C input (L)
+#define CFG_KEY_I2CINPROT_NMEA       0x10710002  // NMEA protocol on I2C input (L)
+
+/*
+ * Navigation Rate Configuration Keys (SparkFun Example7 pattern)
+ * Controls measurement frequency and navigation solution rate
+ */
+#define CFG_RATE_MEAS                0x30210001  // Measurement rate (U2, milliseconds)
+#define CFG_RATE_NAV                 0x30210002  // Navigation rate (U2, cycles)
+
+/*
+ * Auto PVT Message Output Configuration
+ * Enables automatic periodic output of position/velocity/time data
+ */
+#define CFG_MSGOUT_UBX_NAV_PVT_I2C   0x20910006  // PVT message output rate on I2C (U1)
+
+/*
  * GPS Fix Types
  */
 typedef enum {

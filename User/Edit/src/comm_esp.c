@@ -500,6 +500,7 @@ static void v_ESP_CtrlProc(uint8_t u8_cmd, uint8_t* pu8_data, uint8_t u8_len){
 	switch(u8_cmd){
 	case ESP_CMD_CTRL_RST:
 		//NVIC Reset
+		printf("[MODE_OFF_TRIGGER] ESP32 reset command (ESP_CMD_CTRL_RST=0x50), prev_mode=%d\r\n", e_Mode_Get_CurrID());
 		v_Mode_SetNext(modeOFF);
 		break;
 	case ESP_CMD_CTRL_MODE:{

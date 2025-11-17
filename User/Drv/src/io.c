@@ -187,6 +187,52 @@ void v_I2C5_Pin_Deinit(){
 	HAL_GPIO_WritePin(GPIOC, GPIO_PIN_11, GPIO_PIN_RESET);
 }
 
+/*
+ * brief	: I2C bus diagnostic dump
+ * note		: Prints state and error codes for all I2C buses
+ */
+void v_I2C_DiagDump(void) {
+	extern I2C_HandleTypeDef hi2c1, hi2c2, hi2c3, hi2c4, hi2c5;
+
+	printf("\r\n[I2C_DIAG] Bus Status Dump:\r\n");
+	printf("I2C1: State=0x%02X, Error=0x%08lX, ISR=0x%08lX\r\n",
+	       hi2c1.State, hi2c1.ErrorCode, hi2c1.Instance->ISR);
+	printf("I2C2: State=0x%02X, Error=0x%08lX, ISR=0x%08lX\r\n",
+	       hi2c2.State, hi2c2.ErrorCode, hi2c2.Instance->ISR);
+	printf("I2C3: State=0x%02X, Error=0x%08lX, ISR=0x%08lX\r\n",
+	       hi2c3.State, hi2c3.ErrorCode, hi2c3.Instance->ISR);
+	printf("I2C4: State=0x%02X, Error=0x%08lX, ISR=0x%08lX\r\n",
+	       hi2c4.State, hi2c4.ErrorCode, hi2c4.Instance->ISR);
+	printf("I2C5: State=0x%02X, Error=0x%08lX, ISR=0x%08lX\r\n\r\n",
+	       hi2c5.State, hi2c5.ErrorCode, hi2c5.Instance->ISR);
+}
+
+/**
+ * @brief Check if I2C device is ready (responds with ACK)
+ * @param p_i2c_handle Pointer to I2C_HandleTypeDef
+ * @param bus_num I2C bus number (for logging)
+ * @param dev_addr Device 7-bit address (will be shifted left internally by HAL)
+ * @param dev_name Device name string (for logging)
+ * @return 0 if ACK, -1 if NACK or error
+ */
+int i_I2C_ProbeDevice(void* p_i2c_handle, uint8_t bus_num, uint8_t dev_addr, const char* dev_name) {
+	I2C_HandleTypeDef *p_i2c = (I2C_HandleTypeDef*)p_i2c_handle;
+
+	// dev_addr is already shifted (8-bit format), display 7-bit address for logging
+	printf("[I2C%d_PROBE] Checking %s (addr=0x%02X)... ", bus_num, dev_name, dev_addr >> 1);
+
+	// dev_addr already in 8-bit format, use as-is
+	HAL_StatusTypeDef ret = HAL_I2C_IsDeviceReady(p_i2c, dev_addr, 3, 100);
+
+	if(ret == HAL_OK) {
+		printf("ACK \u2713\r\n");
+		return 0;
+	} else {
+		printf("NACK \u2717 (HAL_Status=%d)\r\n", ret);
+		return -1;
+	}
+}
+
 
 
 void v_IO_PWR_WakeUp_Enable(){

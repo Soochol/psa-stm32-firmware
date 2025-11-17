@@ -265,7 +265,7 @@ int i_UBX_CreateCfgI2C(uint8_t* pu8_buf, uint16_t u16_bufSize,
     pu8_buf[idx++] = 0x00;                    // Reserved1
     pu8_buf[idx++] = 0x00;                    // Reserved2
 
-    // Helper macro for adding key-value pairs (little-endian)
+    // Helper macros for adding key-value pairs (little-endian)
     #define ADD_CFG_KEY_L(key, val) do { \
         uint32_t k = (key); \
         pu8_buf[idx++] = (k >> 0) & 0xFF; \
@@ -284,9 +284,25 @@ int i_UBX_CreateCfgI2C(uint8_t* pu8_buf, uint16_t u16_bufSize,
         pu8_buf[idx++] = (val); \
     } while(0)
 
-    // MINIMAL CONFIG - SparkFun method (only change output protocol)
-    // DO NOT change I2C address or other settings that could cause rejection
+    #define ADD_CFG_KEY_U2(key, val) do { \
+        uint32_t k = (key); \
+        uint16_t v = (val); \
+        pu8_buf[idx++] = (k >> 0) & 0xFF; \
+        pu8_buf[idx++] = (k >> 8) & 0xFF; \
+        pu8_buf[idx++] = (k >> 16) & 0xFF; \
+        pu8_buf[idx++] = (k >> 24) & 0xFF; \
+        pu8_buf[idx++] = (v >> 0) & 0xFF; \
+        pu8_buf[idx++] = (v >> 8) & 0xFF; \
+    } while(0)
 
+    // SPARKFUN EXAMPLE7 PATTERN - Complete configuration
+    // I2C protocol + Navigation rate + Auto PVT output
+
+    // Set input protocol (GPS must accept UBX commands from I2C)
+    ADD_CFG_KEY_L(CFG_KEY_I2CINPROT_UBX, true);   // Enable UBX input
+    ADD_CFG_KEY_L(CFG_KEY_I2CINPROT_NMEA, true);  // Keep NMEA input enabled
+
+    // Set output protocol
     if(b_enableNMEA) {
         // Enable both UBX and NMEA output
         ADD_CFG_KEY_L(CFG_KEY_I2COUTPROT_UBX, true);
@@ -297,8 +313,16 @@ int i_UBX_CreateCfgI2C(uint8_t* pu8_buf, uint16_t u16_bufSize,
         ADD_CFG_KEY_L(CFG_KEY_I2COUTPROT_NMEA, false);
     }
 
+    // Set navigation rate (SparkFun setNavigationFrequency equivalent)
+    ADD_CFG_KEY_U2(CFG_RATE_MEAS, 1000);  // 1Hz measurement rate (1000ms)
+    ADD_CFG_KEY_U2(CFG_RATE_NAV, 1);      // Navigation solution every measurement
+
+    // Enable auto PVT output (SparkFun setAutoPVT(true) equivalent)
+    ADD_CFG_KEY_U1(CFG_MSGOUT_UBX_NAV_PVT_I2C, 1);  // Output PVT every nav solution
+
     #undef ADD_CFG_KEY_L
     #undef ADD_CFG_KEY_U1
+    #undef ADD_CFG_KEY_U2
 
     // Calculate payload length
     uint16_t payloadLen = idx - 6;

@@ -115,6 +115,24 @@ int i_Temp_IR_Read_DMA(uint8_t u8_addr, uint16_t u16_memAddr, uint16_t u16_cnt){
 void v_Temp_IR_Tout_Handler(){
 	if(u32_tempIR_ErrCnt > 10 || ((e_tempIR_evt == COMM_STAT_BUSY) && _b_Tim_Is_OVR(u32_Tim_1msGet(), u32_toutRef, 2000))){
 		// MEDIUM: Abort DMA transaction to prevent I2C bus lockup
+		if(u32_tempIR_ErrCnt > 10) {
+			printf("[MLX_ERROR] MLX90640 error count exceeded: %lu\r\n", u32_tempIR_ErrCnt);
+		}
+		if((e_tempIR_evt == COMM_STAT_BUSY) && _b_Tim_Is_OVR(u32_Tim_1msGet(), u32_toutRef, 2000)) {
+			printf("[MLX_TIMEOUT] MLX90640 I2C4 timeout (addr=0x%02X)\r\n", ADDR_IR_TEMP);
+			printf("  ISR=0x%08lX (BUSY=%d, STOPF=%d)\r\n",
+			       hi2c4.Instance->ISR,
+			       (hi2c4.Instance->ISR & 0x8000) ? 1 : 0,  // BUSY bit
+			       (hi2c4.Instance->ISR & 0x0020) ? 1 : 0); // STOPF bit
+			printf("  ErrorCode=0x%08lX\r\n", hi2c4.ErrorCode);
+			if(hi2c4.ErrorCode & HAL_I2C_ERROR_BERR)    printf("    - Bus Error\r\n");
+			if(hi2c4.ErrorCode & HAL_I2C_ERROR_ARLO)    printf("    - Arbitration Lost\r\n");
+			if(hi2c4.ErrorCode & HAL_I2C_ERROR_AF)      printf("    - NACK (device not responding)\r\n");
+			if(hi2c4.ErrorCode & HAL_I2C_ERROR_OVR)     printf("    - Overrun\r\n");
+			if(hi2c4.ErrorCode & HAL_I2C_ERROR_TIMEOUT) printf("    - HAL Timeout\r\n");
+			if(hi2c4.ErrorCode & HAL_I2C_ERROR_DMA)     printf("    - DMA Error\r\n");
+		}
+
 		HAL_I2C_Master_Abort_IT(&hi2c4, ADDR_IR_TEMP);
 		//timeout
 		e_tempIR_evt = COMM_STAT_READY;

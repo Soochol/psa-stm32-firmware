@@ -64,8 +64,25 @@ int i_Codec_Read(uint16_t u16_memAdddr, uint16_t u16_cnt){
 }
 
 void v_Codec_Tout_Handler(){
+	extern I2C_HandleTypeDef hi2c5;
+
 	if(i_toutAct && _b_Tim_Is_OVR(u32_Tim_1msGet(), u32_toutRef, 2000)){
-		//timeout
+		// MEDIUM: Abort DMA transaction to prevent I2C bus lockup
+		printf("[CODEC_TIMEOUT] ES8388 I2C5 timeout (addr=0x%02X)\r\n", ADDR_CODEC);
+		printf("  ISR=0x%08lX (BUSY=%d, STOPF=%d)\r\n",
+		       hi2c5.Instance->ISR,
+		       (hi2c5.Instance->ISR & 0x8000) ? 1 : 0,  // BUSY bit
+		       (hi2c5.Instance->ISR & 0x0020) ? 1 : 0); // STOPF bit
+		printf("  ErrorCode=0x%08lX\r\n", hi2c5.ErrorCode);
+		if(hi2c5.ErrorCode & HAL_I2C_ERROR_BERR)    printf("    - Bus Error\r\n");
+		if(hi2c5.ErrorCode & HAL_I2C_ERROR_ARLO)    printf("    - Arbitration Lost\r\n");
+		if(hi2c5.ErrorCode & HAL_I2C_ERROR_AF)      printf("    - NACK (device not responding)\r\n");
+		if(hi2c5.ErrorCode & HAL_I2C_ERROR_OVR)     printf("    - Overrun\r\n");
+		if(hi2c5.ErrorCode & HAL_I2C_ERROR_TIMEOUT) printf("    - HAL Timeout\r\n");
+		if(hi2c5.ErrorCode & HAL_I2C_ERROR_DMA)     printf("    - DMA Error\r\n");
+
+		HAL_I2C_Master_Abort_IT(&hi2c5, ADDR_CODEC);
+
 		i_toutAct = 0;
 		e_codec_config = COMM_STAT_ERR;
 		v_Mode_Set_Error(modeERR_AUDIO);

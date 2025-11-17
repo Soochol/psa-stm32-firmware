@@ -23,7 +23,8 @@
       "Bash(where:*)",
       "Bash(cat:*)",
       "Bash(find:*)",
-      "Bash(git log:*)"
+      "Bash(git log:*)",
+      "Bash(nul)"
     ],
     "deny": [],
     "ask": []

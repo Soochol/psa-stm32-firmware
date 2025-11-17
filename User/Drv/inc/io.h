@@ -33,6 +33,8 @@ void v_I2C5_Pin_Deinit();
 void v_IO_PWR_WakeUp_Enable();
 void v_IO_PWR_WakeUp_Disable();
 
+void v_I2C_DiagDump();  // I2C bus diagnostic dump
+int i_I2C_ProbeDevice(void* p_i2c_handle, uint8_t bus_num, uint8_t dev_addr, const char* dev_name);  // I2C device ready check
 
 
 #endif

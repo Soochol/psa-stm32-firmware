@@ -23,6 +23,8 @@
 
 #define MODE_LOG_ENABLED	0
 
+// Forward declaration
+e_modeERR_t e_Mode_Get_Error(void);
 
 typedef struct {
 	uint32_t u32_tim_ref;
@@ -108,6 +110,12 @@ void v_Mode_SetInit(e_modeID_t e_id){
  */
 void v_Mode_SetNext(e_modeID_t e_id){
 	x_modeWORK_t* px_work = &x_modeWork;
+
+	// Debug logging for modeOFF transitions
+	if(e_id == modeOFF){
+		printf("[MODE_OFF_REQ] Transition to modeOFF from mode=%d\r\n", px_work->guide.e_curr);
+	}
+
 	px_work->guide.e_next = e_id;
 	px_work->cr.u8 = modeCR_UPD_OFF;
 }
@@ -122,6 +130,15 @@ void v_Mode_SetNext(e_modeID_t e_id){
  *			  - Should only be called from v_Mode_Handler()
  */
 void v_Mode_MoveNext(x_modeWORK_t* px_work){
+	printf("[MODE_CHANGE] %d -> %d (error=0x%04X)\r\n",
+	       px_work->guide.e_curr,
+	       px_work->guide.e_next,
+	       e_Mode_Get_Error());
+
+	if(px_work->guide.e_next == modeERROR) {
+		printf("[MODE_ERROR] Entering ERROR mode - GPS handler will NOT run!\r\n");
+	}
+
 	px_work->guide.e_prev = px_work->guide.e_curr;
 	px_work->guide.e_curr = px_work->guide.e_next;
 	px_work->guide.e_next = modeWAITING;
@@ -1106,16 +1123,57 @@ static void v_Mode_Booting(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t* 
 		if(ready_mask != modeCONFIG_CPLT){
 			e_COMM_STAT_t ret = COMM_STAT_OK;
 			if(!(ready_mask & modeCONFIG_IMU)){
-				ret = e_IMU_Ready();
-				if(ret == COMM_STAT_DONE){ready_mask |= modeCONFIG_IMU;}
-				else if(ret == COMM_STAT_ERR){v_Mode_Set_Error(modeERR_IMU);}
+				// Probe IMU devices ONCE before initialization
+				static bool b_imu_probed = false;
+				static int imu_probe_result = -1;  // -1: not probed, 0: ACK, 1: NACK
+
+				if(!b_imu_probed){
+					extern I2C_HandleTypeDef hi2c2;
+					int ret_L = i_I2C_ProbeDevice(&hi2c2, 2, ADDR_IMU_LEFT, "IMU_LEFT");
+					int ret_R = i_I2C_ProbeDevice(&hi2c2, 2, ADDR_IMU_RIGHT, "IMU_RIGHT");
+
+					// If both IMU sensors NACK, skip initialization to avoid timeout
+					if(ret_L != 0 && ret_R != 0){
+						imu_probe_result = 1;  // Both NACK
+						printf("[SENSOR_SKIP] Both IMU sensors NACK - skipping init to avoid watchdog\r\n");
+						printf("[SENSOR_FAIL] System will enter ERROR mode with IMU error\r\n");
+						ready_mask |= modeCONFIG_IMU;  // Skip init
+						v_Mode_Set_Error(modeERR_IMU);  // Set error flag
+					}
+					else{
+						imu_probe_result = 0;  // At least one ACK
+					}
+					b_imu_probed = true;
+				}
+
+				// Only attempt initialization if probe succeeded
+				if(imu_probe_result == 0){
+					ret = e_IMU_Ready();
+					if(ret == COMM_STAT_DONE){ready_mask |= modeCONFIG_IMU;}
+					else if(ret == COMM_STAT_ERR){
+						printf("[SENSOR_FAIL] IMU init FAILED on I2C2 - Device B hardware issue?\r\n");
+						v_Mode_Set_Error(modeERR_IMU);
+					}
+				}
 			}
 			else{
 #if MODE_FSR_USED
 				if(!(ready_mask & modeCONFIG_FSR)){
+					// Probe FSR devices ONCE before initialization
+					static bool b_fsr_probed = false;
+					if(!b_fsr_probed){
+						extern I2C_HandleTypeDef hi2c2;
+						i_I2C_ProbeDevice(&hi2c2, 2, ADDR_FSR_LEFT, "FSR_LEFT");
+						i_I2C_ProbeDevice(&hi2c2, 2, ADDR_FSR_RIGHT, "FSR_RIGHT");
+						b_fsr_probed = true;
+					}
+
 					ret = e_FSR_Ready();
 					if(ret == COMM_STAT_DONE)		{ready_mask |= modeCONFIG_FSR;}
-					else if(ret == COMM_STAT_ERR)	{v_Mode_Set_Error(modeERR_FSR);}
+					else if(ret == COMM_STAT_ERR)	{
+						printf("[SENSOR_FAIL] FSR init FAILED on I2C2 - ADC issue\r\n");
+						v_Mode_Set_Error(modeERR_FSR);
+					}
 				}
 #endif
 			}
@@ -1125,22 +1183,57 @@ static void v_Mode_Booting(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t* 
 				else if(ret == COMM_STAT_ERR)	{v_Mode_Set_Error(modeERR_AUDIO);}
 			}
 			if(!(ready_mask & modeCONFIG_TEMP_OUT)){
+				// Probe Temperature sensors ONCE before initialization
+				static bool b_temp_probed = false;
+				if(!b_temp_probed){
+					extern I2C_HandleTypeDef hi2c1;
+					i_I2C_ProbeDevice(&hi2c1, 1, ADDR_TEMP_INDOOR, "TEMP_INDOOR");
+					i_I2C_ProbeDevice(&hi2c1, 1, ADDR_TEMP_OUTDOOR, "TEMP_OUTDOOR");
+					b_temp_probed = true;
+				}
+
 				e_COMM_STAT_t ret = e_Temp_InOut_Ready();
 				if(ret == COMM_STAT_DONE)		{ready_mask |= modeCONFIG_TEMP_OUT;}
-				else if(ret == COMM_STAT_ERR)	{v_Mode_Set_Error(modeERR_TEMP_OUT);}
+				else if(ret == COMM_STAT_ERR)	{
+					printf("[SENSOR_FAIL] Temperature sensor init FAILED on I2C1\r\n");
+					v_Mode_Set_Error(modeERR_TEMP_OUT);
+				}
 			}
 			else{
+				// TOF sensor DISABLED - not mounted on Device B
+#if 0
 				if(!(ready_mask & modeCONFIG_TOF)){
+					extern I2C_HandleTypeDef hi2c1;
+					i_I2C_ProbeDevice(&hi2c1, 1, ADDR_TOF1, "TOF");
+
 					e_COMM_STAT_t ret = e_TOF_Ready();
 					if(ret == COMM_STAT_DONE)		{ready_mask |= modeCONFIG_TOF;}
-					else if(ret == COMM_STAT_ERR)	{v_Mode_Set_Error(modeERR_TOF);}
+					else if(ret == COMM_STAT_ERR)	{
+						printf("[SENSOR_FAIL] TOF sensor init FAILED on I2C1\r\n");
+						v_Mode_Set_Error(modeERR_TOF);
+					}
 				}
+#else
+				// Skip TOF - assume always ready
+				ready_mask |= modeCONFIG_TOF;
+#endif
 			}
 			if(ready_mask == (modeCONFIG_IMU | modeCONFIG_AUDIO | modeCONFIG_TEMP_OUT | modeCONFIG_TOF)){
 				if(!(ready_mask & modeCONFIG_IR_TEMP)){
+					// Probe MLX90640 IR camera ONCE before initialization
+					static bool b_mlx_probed = false;
+					if(!b_mlx_probed){
+						extern I2C_HandleTypeDef hi2c4;
+						i_I2C_ProbeDevice(&hi2c4, 4, ADDR_IR_TEMP, "MLX90640");
+						b_mlx_probed = true;
+					}
+
 					e_COMM_STAT_t ret = e_IR_Temp_Ready();
 					if(ret == COMM_STAT_DONE)		{ready_mask |= modeCONFIG_IR_TEMP;}
-					else if(ret == COMM_STAT_ERR)	{v_Mode_Set_Error(modeERR_TEMP_IR);}
+					else if(ret == COMM_STAT_ERR)	{
+						printf("[SENSOR_FAIL] IR Temperature init FAILED on I2C4 - MLX90640 issue\r\n");
+						v_Mode_Set_Error(modeERR_TEMP_IR);
+					}
 				}
 			}
 		}
@@ -1174,6 +1267,16 @@ static void v_Mode_Booting(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t* 
 		//timeout
 		if(_b_Tim_Is_OVR(u32_Tim_1msGet(), px_pub->u32_timToutRef, tout)){
 			//timeout to error
+			printf("[SENSOR_TIMEOUT] Sensor init timeout - ready_mask=0x%04X (expect 0x%04X)\r\n",
+			       ready_mask, modeCONFIG_CPLT);
+			printf("[SENSOR_TIMEOUT] Missing sensors:\r\n");
+			if(!(ready_mask & modeCONFIG_IMU))    printf("  - IMU\r\n");
+			if(!(ready_mask & modeCONFIG_FSR))    printf("  - FSR\r\n");
+			if(!(ready_mask & modeCONFIG_AUDIO))  printf("  - Audio Codec\r\n");
+			if(!(ready_mask & modeCONFIG_TEMP_OUT)) printf("  - Temp Sensor\r\n");
+			if(!(ready_mask & modeCONFIG_TOF))    printf("  - TOF Sensor\r\n");
+			if(!(ready_mask & modeCONFIG_IR_TEMP)) printf("  - IR Temp\r\n");
+
 			e_modeERR_t err=0;
 			if(!(ready_mask & modeCONFIG_IMU)){err |= modeERR_IMU;}
 			if(!(ready_mask & modeCONFIG_IR_TEMP)){err |= modeERR_TEMP_IR;}
@@ -1188,6 +1291,7 @@ static void v_Mode_Booting(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t* 
 
 		//error check
 		if(e_Mode_Get_Error()){
+			v_I2C_DiagDump();  // Dump I2C bus status before entering ERROR mode
 			v_Mode_SetNext(modeERROR);
 		}
 
@@ -1788,16 +1892,79 @@ void v_Mode_WakeUp(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t* px_pub){
 /////////////////////////////////
 //	MODE - Error
 /////////////////////////////////
+
+// 에러별 LED 5비트 패턴 정의
+typedef struct {
+	e_modeERR_t error_code;   // 에러 코드
+	uint8_t led_pattern;      // 5비트 패턴 (0-31)
+} s_ERROR_LED_CONFIG_t;
+
+// 에러별 LED 패턴 테이블 (깜빡임 속도는 모두 500ms로 통일)
+// LED 배치: [5][4][3][2][1] (왼쪽부터 오른쪽)
+// 비트 순서: LED1=bit0(LSB), LED5=bit4(MSB)
+static const s_ERROR_LED_CONFIG_t ERROR_LED_TABLE[] = {
+	{modeERR_TEMP_IR,     0b00001},  // ○○○○● - 열화상 카메라
+	{modeERR_TEMP_OUT,    0b00010},  // ○○○●○ - 온도 센서
+	{modeERR_TOF,         0b00011},  // ○○○●● - 거리 센서
+	{modeERR_IMU,         0b00100},  // ○○●○○ - 자이로 센서
+	{modeERR_FSR,         0b00101},  // ○○●○● - 압력 센서
+	{modeERR_AUDIO,       0b00110},  // ○○●●○ - 오디오 모듈
+	{modeERR_MP3_FILE,    0b00111},  // ○○●●● - MP3 파일 없음
+	{modeERR_SD_MOUNT,    0b01000},  // ○●○○○ - SD 카드 오류
+	{modeERR_BLOW_FAN,    0b01001},  // ○●○○● - 송풍팬 고장
+	{modeERR_COOL_FAN,    0b01010},  // ○●○●○ - 쿨링팬 고장
+	{modeERR_ESP_COMM,    0b01011},  // ○●○●● - WiFi 통신 끊김
+	{modeERR_HEATER_CURR, 0b11111},  // ●●●●● - 히터 과전류 (긴급!)
+};
+#define ERROR_LED_TABLE_SIZE (sizeof(ERROR_LED_TABLE) / sizeof(s_ERROR_LED_CONFIG_t))
+
+// 에러 코드에 해당하는 LED 패턴 찾기
+static uint8_t u8_Get_Error_LED_Pattern(e_modeERR_t err) {
+	// 테이블에서 첫 번째 매칭되는 에러 찾기
+	for(uint8_t i = 0; i < ERROR_LED_TABLE_SIZE; i++) {
+		if(ERROR_LED_TABLE[i].error_code & err) {
+			return ERROR_LED_TABLE[i].led_pattern;
+		}
+	}
+	// 매칭 실패 시 기본 패턴 (모든 LED 켜짐)
+	return 0b11111;
+}
+
+// 5비트 패턴을 10개 LED에 적용 (상단 5개 + 하단 5개 미러)
+static void v_Set_Error_LED_Pattern(uint8_t pattern, bool blink_state) {
+	uint8_t R = blink_state ? MODE_ERROR_LED_R : 0;
+	uint8_t G = blink_state ? MODE_ERROR_LED_G : 0;
+	uint8_t B = blink_state ? MODE_ERROR_LED_B : 0;
+
+	// 5개 LED를 비트마스크에 따라 개별 제어
+	for(uint8_t i = 0; i < 5; i++) {
+		bool led_on = (pattern & (1 << i)) ? true : false;
+
+		if(led_on) {
+			// 이 LED는 패턴에 포함 → 깜빡임 상태에 따라 ON/OFF
+			b_RGB_Set_Color(RGB_TOP_1 + i, R, G, B);
+			b_RGB_Set_Color(RGB_BOT_1 + i, R, G, B);  // 하단 미러
+		} else {
+			// 이 LED는 패턴에 없음 → 항상 OFF
+			b_RGB_Set_Color(RGB_TOP_1 + i, 0, 0, 0);
+			b_RGB_Set_Color(RGB_BOT_1 + i, 0, 0, 0);
+		}
+	}
+
+	// CRITICAL: Trigger RGB PWM output to SK6812 hardware
+	v_RGB_Refresh_Enable();
+}
+
 static void v_Mode_Error_Led(uint16_t u16_toggle){
-	//blink every 0.5 s
-	if(u16_toggle & 1){
-		v_RGB_Set_Top(0, 0, 0);
-		v_RGB_Set_Bot(0, 0, 0);
-	}
-	else{
-		v_RGB_Set_Top(MODE_ERROR_LED_R, MODE_ERROR_LED_G, MODE_ERROR_LED_B);
-		v_RGB_Set_Bot(MODE_ERROR_LED_R, MODE_ERROR_LED_G, MODE_ERROR_LED_B);
-	}
+	//blink every 0.5 s using 5-bit pattern based on error type
+	e_modeERR_t err = e_Mode_Get_Error();
+	uint8_t pattern = u8_Get_Error_LED_Pattern(err);
+
+	// 깜빡임 상태: 홀수=OFF, 짝수=ON
+	bool blink_state = (u16_toggle & 1) ? false : true;
+
+	// 패턴 적용
+	v_Set_Error_LED_Pattern(pattern, blink_state);
 }
 
 static void v_Mode_Error(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t* px_pub){
@@ -1812,6 +1979,7 @@ static void v_Mode_Error(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t* px
 			px_pub->u32_timLedRef = u32_Tim_1msGet();
 			px_pub->u32_timLedItv = 0;
 			ledToggle = 0;
+			v_RGB_Enable_Duty();  // Enable RGB PWM for error pattern display
 			//sound
 			if(i_Mode_Get_MP3_Play()){
 				// MEDIUM: Stop any currently playing MP3 before error sound
@@ -2118,6 +2286,7 @@ void v_Mode_Init(){
 		v_Mode_SetInit(modeBOOTING);
 	}
 	else{
+		printf("[MODE_OFF_INIT] Cold boot detected, RTC_backup=0x%08lX, starting in modeOFF\r\n", u32_RTC_Read_BKUP());
 		v_Mode_SetInit(modeOFF);
 	}
 #endif
@@ -2264,5 +2433,29 @@ __attribute__((unused)) static void v_Mode_SubBD_Print(){
 		printf("[R] ACC - X : %-7d, Y : %-7d, Z : %-7d / GYRO - X : %-7d, Y : %-7d, Z : %-7d", imu_R[0], imu_R[1], imu_R[2], imu_R[3], imu_R[4], imu_R[5]);
 		printf("Temp : %.2f\n", f_Temp_Out_Get());
 	}
+}
+
+// 에러 LED 패턴 테스트 함수 (시리얼 명령어로 호출용)
+void v_Mode_Error_LED_Test(e_modeERR_t test_error) {
+	printf("[LED_TEST] Testing error pattern for code: 0x%04X\r\n", test_error);
+
+	// 에러 강제 설정
+	e_modeError = test_error;
+	v_Mode_SetNext(modeERROR);
+
+	// 예상 패턴 출력
+	uint8_t pattern = u8_Get_Error_LED_Pattern(test_error);
+	printf("  LED Pattern (5-bit): 0b%c%c%c%c%c\r\n",
+	       (pattern & 0b10000) ? '1' : '0',
+	       (pattern & 0b01000) ? '1' : '0',
+	       (pattern & 0b00100) ? '1' : '0',
+	       (pattern & 0b00010) ? '1' : '0',
+	       (pattern & 0b00001) ? '1' : '0');
+	printf("  Visual: [%c][%c][%c][%c][%c]\r\n",
+	       (pattern & 0b10000) ? 'O' : 'X',
+	       (pattern & 0b01000) ? 'O' : 'X',
+	       (pattern & 0b00100) ? 'O' : 'X',
+	       (pattern & 0b00010) ? 'O' : 'X',
+	       (pattern & 0b00001) ? 'O' : 'X');
 }
 

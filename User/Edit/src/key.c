@@ -109,6 +109,7 @@ void v_Key_Power_Handler(){
 				if(!p_act->reg.bit.b1_long){
 					//short
 					if(id == modeOFF){
+						printf("[MODE_OFF_TRIGGER] Power button short press (no-op), already in modeOFF\r\n");
 						v_Mode_SetNext(modeOFF);
 					}
 				}
@@ -121,6 +122,7 @@ void v_Key_Power_Handler(){
 					if(id > modeBOOTING){
 						if(id != modeOFF){
 							//power down
+							printf("[MODE_OFF_TRIGGER] Power button long press (>1.5s), prev_mode=%d\r\n", id);
 							v_Mode_SetNext(modeOFF);
 						}
 						else{

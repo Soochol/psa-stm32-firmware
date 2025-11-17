@@ -305,10 +305,15 @@ int main(void)
 
   //power enable
   v_IO_Enable_12V();
+  uint32_t t_12v_on = HAL_GetTick();
+  printf("[POWER] 12V enabled at t=%lu ms\r\n", t_12v_on);
+
 #if IWDG_USED
   HAL_IWDG_Refresh(&hiwdg1);
 #endif
 
+  // GPS initialization after 12V power is stable
+#if 1  // GPS ENABLED - SAM-M10Q on I2C3
   // Wait for GPS module to boot (SAM-M10Q needs ~1-2 seconds)
   HAL_Delay(2000);
 
@@ -316,12 +321,17 @@ int main(void)
   HAL_IWDG_Refresh(&hiwdg1);  // Refresh after GPS boot delay
 #endif
 
+  printf("[POWER] GPS boot delay complete at t=%lu ms (elapsed=%lu ms)\r\n",
+         HAL_GetTick(), HAL_GetTick() - t_12v_on);
+
   // Initialize GPS after 12V power is stable
   v_GPS_Init();
+  printf("[POWER] GPS init completed at t=%lu ms\r\n", HAL_GetTick());
 
 #if IWDG_USED
   HAL_IWDG_Refresh(&hiwdg1);  // Refresh after GPS init
 #endif
+#endif // GPS initialization
 
   HAL_Delay(100);
 
@@ -337,13 +347,13 @@ int main(void)
 
     /* USER CODE BEGIN 3 */
 #if IWDG_USED
-	  // CRITICAL: Conditional watchdog refresh to detect system failures
-	  // Only refresh watchdog if system is healthy (not in ERROR state)
-	  // This ensures the watchdog resets the MCU if critical failures occur
-	  if(e_Mode_Get_CurrID() != modeERROR){
-		  HAL_IWDG_Refresh(&hiwdg1);
-	  }
-	  // If in ERROR state, watchdog will NOT refresh and will reset MCU after timeout
+	  // CRITICAL: Always refresh watchdog in main loop
+	  // ERROR mode is a valid operational state (displays LED error patterns)
+	  // Watchdog ensures main loop is running, even in ERROR state
+	  HAL_IWDG_Refresh(&hiwdg1);
+
+	  // Note: If system truly hangs (infinite loop, stack overflow, etc.),
+	  // watchdog will still trigger reset after 2 seconds
 #endif
 	  v_Tim_1s_Test();
 
@@ -351,6 +361,7 @@ int main(void)
 	  v_Uart_Handler();
 	  v_Key_Handler();
 	  v_GPS_Handler();
+	  v_GPS_Tout_Handler();  // GPS I2C timeout monitoring
 	  v_Mode_Handler();
 	  v_RGB_PWM_Out();
 

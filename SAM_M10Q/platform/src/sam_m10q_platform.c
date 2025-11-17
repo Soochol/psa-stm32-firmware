@@ -365,46 +365,12 @@ void v_GPS_Init(void) {
         cfg_attempts++;
     }
 
-    // STEP 4: Send CFG-SAVE (only if CFG-PRT was ACKed)
+    // STEP 4: Configuration complete (RAM layer - no CFG-SAVE needed)
+    // SparkFun method: RAM-only config, no flash save required
     if(cfg_ack_status == 1) {
-        uint8_t cfg_save_buf[21];
-        int save_len = i_UBX_CreateCfgSave(cfg_save_buf, sizeof(cfg_save_buf), 0x0000001F);
-
-        v_printf_poll("GPS: Sending CFG-SAVE (%d bytes)\r\n", save_len);
-
-#if IWDG_USED
-        HAL_IWDG_Refresh(&hiwdg1);
-#endif
-
-        // Drain before CFG-SAVE (GPS may have output more data)
-        v_printf_poll("GPS: Draining before CFG-SAVE...\r\n");
-        int save_drain_ret = i_GPS_DrainPendingData(&hi2c3, ADDR_GPS);
-        if(save_drain_ret != 0) {
-            v_printf_poll("GPS: Drain failed before CFG-SAVE - trying anyway\r\n");
-        }
-
-        // Send CFG-SAVE immediately after drain
-        HAL_StatusTypeDef save_write_ret = HAL_I2C_Mem_Write(&hi2c3, ADDR_GPS, SAM_M10Q_REG_STREAM,
-                                                               I2C_MEMADD_SIZE_8BIT, cfg_save_buf, save_len, 500);
-
-        if(save_write_ret != HAL_OK) {
-            v_printf_poll("GPS: CFG-SAVE write fail (0x%02lX)\r\n", hi2c3.ErrorCode);
-        } else {
-            v_printf_poll("GPS: CFG-SAVE sent, waiting for ACK...\r\n");
-
-            // Wait for ACK-ACK response (Class=0x06, ID=0x09 for CFG-CFG/CFG-SAVE)
-            int save_ack_status = i_GPS_WaitForACK(&hi2c3, ADDR_GPS, 0x06, 0x09, 500);
-
-            if(save_ack_status == 1) {
-                v_printf_poll("GPS: CFG-SAVE accepted - config saved to flash!\r\n");
-            } else if(save_ack_status == 0) {
-                v_printf_poll("GPS: CFG-SAVE rejected (NAK) - RAM config still active\r\n");
-            } else {
-                v_printf_poll("GPS: CFG-SAVE ACK timeout - RAM config may still be active\r\n");
-            }
-        }
+        v_printf_poll("GPS: Config complete (RAM layer active - will reset on power cycle)\r\n");
     } else {
-        v_printf_poll("GPS: Skipping CFG-SAVE (CFG-PRT was not ACKed)\r\n");
+        v_printf_poll("GPS: Config failed after 3 attempts\r\n");
     }
 
     // Configuration complete - reset communication state
