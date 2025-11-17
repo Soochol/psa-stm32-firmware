@@ -1980,6 +1980,28 @@ static void v_Mode_Error(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t* px
 			px_pub->u32_timLedItv = 0;
 			ledToggle = 0;
 			v_RGB_Enable_Duty();  // Enable RGB PWM for error pattern display
+
+			// ========== Actuator Safety Shutdown (Dual-Layer) ==========
+			printf("[ERROR_MODE] *** Actuator shutdown initiated ***\r\n");
+
+			// 1st Layer: Software PWM shutdown
+			v_Mode_Heater_Off();        // Heater PWM → 0, PID reset
+			printf("  [SHUTDOWN] Heater: OFF (PWM=0, PID reset)\r\n");
+
+			v_Mode_HeatPad_Disable();   // Heat pad PWM → 0
+			printf("  [SHUTDOWN] Heat Pad: OFF (PWM=0)\r\n");
+
+			v_Mode_BlowFan_Disable();   // Blow fan PWM → 0
+			printf("  [SHUTDOWN] Blow Fan: OFF (PWM=0)\r\n");
+
+			// 2nd Layer: Hardware enable pin shutdown
+			HAL_GPIO_WritePin(DO_PAD_EN_GPIO_Port, DO_PAD_EN_Pin, GPIO_PIN_RESET);
+			printf("  [SHUTDOWN] DO_PAD_EN: RESET (GPIO=LOW, hardware cutoff)\r\n");
+
+			// ✅ Cooling fan remains active (residual heat removal)
+			printf("  [ACTIVE] Cooling Fan: ON (residual heat removal)\r\n");
+			printf("[ERROR_MODE] *** Actuator shutdown complete ***\r\n");
+
 			//sound
 			if(i_Mode_Get_MP3_Play()){
 				// MEDIUM: Stop any currently playing MP3 before error sound
