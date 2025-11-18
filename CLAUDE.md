@@ -2,6 +2,37 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## 🎯 Claude Code Workflow Guidelines
+
+**IMPORTANT**: When working on this project, you MUST follow the enhanced workflow defined in [.claude/commands/ss-enhanced.md](.claude/commands/ss-enhanced.md).
+
+This command provides:
+
+- **Context-aware task analysis** - Automatically loads relevant memories and documentation
+- **Intelligent command selection** - Domain-filtered `/sc:` commands for embedded systems
+- **Parallel execution optimization** - Maximizes efficiency with parallel tool coordination
+- **Session context recovery** - Prevents redundant analysis by reusing previous work
+- **Memory management protocol** - Structured documentation for future sessions
+
+**Key Workflow Phases**:
+
+1. **Phase 0**: Load relevant memories from `.serena/memories/` to avoid redundant work
+2. **Phase 1**: Analyze task domain (embedded), complexity, and scope
+3. **Phase 2**: Select appropriate `/sc:` commands or specialized agents
+4. **Phase 3**: Expand context (CLAUDE.md, dependencies, related code) if needed
+5. **Phase 4**: Execute with parallel tool coordination for optimal performance
+6. **Phase 5**: Save findings to memory using structured format (`.templates/memory_template.md`)
+
+**Use `/sc:` commands for embedded tasks**:
+
+- `/sc:implement --type driver|service` - Peripheral drivers, RTOS tasks
+- `/sc:analyze --focus performance|security` - Firmware analysis, memory safety
+- `/sc:troubleshoot --type build|runtime` - Build errors, HAL issues
+- `/sc:test --type unit|integration` - Embedded unit tests
+- `/sc:document --type api|guide` - Driver documentation
+
+**Refer to [.claude/commands/ss-enhanced.md](.claude/commands/ss-enhanced.md) for complete details.**
+
 ## Project Overview
 
 This is an embedded firmware project for the STM32H723VGTx microcontroller, targeting a product called "WithForce" (version 1.00.34). The device appears to be a therapeutic/wellness device with heating, cooling, force sensing, audio playback, and multiple sensor capabilities.
