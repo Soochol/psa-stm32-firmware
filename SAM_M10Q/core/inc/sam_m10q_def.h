@@ -112,6 +112,16 @@ extern "C" {
 #define CFG_MSGOUT_UBX_NAV_PVT_I2C   0x20910006  // PVT message output rate on I2C (U1)
 
 /*
+ * GNSS Signal Configuration Keys
+ * Controls which satellite constellations are enabled
+ * Type: L (boolean) - true to enable, false to disable
+ */
+#define CFG_SIGNAL_GPS_ENA           0x1031001F  // GPS enable (L)
+#define CFG_SIGNAL_GALILEO_ENA       0x10310021  // Galileo enable (L)
+#define CFG_SIGNAL_GLONASS_ENA       0x10310025  // GLONASS enable (L)
+#define CFG_SIGNAL_BEIDOU_ENA        0x10310022  // BeiDou enable (L)
+
+/*
  * GPS Fix Types
  */
 typedef enum {

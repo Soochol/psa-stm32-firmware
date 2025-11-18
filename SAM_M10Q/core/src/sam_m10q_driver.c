@@ -114,8 +114,9 @@ int i_SAM_M10Q_Handler(_x_SAM_M10Q_DRV_t* px_drv) {
                 }
                 // If bus busy, stay in READ_DATA, will retry next iteration silently
             } else {
-                // No data available, poll for PVT
-                px_drv->e_state = SAM_M10Q_STATE_POLL_PVT;
+                // No data available - return to IDLE and wait for Auto PVT
+                // (Auto PVT is enabled via CFG_MSGOUT_UBX_NAV_PVT_I2C=1, no manual polling needed)
+                px_drv->e_state = SAM_M10Q_STATE_IDLE;
             }
             break;
 

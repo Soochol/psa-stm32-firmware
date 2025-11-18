@@ -320,6 +320,12 @@ int i_UBX_CreateCfgI2C(uint8_t* pu8_buf, uint16_t u16_bufSize,
     // Enable auto PVT output (SparkFun setAutoPVT(true) equivalent)
     ADD_CFG_KEY_U1(CFG_MSGOUT_UBX_NAV_PVT_I2C, 1);  // Output PVT every nav solution
 
+    // Multi-GNSS mode for better satellite visibility (2-3x more satellites)
+    ADD_CFG_KEY_L(CFG_SIGNAL_GPS_ENA, true);        // GPS enabled (US)
+    ADD_CFG_KEY_L(CFG_SIGNAL_GALILEO_ENA, true);    // Galileo enabled (EU)
+    ADD_CFG_KEY_L(CFG_SIGNAL_GLONASS_ENA, true);    // GLONASS enabled (Russia)
+    ADD_CFG_KEY_L(CFG_SIGNAL_BEIDOU_ENA, true);     // BeiDou enabled (China)
+
     #undef ADD_CFG_KEY_L
     #undef ADD_CFG_KEY_U1
     #undef ADD_CFG_KEY_U2

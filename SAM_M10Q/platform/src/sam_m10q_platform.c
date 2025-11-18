@@ -66,7 +66,7 @@ static int i_GPS_WaitForACK(I2C_HandleTypeDef* hi2c, uint8_t addr,
 
         // Check if data available
         HAL_StatusTypeDef ret = HAL_I2C_Mem_Read(hi2c, addr, SAM_M10Q_REG_AVAIL_MSB,
-                                                  I2C_MEMADD_SIZE_8BIT, avail_buf, 2, 100);
+                                                  I2C_MEMADD_SIZE_8BIT, avail_buf, 2, 200);
 
         if(ret != HAL_OK) {
             v_printf_poll("GPS: ACK wait - I2C error (0x%02lX)\r\n", hi2c->ErrorCode);
@@ -202,54 +202,23 @@ static int i_GPS_DrainPendingData(I2C_HandleTypeDef* hi2c, uint8_t addr) {
 void v_GPS_Init(void) {
     v_printf_poll("\r\n*** GPS INIT START (FW v2025-01-14 + SPARKFUN FIX) ***\r\n");
 
-    // STEP 1: Complete I2C3 hardware reset
+    // STEP 1: Verify I2C3 is ready and ensure interrupts are enabled
+    // I2C3 is already initialized in main.c during boot - no need to reset
     extern I2C_HandleTypeDef hi2c3;
-    extern void v_I2C3_Pin_Deinit(void);
 
-    v_printf_poll("GPS: I2C3 State before reset=0x%02X (0x20=READY)\r\n", hi2c3.State);
+    v_printf_poll("GPS: I2C3 State=0x%02X (0x20=READY)\r\n", hi2c3.State);
 
-    // Step 1a: GPIO-level bus recovery
-    v_I2C3_Pin_Deinit();
-    HAL_Delay(50);
-
-    // Step 1b: HAL-level deinit
-    HAL_I2C_DeInit(&hi2c3);
-
-    // Step 1c: RCC-level force reset
-    __HAL_RCC_I2C3_FORCE_RESET();
-    HAL_Delay(2);
-    __HAL_RCC_I2C3_RELEASE_RESET();
-
-    v_printf_poll("GPS: I2C3 RCC force reset complete\r\n");
-
-    // Step 1d: Full reinit
-    hi2c3.State = HAL_I2C_STATE_RESET;
-    hi2c3.Instance = I2C3;
-    hi2c3.Init.Timing = 0x009032AE;
-    hi2c3.Init.OwnAddress1 = 0;
-    hi2c3.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
-    hi2c3.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
-    hi2c3.Init.OwnAddress2 = 0;
-    hi2c3.Init.OwnAddress2Masks = I2C_OA2_NOMASK;
-    hi2c3.Init.GeneralCallMode = I2C_GENERALCALL_DISABLE;
-    hi2c3.Init.NoStretchMode = I2C_NOSTRETCH_DISABLE;
-
-    HAL_StatusTypeDef init_ret = HAL_I2C_Init(&hi2c3);
-    v_printf_poll("GPS: HAL_I2C_Init returned %d (0=OK)\r\n", init_ret);
-    v_printf_poll("GPS: I2C3 State after init=0x%02X (0x20=READY)\r\n", hi2c3.State);
-
-    if(init_ret != HAL_OK) {
-        v_printf_poll("GPS: ERROR - HAL_I2C_Init failed! ErrorCode=0x%08lX\r\n", hi2c3.ErrorCode);
-    }
-
-    // Configure filters
-    HAL_I2CEx_ConfigAnalogFilter(&hi2c3, I2C_ANALOGFILTER_ENABLE);
-    HAL_I2CEx_ConfigDigitalFilter(&hi2c3, 0);
+    // CRITICAL: Ensure I2C3 interrupts are enabled for interrupt mode operation
+    HAL_NVIC_SetPriority(I2C3_EV_IRQn, 1, 0);
+    HAL_NVIC_EnableIRQ(I2C3_EV_IRQn);
+    HAL_NVIC_SetPriority(I2C3_ER_IRQn, 1, 0);
+    HAL_NVIC_EnableIRQ(I2C3_ER_IRQn);
+    v_printf_poll("GPS: I2C3 interrupts verified and enabled\r\n");
 
     // Initialize GPS communication state
     e_gps_comm = COMM_STAT_READY;
     v_I2C3_Set_Comm_Ready();
-    v_printf_poll("GPS: I2C3 reset complete - State=0x%02X\r\n", hi2c3.State);
+    v_printf_poll("GPS: I2C3 ready for GPS communication\r\n");
 
     // Setup transport layer
     _x_SAM_M10Q_TRANS_t trans;
@@ -467,11 +436,11 @@ void v_GPS_Handler(void) {
 }
 
 /*
- * brief: Timeout handler (2 second timeout)
+ * brief: Timeout handler (1.2 second timeout for 1Hz Auto PVT)
  */
 void v_GPS_Tout_Handler(void) {
     if((e_gps_comm == COMM_STAT_BUSY) &&
-       _b_Tim_Is_OVR(u32_Tim_1msGet(), u32_toutRef, 2000)) {
+       _b_Tim_Is_OVR(u32_Tim_1msGet(), u32_toutRef, 1200)) {
         // Abort I2C transaction
         extern I2C_HandleTypeDef hi2c3;
         HAL_I2C_Master_Abort_IT(&hi2c3, ADDR_GPS);
@@ -494,7 +463,7 @@ static int i_GPS_Write(uint8_t u8_addr, uint16_t u16_reg, uint8_t* pu8_arr, uint
         uint32_t now = u32_Tim_1msGet();
         if(busy_start == 0) {
             busy_start = now;  // Start timeout timer
-        } else if((now - busy_start) > 2000) {  // 2 second timeout
+        } else if((now - busy_start) > 1200) {  // 1.2 second timeout (1.2x nav rate)
             v_printf_poll("GPS: Write BUSY timeout - force READY recovery\r\n");
             e_gps_comm = COMM_STAT_READY;
             busy_start = 0;
@@ -530,7 +499,7 @@ static int i_GPS_Read(uint8_t u8_addr, uint16_t u16_reg, uint16_t u16_len) {
         uint32_t now = u32_Tim_1msGet();
         if(busy_start == 0) {
             busy_start = now;  // Start timeout timer
-        } else if((now - busy_start) > 2000) {  // 2 second timeout
+        } else if((now - busy_start) > 1200) {  // 1.2 second timeout (1.2x nav rate)
             v_printf_poll("GPS: Read BUSY timeout - force READY recovery\r\n");
             e_gps_comm = COMM_STAT_READY;
             busy_start = 0;
