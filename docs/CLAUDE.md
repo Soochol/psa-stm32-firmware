@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 🎯 Claude Code Workflow Guidelines
 
-**IMPORTANT**: When working on this project, you MUST follow the enhanced workflow defined in [.claude/commands/ss-enhanced.md](.claude/commands/ss-enhanced.md).
+**IMPORTANT**: When working on this project, you MUST follow the enhanced workflow defined in [.claude/commands/ss-enhanced.md](../.claude/commands/ss-enhanced.md).
 
 This command provides:
 

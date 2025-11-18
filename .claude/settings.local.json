@@ -25,7 +25,10 @@
       "Bash(find:*)",
       "Bash(git log:*)",
       "Bash(nul)",
-      "Bash(git checkout:*)"
+      "Bash(git checkout:*)",
+      "Bash(git reset:*)",
+      "Bash(git stash:*)",
+      "Bash(git mv:*)"
     ],
     "deny": [],
     "ask": []
