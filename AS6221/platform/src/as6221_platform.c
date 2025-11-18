@@ -130,7 +130,7 @@ void v_Temp_InOut_Tout_Handler(){
 		HAL_I2C_Master_Abort_IT(p_i2c, ADDR_TEMP_INDOOR);
 		e_temp_in_evt = COMM_STAT_READY;
 		e_temp_inout_config = COMM_STAT_ERR;
-		v_Mode_Set_Error(modeERR_TEMP_OUT);
+		v_Mode_Set_Error(modeERR_TEMP_IN);  // FIX 1.00.35: Was modeERR_TEMP_OUT (copy-paste bug)
 		v_Mode_SetNext(modeERROR);
 	}
 

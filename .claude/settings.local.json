@@ -24,7 +24,8 @@
       "Bash(cat:*)",
       "Bash(find:*)",
       "Bash(git log:*)",
-      "Bash(nul)"
+      "Bash(nul)",
+      "Bash(git checkout:*)"
     ],
     "deny": [],
     "ask": []

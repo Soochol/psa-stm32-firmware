@@ -46,6 +46,7 @@ int i_SAM_M10Q_Handler(_x_SAM_M10Q_DRV_t* px_drv) {
     if(px_drv->e_state != prev_state) {
         const char* state_names[] = {"IDLE", "CHECK_AVAIL", "WAIT_AVAIL", "READ_DATA",
                                      "WAIT_DATA", "PARSE", "POLL_PVT", "WAIT_POLL", "ERROR"};
+        (void)state_names;  // Used only in LOG_DEBUG (suppress warning when logs disabled)
         if(px_drv->e_state < 9) {
             LOG_DEBUG("GPS", "State: %s", state_names[px_drv->e_state]);
         }
@@ -162,6 +163,7 @@ int i_SAM_M10Q_Handler(_x_SAM_M10Q_DRV_t* px_drv) {
                             int32_t lon_deg = px_drv->x_pvt.lon / 10000000;
                             int32_t lon_frac = px_drv->x_pvt.lon % 10000000;
                             if(lon_frac < 0) lon_frac = -lon_frac;
+                            (void)lat_deg; (void)lat_frac; (void)lon_deg; (void)lon_frac;  // Suppress warnings when logs disabled
                             LOG_DEBUG("GPS", "  Lat=%ld.%07ld° Lon=%ld.%07ld°",
                                           lat_deg, lat_frac, lon_deg, lon_frac);
 
@@ -175,6 +177,7 @@ int i_SAM_M10Q_Handler(_x_SAM_M10Q_DRV_t* px_drv) {
                             int32_t head_deg = px_drv->x_pvt.headMot / 100000;
                             int32_t head_frac = px_drv->x_pvt.headMot % 100000;
                             if(head_frac < 0) head_frac = -head_frac;
+                            (void)alt_m; (void)alt_mm; (void)spd_ms; (void)spd_mms; (void)head_deg; (void)head_frac;  // Suppress warnings
                             LOG_DEBUG("GPS", "  Alt=%ld.%03ldm Speed=%ld.%03ldm/s Head=%ld.%05ld°",
                                           alt_m, alt_mm, spd_ms, spd_mms, head_deg, head_frac);
 

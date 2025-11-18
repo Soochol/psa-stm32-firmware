@@ -2452,6 +2452,7 @@ __attribute__((unused)) static void v_Mode_SubBD_Print(){
 		timRef = u32_Tim_1msGet();
 		int16_t* imu_L = pi16_IMU_Get_Left();
 		int16_t* imu_R = pi16_IMU_Get_Right();
+		(void)imu_L; (void)imu_R;  // Suppress warnings when logs disabled
 		LOG_DEBUG("MODE", "[L] ACC - X : %-7d, Y : %-7d, Z : %-7d / GYRO - X : %-7d, Y : %-7d, Z : %-7d", imu_L[0], imu_L[1], imu_L[2], imu_L[3], imu_L[4], imu_L[5]);
 		LOG_DEBUG("MODE", "[R] ACC - X : %-7d, Y : %-7d, Z : %-7d / GYRO - X : %-7d, Y : %-7d, Z : %-7d", imu_R[0], imu_R[1], imu_R[2], imu_R[3], imu_R[4], imu_R[5]);
 		LOG_DEBUG("MODE", "Temp : %.2f", f_Temp_Out_Get());
@@ -2468,6 +2469,7 @@ void v_Mode_Error_LED_Test(e_modeERR_t test_error) {
 
 	// 예상 패턴 출력
 	uint8_t pattern = u8_Get_Error_LED_Pattern(test_error);
+	(void)pattern;  // Suppress warning when logs disabled
 	LOG_INFO("MODE", "  LED Pattern (5-bit): 0b%c%c%c%c%c",
 	       (pattern & 0b10000) ? '1' : '0',
 	       (pattern & 0b01000) ? '1' : '0',

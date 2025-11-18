@@ -205,6 +205,7 @@ void v_GPS_Test_Monitor(void) {
                 int32_t head_deg = pvt->headMot / 100000;
                 int32_t head_frac = pvt->headMot % 100000;
                 if(head_frac < 0) head_frac = -head_frac;
+                (void)head_deg; (void)head_frac;  // Suppress warnings when logs disabled
                 LOG_INFO("GPS_TEST", "Heading:     %ld.%05ld°",
                               head_deg, head_frac);
             }

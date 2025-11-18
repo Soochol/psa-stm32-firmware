@@ -169,6 +169,7 @@ e_modeID_t e_Mode_Get_CurrID();
 typedef enum {
 	modeERR_TEMP_IR		=(1<<0),
 	modeERR_TEMP_OUT	=(1<<1),
+	modeERR_TEMP_IN		=(1<<2),	//add : 1.00.35 - Indoor temperature sensor (AS6221 0x48)
 	modeERR_IMU			=(1<<3),
 	modeERR_BLOW_FAN	=(1<<4),
 	modeERR_COOL_FAN	=(1<<5),

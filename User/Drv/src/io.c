@@ -194,6 +194,7 @@ void v_I2C5_Pin_Deinit(){
  */
 void v_I2C_DiagDump(void) {
 	extern I2C_HandleTypeDef hi2c1, hi2c2, hi2c3, hi2c4, hi2c5;
+	(void)hi2c1; (void)hi2c2; (void)hi2c3; (void)hi2c4; (void)hi2c5;  // Suppress warnings when logs disabled
 
 	LOG_ERROR("I2C", "Bus Status Dump:");
 	LOG_ERROR("I2C", "I2C1: State=0x%02X, Error=0x%08lX, ISR=0x%08lX",

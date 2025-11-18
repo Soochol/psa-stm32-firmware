@@ -307,6 +307,7 @@ int main(void)
   //power enable
   v_IO_Enable_12V();
   uint32_t t_12v_on = HAL_GetTick();
+  (void)t_12v_on;  // Used only in LOG_INFO (suppress warning when logs disabled)
   LOG_INFO("POWER", "12V enabled at t=%lu ms", t_12v_on);
 
 #if IWDG_USED
