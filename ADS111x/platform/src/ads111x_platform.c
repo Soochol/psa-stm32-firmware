@@ -5,6 +5,7 @@
 #include "adc.h"
 #include "mode.h"
 #include "stdio.h"
+#include "lib_log.h"
 
 /*
  *
@@ -110,18 +111,18 @@ void v_FSR_Tout_Handler(){
 	//if left active
 	if(i_toutAct_L && _b_Tim_Is_OVR(u32_Tim_1msGet(), u32_toutRef_L, 2000)){
 		//timeout
-		printf("[FSR_TIMEOUT] FSR_LEFT I2C2 timeout (addr=0x%02X)\r\n", ADDR_FSR_LEFT);
-		printf("  ISR=0x%08lX (BUSY=%d, STOPF=%d)\r\n",
+		LOG_ERROR("ADS111x", "FSR_LEFT I2C2 timeout (addr=0x%02X)", ADDR_FSR_LEFT);
+		LOG_ERROR("ADS111x", "  ISR=0x%08lX (BUSY=%d, STOPF=%d)",
 		       p_i2c->Instance->ISR,
 		       (p_i2c->Instance->ISR & 0x8000) ? 1 : 0,  // BUSY bit
 		       (p_i2c->Instance->ISR & 0x0020) ? 1 : 0); // STOPF bit
-		printf("  ErrorCode=0x%08lX\r\n", p_i2c->ErrorCode);
-		if(p_i2c->ErrorCode & HAL_I2C_ERROR_BERR)    printf("    - Bus Error\r\n");
-		if(p_i2c->ErrorCode & HAL_I2C_ERROR_ARLO)    printf("    - Arbitration Lost\r\n");
-		if(p_i2c->ErrorCode & HAL_I2C_ERROR_AF)      printf("    - NACK (device not responding)\r\n");
-		if(p_i2c->ErrorCode & HAL_I2C_ERROR_OVR)     printf("    - Overrun\r\n");
-		if(p_i2c->ErrorCode & HAL_I2C_ERROR_TIMEOUT) printf("    - HAL Timeout\r\n");
-		if(p_i2c->ErrorCode & HAL_I2C_ERROR_DMA)     printf("    - DMA Error\r\n");
+		LOG_ERROR("ADS111x", "  ErrorCode=0x%08lX", p_i2c->ErrorCode);
+		if(p_i2c->ErrorCode & HAL_I2C_ERROR_BERR)    LOG_ERROR("ADS111x", "    - Bus Error");
+		if(p_i2c->ErrorCode & HAL_I2C_ERROR_ARLO)    LOG_ERROR("ADS111x", "    - Arbitration Lost");
+		if(p_i2c->ErrorCode & HAL_I2C_ERROR_AF)      LOG_ERROR("ADS111x", "    - NACK (device not responding)");
+		if(p_i2c->ErrorCode & HAL_I2C_ERROR_OVR)     LOG_ERROR("ADS111x", "    - Overrun");
+		if(p_i2c->ErrorCode & HAL_I2C_ERROR_TIMEOUT) LOG_ERROR("ADS111x", "    - HAL Timeout");
+		if(p_i2c->ErrorCode & HAL_I2C_ERROR_DMA)     LOG_ERROR("ADS111x", "    - DMA Error");
 
 		i_toutAct_L = 0;
 		e_fsr_config = COMM_STAT_ERR;
@@ -132,18 +133,18 @@ void v_FSR_Tout_Handler(){
 	//if right active
 	if(i_toutAct_R && _b_Tim_Is_OVR(u32_Tim_1msGet(), u32_toutRef_R, 2000)){
 		//timeout
-		printf("[FSR_TIMEOUT] FSR_RIGHT I2C2 timeout (addr=0x%02X)\r\n", ADDR_FSR_RIGHT);
-		printf("  ISR=0x%08lX (BUSY=%d, STOPF=%d)\r\n",
+		LOG_ERROR("ADS111x", "FSR_RIGHT I2C2 timeout (addr=0x%02X)", ADDR_FSR_RIGHT);
+		LOG_ERROR("ADS111x", "  ISR=0x%08lX (BUSY=%d, STOPF=%d)",
 		       p_i2c->Instance->ISR,
 		       (p_i2c->Instance->ISR & 0x8000) ? 1 : 0,  // BUSY bit
 		       (p_i2c->Instance->ISR & 0x0020) ? 1 : 0); // STOPF bit
-		printf("  ErrorCode=0x%08lX\r\n", p_i2c->ErrorCode);
-		if(p_i2c->ErrorCode & HAL_I2C_ERROR_BERR)    printf("    - Bus Error\r\n");
-		if(p_i2c->ErrorCode & HAL_I2C_ERROR_ARLO)    printf("    - Arbitration Lost\r\n");
-		if(p_i2c->ErrorCode & HAL_I2C_ERROR_AF)      printf("    - NACK (device not responding)\r\n");
-		if(p_i2c->ErrorCode & HAL_I2C_ERROR_OVR)     printf("    - Overrun\r\n");
-		if(p_i2c->ErrorCode & HAL_I2C_ERROR_TIMEOUT) printf("    - HAL Timeout\r\n");
-		if(p_i2c->ErrorCode & HAL_I2C_ERROR_DMA)     printf("    - DMA Error\r\n");
+		LOG_ERROR("ADS111x", "  ErrorCode=0x%08lX", p_i2c->ErrorCode);
+		if(p_i2c->ErrorCode & HAL_I2C_ERROR_BERR)    LOG_ERROR("ADS111x", "    - Bus Error");
+		if(p_i2c->ErrorCode & HAL_I2C_ERROR_ARLO)    LOG_ERROR("ADS111x", "    - Arbitration Lost");
+		if(p_i2c->ErrorCode & HAL_I2C_ERROR_AF)      LOG_ERROR("ADS111x", "    - NACK (device not responding)");
+		if(p_i2c->ErrorCode & HAL_I2C_ERROR_OVR)     LOG_ERROR("ADS111x", "    - Overrun");
+		if(p_i2c->ErrorCode & HAL_I2C_ERROR_TIMEOUT) LOG_ERROR("ADS111x", "    - HAL Timeout");
+		if(p_i2c->ErrorCode & HAL_I2C_ERROR_DMA)     LOG_ERROR("ADS111x", "    - DMA Error");
 
 		i_toutAct_R = 0;
 		e_fsr_config = COMM_STAT_ERR;

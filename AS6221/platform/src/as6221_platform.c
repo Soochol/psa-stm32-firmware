@@ -5,6 +5,7 @@
 #include "i2c.h"
 #include "stdio.h"
 #include "mode.h"
+#include "lib_log.h"
 
 
 static _AS6221_DRV_t x_drv;
@@ -113,18 +114,18 @@ static e_COMM_STAT_t e_temp_inout_config;
 void v_Temp_InOut_Tout_Handler(){
 	if((e_temp_in_evt == COMM_STAT_BUSY) && _b_Tim_Is_OVR(u32_Tim_1msGet(), u32_toutRef_In, 2000)){
 		// MEDIUM: Abort DMA transaction to prevent I2C bus lockup
-		printf("[TEMP_TIMEOUT] TEMP_INDOOR I2C1 timeout (addr=0x%02X)\r\n", ADDR_TEMP_INDOOR);
-		printf("  ISR=0x%08lX (BUSY=%d, STOPF=%d)\r\n",
+		LOG_ERROR("AS6221", "TEMP_INDOOR I2C1 timeout (addr=0x%02X)", ADDR_TEMP_INDOOR);
+		LOG_ERROR("AS6221", "  ISR=0x%08lX (BUSY=%d, STOPF=%d)",
 		       p_i2c->Instance->ISR,
 		       (p_i2c->Instance->ISR & 0x8000) ? 1 : 0,  // BUSY bit
 		       (p_i2c->Instance->ISR & 0x0020) ? 1 : 0); // STOPF bit
-		printf("  ErrorCode=0x%08lX\r\n", p_i2c->ErrorCode);
-		if(p_i2c->ErrorCode & HAL_I2C_ERROR_BERR)    printf("    - Bus Error\r\n");
-		if(p_i2c->ErrorCode & HAL_I2C_ERROR_ARLO)    printf("    - Arbitration Lost\r\n");
-		if(p_i2c->ErrorCode & HAL_I2C_ERROR_AF)      printf("    - NACK (device not responding)\r\n");
-		if(p_i2c->ErrorCode & HAL_I2C_ERROR_OVR)     printf("    - Overrun\r\n");
-		if(p_i2c->ErrorCode & HAL_I2C_ERROR_TIMEOUT) printf("    - HAL Timeout\r\n");
-		if(p_i2c->ErrorCode & HAL_I2C_ERROR_DMA)     printf("    - DMA Error\r\n");
+		LOG_ERROR("AS6221", "  ErrorCode=0x%08lX", p_i2c->ErrorCode);
+		if(p_i2c->ErrorCode & HAL_I2C_ERROR_BERR)    LOG_ERROR("AS6221", "    - Bus Error");
+		if(p_i2c->ErrorCode & HAL_I2C_ERROR_ARLO)    LOG_ERROR("AS6221", "    - Arbitration Lost");
+		if(p_i2c->ErrorCode & HAL_I2C_ERROR_AF)      LOG_ERROR("AS6221", "    - NACK (device not responding)");
+		if(p_i2c->ErrorCode & HAL_I2C_ERROR_OVR)     LOG_ERROR("AS6221", "    - Overrun");
+		if(p_i2c->ErrorCode & HAL_I2C_ERROR_TIMEOUT) LOG_ERROR("AS6221", "    - HAL Timeout");
+		if(p_i2c->ErrorCode & HAL_I2C_ERROR_DMA)     LOG_ERROR("AS6221", "    - DMA Error");
 
 		HAL_I2C_Master_Abort_IT(p_i2c, ADDR_TEMP_INDOOR);
 		e_temp_in_evt = COMM_STAT_READY;
@@ -135,18 +136,18 @@ void v_Temp_InOut_Tout_Handler(){
 
 	if((e_temp_out_evt == COMM_STAT_BUSY) && _b_Tim_Is_OVR(u32_Tim_1msGet(), u32_toutRef_Out, 2000)){
 		// MEDIUM: Abort DMA transaction to prevent I2C bus lockup
-		printf("[TEMP_TIMEOUT] TEMP_OUTDOOR I2C1 timeout (addr=0x%02X)\r\n", ADDR_TEMP_OUTDOOR);
-		printf("  ISR=0x%08lX (BUSY=%d, STOPF=%d)\r\n",
+		LOG_ERROR("AS6221", "TEMP_OUTDOOR I2C1 timeout (addr=0x%02X)", ADDR_TEMP_OUTDOOR);
+		LOG_ERROR("AS6221", "  ISR=0x%08lX (BUSY=%d, STOPF=%d)",
 		       p_i2c->Instance->ISR,
 		       (p_i2c->Instance->ISR & 0x8000) ? 1 : 0,  // BUSY bit
 		       (p_i2c->Instance->ISR & 0x0020) ? 1 : 0); // STOPF bit
-		printf("  ErrorCode=0x%08lX\r\n", p_i2c->ErrorCode);
-		if(p_i2c->ErrorCode & HAL_I2C_ERROR_BERR)    printf("    - Bus Error\r\n");
-		if(p_i2c->ErrorCode & HAL_I2C_ERROR_ARLO)    printf("    - Arbitration Lost\r\n");
-		if(p_i2c->ErrorCode & HAL_I2C_ERROR_AF)      printf("    - NACK (device not responding)\r\n");
-		if(p_i2c->ErrorCode & HAL_I2C_ERROR_OVR)     printf("    - Overrun\r\n");
-		if(p_i2c->ErrorCode & HAL_I2C_ERROR_TIMEOUT) printf("    - HAL Timeout\r\n");
-		if(p_i2c->ErrorCode & HAL_I2C_ERROR_DMA)     printf("    - DMA Error\r\n");
+		LOG_ERROR("AS6221", "  ErrorCode=0x%08lX", p_i2c->ErrorCode);
+		if(p_i2c->ErrorCode & HAL_I2C_ERROR_BERR)    LOG_ERROR("AS6221", "    - Bus Error");
+		if(p_i2c->ErrorCode & HAL_I2C_ERROR_ARLO)    LOG_ERROR("AS6221", "    - Arbitration Lost");
+		if(p_i2c->ErrorCode & HAL_I2C_ERROR_AF)      LOG_ERROR("AS6221", "    - NACK (device not responding)");
+		if(p_i2c->ErrorCode & HAL_I2C_ERROR_OVR)     LOG_ERROR("AS6221", "    - Overrun");
+		if(p_i2c->ErrorCode & HAL_I2C_ERROR_TIMEOUT) LOG_ERROR("AS6221", "    - HAL Timeout");
+		if(p_i2c->ErrorCode & HAL_I2C_ERROR_DMA)     LOG_ERROR("AS6221", "    - DMA Error");
 
 		HAL_I2C_Master_Abort_IT(p_i2c, ADDR_TEMP_OUTDOOR);
 		e_temp_out_evt = COMM_STAT_READY;
@@ -351,7 +352,7 @@ void v_TempOut_Test(){
 			u16_tempOut |= rd[1];
 			tempOutDoor = u16_tempOut * TEMP_LSB_UNIT;
 
-			printf("out : %.2f\n", tempOutDoor);
+			LOG_DEBUG("AS6221", "out : %.2f", tempOutDoor);
 		}
 	}
 }

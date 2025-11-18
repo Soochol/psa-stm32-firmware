@@ -20,6 +20,7 @@
 #include "sk6812_platform.h"	//led
 //tilt
 //#include "quaternion_mahony.h"
+#include "lib_log.h"
 
 #define MODE_LOG_ENABLED	0
 
@@ -113,7 +114,7 @@ void v_Mode_SetNext(e_modeID_t e_id){
 
 	// Debug logging for modeOFF transitions
 	if(e_id == modeOFF){
-		printf("[MODE_OFF_REQ] Transition to modeOFF from mode=%d\r\n", px_work->guide.e_curr);
+		LOG_INFO("MODE", "Transition to modeOFF from mode=%d", px_work->guide.e_curr);
 	}
 
 	px_work->guide.e_next = e_id;
@@ -130,13 +131,13 @@ void v_Mode_SetNext(e_modeID_t e_id){
  *			  - Should only be called from v_Mode_Handler()
  */
 void v_Mode_MoveNext(x_modeWORK_t* px_work){
-	printf("[MODE_CHANGE] %d -> %d (error=0x%04X)\r\n",
+	LOG_INFO("MODE", "%d -> %d (error=0x%04X)",
 	       px_work->guide.e_curr,
 	       px_work->guide.e_next,
 	       e_Mode_Get_Error());
 
 	if(px_work->guide.e_next == modeERROR) {
-		printf("[MODE_ERROR] Entering ERROR mode - GPS handler will NOT run!\r\n");
+		LOG_ERROR("MODE", "Entering ERROR mode - GPS handler will NOT run!");
 	}
 
 	px_work->guide.e_prev = px_work->guide.e_curr;
@@ -1135,8 +1136,8 @@ static void v_Mode_Booting(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t* 
 					// If both IMU sensors NACK, skip initialization to avoid timeout
 					if(ret_L != 0 && ret_R != 0){
 						imu_probe_result = 1;  // Both NACK
-						printf("[SENSOR_SKIP] Both IMU sensors NACK - skipping init to avoid watchdog\r\n");
-						printf("[SENSOR_FAIL] System will enter ERROR mode with IMU error\r\n");
+						LOG_WARN("MODE", "Both IMU sensors NACK - skipping init to avoid watchdog");
+						LOG_ERROR("MODE", "System will enter ERROR mode with IMU error");
 						ready_mask |= modeCONFIG_IMU;  // Skip init
 						v_Mode_Set_Error(modeERR_IMU);  // Set error flag
 					}
@@ -1151,7 +1152,7 @@ static void v_Mode_Booting(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t* 
 					ret = e_IMU_Ready();
 					if(ret == COMM_STAT_DONE){ready_mask |= modeCONFIG_IMU;}
 					else if(ret == COMM_STAT_ERR){
-						printf("[SENSOR_FAIL] IMU init FAILED on I2C2 - Device B hardware issue?\r\n");
+						LOG_ERROR("MODE", "IMU init FAILED on I2C2 - Device B hardware issue?");
 						v_Mode_Set_Error(modeERR_IMU);
 					}
 				}
@@ -1171,7 +1172,7 @@ static void v_Mode_Booting(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t* 
 					ret = e_FSR_Ready();
 					if(ret == COMM_STAT_DONE)		{ready_mask |= modeCONFIG_FSR;}
 					else if(ret == COMM_STAT_ERR)	{
-						printf("[SENSOR_FAIL] FSR init FAILED on I2C2 - ADC issue\r\n");
+						LOG_ERROR("MODE", "FSR init FAILED on I2C2 - ADC issue");
 						v_Mode_Set_Error(modeERR_FSR);
 					}
 				}
@@ -1195,7 +1196,7 @@ static void v_Mode_Booting(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t* 
 				e_COMM_STAT_t ret = e_Temp_InOut_Ready();
 				if(ret == COMM_STAT_DONE)		{ready_mask |= modeCONFIG_TEMP_OUT;}
 				else if(ret == COMM_STAT_ERR)	{
-					printf("[SENSOR_FAIL] Temperature sensor init FAILED on I2C1\r\n");
+					LOG_ERROR("MODE", "Temperature sensor init FAILED on I2C1");
 					v_Mode_Set_Error(modeERR_TEMP_OUT);
 				}
 			}
@@ -1209,7 +1210,7 @@ static void v_Mode_Booting(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t* 
 					e_COMM_STAT_t ret = e_TOF_Ready();
 					if(ret == COMM_STAT_DONE)		{ready_mask |= modeCONFIG_TOF;}
 					else if(ret == COMM_STAT_ERR)	{
-						printf("[SENSOR_FAIL] TOF sensor init FAILED on I2C1\r\n");
+						LOG_ERROR("MODE", "TOF sensor init FAILED on I2C1");
 						v_Mode_Set_Error(modeERR_TOF);
 					}
 				}
@@ -1231,7 +1232,7 @@ static void v_Mode_Booting(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t* 
 					e_COMM_STAT_t ret = e_IR_Temp_Ready();
 					if(ret == COMM_STAT_DONE)		{ready_mask |= modeCONFIG_IR_TEMP;}
 					else if(ret == COMM_STAT_ERR)	{
-						printf("[SENSOR_FAIL] IR Temperature init FAILED on I2C4 - MLX90640 issue\r\n");
+						LOG_ERROR("MODE", "IR Temperature init FAILED on I2C4 - MLX90640 issue");
 						v_Mode_Set_Error(modeERR_TEMP_IR);
 					}
 				}
@@ -1267,15 +1268,15 @@ static void v_Mode_Booting(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t* 
 		//timeout
 		if(_b_Tim_Is_OVR(u32_Tim_1msGet(), px_pub->u32_timToutRef, tout)){
 			//timeout to error
-			printf("[SENSOR_TIMEOUT] Sensor init timeout - ready_mask=0x%04X (expect 0x%04X)\r\n",
+			LOG_ERROR("MODE", "Sensor init timeout - ready_mask=0x%04X (expect 0x%04X)",
 			       ready_mask, modeCONFIG_CPLT);
-			printf("[SENSOR_TIMEOUT] Missing sensors:\r\n");
-			if(!(ready_mask & modeCONFIG_IMU))    printf("  - IMU\r\n");
-			if(!(ready_mask & modeCONFIG_FSR))    printf("  - FSR\r\n");
-			if(!(ready_mask & modeCONFIG_AUDIO))  printf("  - Audio Codec\r\n");
-			if(!(ready_mask & modeCONFIG_TEMP_OUT)) printf("  - Temp Sensor\r\n");
-			if(!(ready_mask & modeCONFIG_TOF))    printf("  - TOF Sensor\r\n");
-			if(!(ready_mask & modeCONFIG_IR_TEMP)) printf("  - IR Temp\r\n");
+			LOG_ERROR("MODE", "Missing sensors:");
+			if(!(ready_mask & modeCONFIG_IMU))    LOG_ERROR("MODE", "  - IMU");
+			if(!(ready_mask & modeCONFIG_FSR))    LOG_ERROR("MODE", "  - FSR");
+			if(!(ready_mask & modeCONFIG_AUDIO))  LOG_ERROR("MODE", "  - Audio Codec");
+			if(!(ready_mask & modeCONFIG_TEMP_OUT)) LOG_ERROR("MODE", "  - Temp Sensor");
+			if(!(ready_mask & modeCONFIG_TOF))    LOG_ERROR("MODE", "  - TOF Sensor");
+			if(!(ready_mask & modeCONFIG_IR_TEMP)) LOG_ERROR("MODE", "  - IR Temp");
 
 			e_modeERR_t err=0;
 			if(!(ready_mask & modeCONFIG_IMU)){err |= modeERR_IMU;}
@@ -1982,25 +1983,25 @@ static void v_Mode_Error(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t* px
 			v_RGB_Enable_Duty();  // Enable RGB PWM for error pattern display
 
 			// ========== Actuator Safety Shutdown (Dual-Layer) ==========
-			printf("[ERROR_MODE] *** Actuator shutdown initiated ***\r\n");
+			LOG_ERROR("MODE", "*** Actuator shutdown initiated ***");
 
 			// 1st Layer: Software PWM shutdown
 			v_Mode_Heater_Off();        // Heater PWM → 0, PID reset
-			printf("  [SHUTDOWN] Heater: OFF (PWM=0, PID reset)\r\n");
+			LOG_INFO("MODE", "  Heater: OFF (PWM=0, PID reset)");
 
 			v_Mode_HeatPad_Disable();   // Heat pad PWM → 0
-			printf("  [SHUTDOWN] Heat Pad: OFF (PWM=0)\r\n");
+			LOG_INFO("MODE", "  Heat Pad: OFF (PWM=0)");
 
 			v_Mode_BlowFan_Disable();   // Blow fan PWM → 0
-			printf("  [SHUTDOWN] Blow Fan: OFF (PWM=0)\r\n");
+			LOG_INFO("MODE", "  Blow Fan: OFF (PWM=0)");
 
 			// 2nd Layer: Hardware enable pin shutdown
 			HAL_GPIO_WritePin(DO_PAD_EN_GPIO_Port, DO_PAD_EN_Pin, GPIO_PIN_RESET);
-			printf("  [SHUTDOWN] DO_PAD_EN: RESET (GPIO=LOW, hardware cutoff)\r\n");
+			LOG_INFO("MODE", "  DO_PAD_EN: RESET (GPIO=LOW, hardware cutoff)");
 
 			// ✅ Cooling fan remains active (residual heat removal)
-			printf("  [ACTIVE] Cooling Fan: ON (residual heat removal)\r\n");
-			printf("[ERROR_MODE] *** Actuator shutdown complete ***\r\n");
+			LOG_INFO("MODE", "  Cooling Fan: ON (residual heat removal)");
+			LOG_ERROR("MODE", "*** Actuator shutdown complete ***");
 
 			//sound
 			if(i_Mode_Get_MP3_Play()){
@@ -2010,8 +2011,8 @@ static void v_Mode_Error(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t* px
 			}
 			//debug
 #if MODE_LOG_ENABLED
-			printf("error start.\n");
-			printf("prev mode : %d\n", px_work->guide.e_prev);
+			LOG_DEBUG("MODE", "error start.");
+			LOG_DEBUG("MODE", "prev mode : %d", px_work->guide.e_prev);
 #endif
 			v_ESP_Send_EvtModeChange(ESP_EVT_MODE_ERROR);
 			v_ESP_Send_Error((uint16_t)e_Mode_Get_Error());
@@ -2308,7 +2309,7 @@ void v_Mode_Init(){
 		v_Mode_SetInit(modeBOOTING);
 	}
 	else{
-		printf("[MODE_OFF_INIT] Cold boot detected, RTC_backup=0x%08lX, starting in modeOFF\r\n", u32_RTC_Read_BKUP());
+		LOG_INFO("MODE", "Cold boot detected, RTC_backup=0x%08lX, starting in modeOFF", u32_RTC_Read_BKUP());
 		v_Mode_SetInit(modeOFF);
 	}
 #endif
@@ -2451,15 +2452,15 @@ __attribute__((unused)) static void v_Mode_SubBD_Print(){
 		timRef = u32_Tim_1msGet();
 		int16_t* imu_L = pi16_IMU_Get_Left();
 		int16_t* imu_R = pi16_IMU_Get_Right();
-		printf("[L] ACC - X : %-7d, Y : %-7d, Z : %-7d / GYRO - X : %-7d, Y : %-7d, Z : %-7d", imu_L[0], imu_L[1], imu_L[2], imu_L[3], imu_L[4], imu_L[5]);
-		printf("[R] ACC - X : %-7d, Y : %-7d, Z : %-7d / GYRO - X : %-7d, Y : %-7d, Z : %-7d", imu_R[0], imu_R[1], imu_R[2], imu_R[3], imu_R[4], imu_R[5]);
-		printf("Temp : %.2f\n", f_Temp_Out_Get());
+		LOG_DEBUG("MODE", "[L] ACC - X : %-7d, Y : %-7d, Z : %-7d / GYRO - X : %-7d, Y : %-7d, Z : %-7d", imu_L[0], imu_L[1], imu_L[2], imu_L[3], imu_L[4], imu_L[5]);
+		LOG_DEBUG("MODE", "[R] ACC - X : %-7d, Y : %-7d, Z : %-7d / GYRO - X : %-7d, Y : %-7d, Z : %-7d", imu_R[0], imu_R[1], imu_R[2], imu_R[3], imu_R[4], imu_R[5]);
+		LOG_DEBUG("MODE", "Temp : %.2f", f_Temp_Out_Get());
 	}
 }
 
 // 에러 LED 패턴 테스트 함수 (시리얼 명령어로 호출용)
 void v_Mode_Error_LED_Test(e_modeERR_t test_error) {
-	printf("[LED_TEST] Testing error pattern for code: 0x%04X\r\n", test_error);
+	LOG_INFO("MODE", "Testing error pattern for code: 0x%04X", test_error);
 
 	// 에러 강제 설정
 	e_modeError = test_error;
@@ -2467,13 +2468,13 @@ void v_Mode_Error_LED_Test(e_modeERR_t test_error) {
 
 	// 예상 패턴 출력
 	uint8_t pattern = u8_Get_Error_LED_Pattern(test_error);
-	printf("  LED Pattern (5-bit): 0b%c%c%c%c%c\r\n",
+	LOG_INFO("MODE", "  LED Pattern (5-bit): 0b%c%c%c%c%c",
 	       (pattern & 0b10000) ? '1' : '0',
 	       (pattern & 0b01000) ? '1' : '0',
 	       (pattern & 0b00100) ? '1' : '0',
 	       (pattern & 0b00010) ? '1' : '0',
 	       (pattern & 0b00001) ? '1' : '0');
-	printf("  Visual: [%c][%c][%c][%c][%c]\r\n",
+	LOG_INFO("MODE", "  Visual: [%c][%c][%c][%c][%c]",
 	       (pattern & 0b10000) ? 'O' : 'X',
 	       (pattern & 0b01000) ? 'O' : 'X',
 	       (pattern & 0b00100) ? 'O' : 'X',

@@ -13,12 +13,10 @@
 #include "tim.h"
 #include "mode.h"
 #include "uart.h"
+#include "lib_log.h"
 #include <string.h>
 
 // I2C address for GPS is defined in i2c.h as ADDR_GPS
-
-// Debug flag: Set to 1 to enable raw hex dump logs, 0 to suppress for cleaner output
-#define GPS_DEBUG_RAW_DATA 1
 
 // Driver instance
 static _x_SAM_M10Q_DRV_t x_gps_drv;
@@ -56,7 +54,7 @@ static int i_GPS_WaitForACK(I2C_HandleTypeDef* hi2c, uint8_t addr,
     extern IWDG_HandleTypeDef hiwdg1;
 #endif
 
-    v_printf_poll("GPS: Waiting for ACK (Class=0x%02X, ID=0x%02X)...\r\n", msgClass, msgID);
+    LOG_DEBUG("GPS", "Waiting for ACK (Class=0x%02X, ID=0x%02X)...", msgClass, msgID);
 
     // Start reading immediately - GPS sends ACK very quickly
     while((HAL_GetTick() - start_time) < timeout_ms) {
@@ -69,7 +67,7 @@ static int i_GPS_WaitForACK(I2C_HandleTypeDef* hi2c, uint8_t addr,
                                                   I2C_MEMADD_SIZE_8BIT, avail_buf, 2, 200);
 
         if(ret != HAL_OK) {
-            v_printf_poll("GPS: ACK wait - I2C error (0x%02lX)\r\n", hi2c->ErrorCode);
+            LOG_ERROR("GPS", "ACK wait - I2C error (0x%02lX)", hi2c->ErrorCode);
             return -1;
         }
 
@@ -82,17 +80,12 @@ static int i_GPS_WaitForACK(I2C_HandleTypeDef* hi2c, uint8_t addr,
                                    I2C_MEMADD_SIZE_8BIT, read_buf, to_read, 200);
 
             if(ret != HAL_OK) {
-                v_printf_poll("GPS: ACK read fail\r\n");
+                LOG_ERROR("GPS", "ACK read fail");
                 return -1;
             }
 
-            // Debug: Show first bytes of what we read
-            v_printf_poll("GPS: Read %d bytes: ", to_read);
-            uint16_t debug_len = (to_read > 16) ? 16 : to_read;
-            for(uint16_t j = 0; j < debug_len; j++) {
-                v_printf_poll("%02X ", read_buf[j]);
-            }
-            v_printf_poll("%s\r\n", (to_read > 16) ? "..." : "");
+            // Debug: Show first bytes of what we read (verbose level hex dump)
+            LOG_DEBUG("GPS", "Read %d bytes (first 16)", to_read);
 
             // Search for UBX ACK message in received data
             for(uint16_t i = 0; i < to_read - 9; i++) {  // ACK message is 10 bytes
@@ -118,10 +111,10 @@ static int i_GPS_WaitForACK(I2C_HandleTypeDef* hi2c, uint8_t addr,
                                 // Valid checksum - verify it's for our message
                                 if(ack_class == msgClass && ack_id == msgID) {
                                     if(ackType == UBX_ACK_ACK) {
-                                        v_printf_poll("GPS: ACK-ACK received!\r\n");
+                                        LOG_INFO("GPS", "ACK-ACK received!");
                                         return 1;  // ACK
                                     } else if(ackType == UBX_ACK_NAK) {
-                                        v_printf_poll("GPS: ACK-NAK received (GPS rejected command)\r\n");
+                                        LOG_WARN("GPS", "ACK-NAK received (GPS rejected command)");
                                         return 0;  // NAK
                                     }
                                 }
@@ -135,7 +128,7 @@ static int i_GPS_WaitForACK(I2C_HandleTypeDef* hi2c, uint8_t addr,
         HAL_Delay(10);  // Short delay before next check
     }
 
-    v_printf_poll("GPS: ACK timeout (%lu ms)\r\n", timeout_ms);
+    LOG_WARN("GPS", "ACK timeout (%lu ms)", timeout_ms);
     return -1;  // Timeout
 }
 
@@ -152,7 +145,7 @@ static int i_GPS_DrainPendingData(I2C_HandleTypeDef* hi2c, uint8_t addr) {
     extern IWDG_HandleTypeDef hiwdg1;
 #endif
 
-    v_printf_poll("GPS: Draining...\r\n");
+    LOG_DEBUG("GPS", "Draining...");
 
     // CRITICAL FIX: Limit attempts to 3 to prevent watchdog timeout
     // 3 attempts × 200ms = 600ms max (safe for 2s watchdog)
@@ -166,7 +159,7 @@ static int i_GPS_DrainPendingData(I2C_HandleTypeDef* hi2c, uint8_t addr) {
                                                   I2C_MEMADD_SIZE_8BIT, avail_buf, 2, 100);
 
         if(ret != HAL_OK) {
-            v_printf_poll("GPS: Drain failed (0x%02lX) - GPS may not be connected\r\n", hi2c->ErrorCode);
+            LOG_WARN("GPS", "Drain failed (0x%02lX) - GPS may not be connected", hi2c->ErrorCode);
             // Don't retry if GPS not responding - save watchdog time
             return -1;
         }
@@ -175,11 +168,11 @@ static int i_GPS_DrainPendingData(I2C_HandleTypeDef* hi2c, uint8_t addr) {
         uint16_t avail_bytes = (avail_buf[0] << 8) | avail_buf[1];
 
         if(avail_bytes == 0 || avail_bytes == 0xFFFF) {
-            v_printf_poll("GPS: Drain OK (avail=0x%04X)\r\n", avail_bytes);
+            LOG_DEBUG("GPS", "Drain OK (avail=0x%04X)", avail_bytes);
             return 0;  // Success
         }
 
-        v_printf_poll("GPS: Drain - %d bytes avail\r\n", avail_bytes);
+        LOG_DEBUG("GPS", "Drain - %d bytes avail", avail_bytes);
 
         // Read and discard data
         uint16_t to_read = (avail_bytes > sizeof(dummy_buf)) ? sizeof(dummy_buf) : avail_bytes;
@@ -187,7 +180,7 @@ static int i_GPS_DrainPendingData(I2C_HandleTypeDef* hi2c, uint8_t addr) {
                                I2C_MEMADD_SIZE_8BIT, dummy_buf, to_read, 200);
 
         if(ret != HAL_OK) {
-            v_printf_poll("GPS: Drain read fail\r\n");
+            LOG_ERROR("GPS", "Drain read fail");
             return -1;
         }
 
@@ -195,30 +188,30 @@ static int i_GPS_DrainPendingData(I2C_HandleTypeDef* hi2c, uint8_t addr) {
         drain_attempts++;
     }
 
-    v_printf_poll("GPS: Drain - max attempts\r\n");
+    LOG_WARN("GPS", "Drain - max attempts");
     return -1;
 }
 
 void v_GPS_Init(void) {
-    v_printf_poll("\r\n*** GPS INIT START (FW v2025-01-14 + SPARKFUN FIX) ***\r\n");
+    LOG_INFO("GPS", "*** GPS INIT START (FW v2025-01-14 + SPARKFUN FIX) ***");
 
     // STEP 1: Verify I2C3 is ready and ensure interrupts are enabled
     // I2C3 is already initialized in main.c during boot - no need to reset
     extern I2C_HandleTypeDef hi2c3;
 
-    v_printf_poll("GPS: I2C3 State=0x%02X (0x20=READY)\r\n", hi2c3.State);
+    LOG_DEBUG("GPS", "I2C3 State=0x%02X (0x20=READY)", hi2c3.State);
 
     // CRITICAL: Ensure I2C3 interrupts are enabled for interrupt mode operation
     HAL_NVIC_SetPriority(I2C3_EV_IRQn, 1, 0);
     HAL_NVIC_EnableIRQ(I2C3_EV_IRQn);
     HAL_NVIC_SetPriority(I2C3_ER_IRQn, 1, 0);
     HAL_NVIC_EnableIRQ(I2C3_ER_IRQn);
-    v_printf_poll("GPS: I2C3 interrupts verified and enabled\r\n");
+    LOG_DEBUG("GPS", "I2C3 interrupts verified and enabled");
 
     // Initialize GPS communication state
     e_gps_comm = COMM_STAT_READY;
     v_I2C3_Set_Comm_Ready();
-    v_printf_poll("GPS: I2C3 ready for GPS communication\r\n");
+    LOG_DEBUG("GPS", "I2C3 ready for GPS communication");
 
     // Setup transport layer
     _x_SAM_M10Q_TRANS_t trans;
@@ -232,13 +225,13 @@ void v_GPS_Init(void) {
     e_gps_init = COMM_STAT_READY;
 
     if(ret == SAM_M10Q_RET_OK) {
-        v_printf_poll("GPS: Driver initialized (I2C3, addr=0x%02X)\r\n", SAM_M10Q_I2C_ADDR_DEFAULT);
+        LOG_INFO("GPS", "Driver initialized (I2C3, addr=0x%02X)", SAM_M10Q_I2C_ADDR_DEFAULT);
     } else {
-        v_printf_poll("GPS: Init failed (ret=%d)\r\n", ret);
+        LOG_ERROR("GPS", "Init failed (ret=%d)", ret);
     }
 
     // STEP 2: No additional delay needed - main.c already waited 2 seconds after 12V enable
-    v_printf_poll("GPS: Starting config (12V already enabled, 2s boot complete)\r\n");
+    LOG_INFO("GPS", "Starting config (12V already enabled, 2s boot complete)");
 
     // STEP 3: Send CFG-VALSET to disable NMEA (M10 generation uses CFG-VALSET, not CFG-PRT!)
     uint8_t cfg_buf[64];  // Reduced size - only 2 config keys now
@@ -250,21 +243,15 @@ void v_GPS_Init(void) {
                                       false);  // Disable NMEA
 
     if(cfg_len < 0) {
-        v_printf_poll("GPS: ERROR - Failed to create CFG-VALSET message\r\n");
+        LOG_ERROR("GPS", "Failed to create CFG-VALSET message");
         e_gps_comm = COMM_STAT_READY;
         return;
     }
 
-    v_printf_poll("GPS: Sending CFG-VALSET (%d bytes) to disable NMEA\r\n", cfg_len);
+    LOG_INFO("GPS", "Sending CFG-VALSET (%d bytes) to disable NMEA", cfg_len);
 
     // Hex dump first 32 bytes for verification
-    v_printf_poll("GPS: CFG-VALSET hex: ");
-    int dump_len = (cfg_len > 32) ? 32 : cfg_len;
-    for(int i = 0; i < dump_len; i++) {
-        v_printf_poll("%02X ", cfg_buf[i]);
-    }
-    if(cfg_len > 32) v_printf_poll("...");
-    v_printf_poll("\r\n");
+    LOG_DEBUG("GPS", "CFG-VALSET created (%d bytes)", cfg_len);
 
     int cfg_attempts = 0;
     int cfg_ack_status = -1;  // -1=not tried, 0=NAK, 1=ACK
@@ -275,19 +262,19 @@ void v_GPS_Init(void) {
         HAL_IWDG_Refresh(&hiwdg1);
 #endif
 
-        v_printf_poll("GPS: CFG-VALSET attempt %d\r\n", cfg_attempts + 1);
+        LOG_DEBUG("GPS", "CFG-VALSET attempt %d", cfg_attempts + 1);
 
         // Drain before EVERY attempt (GPS continuously outputs NMEA)
         int drain_ret = i_GPS_DrainPendingData(&hi2c3, ADDR_GPS);
         if(drain_ret != 0) {
             if(cfg_attempts == 0) {
                 // First attempt drain failed - GPS not connected
-                v_printf_poll("GPS: No GPS detected - skipping config\r\n");
+                LOG_WARN("GPS", "No GPS detected - skipping config");
                 e_gps_comm = COMM_STAT_READY;
                 return;  // Exit early - no GPS present
             } else {
                 // Retry drain failure - try sending anyway
-                v_printf_poll("GPS: Drain failed on retry %d - trying write anyway\r\n", cfg_attempts + 1);
+                LOG_WARN("GPS", "Drain failed on retry %d - trying write anyway", cfg_attempts + 1);
             }
         }
 
@@ -296,39 +283,39 @@ void v_GPS_Init(void) {
                                                          I2C_MEMADD_SIZE_8BIT, cfg_buf, cfg_len, 500);
 
         if(write_ret != HAL_OK) {
-            v_printf_poll("GPS: CFG-VALSET write fail (0x%02lX)\r\n", hi2c3.ErrorCode);
+            LOG_ERROR("GPS", "CFG-VALSET write fail (0x%02lX)", hi2c3.ErrorCode);
             cfg_attempts++;
             continue;
         }
 
-        v_printf_poll("GPS: CFG-VALSET sent, waiting for ACK...\r\n");
+        LOG_DEBUG("GPS", "CFG-VALSET sent, waiting for ACK...");
 
         // Wait for ACK-ACK response (Class=0x06, ID=0x8A for CFG-VALSET)
         cfg_ack_status = i_GPS_WaitForACK(&hi2c3, ADDR_GPS, 0x06, 0x8A, 500);
 
         if(cfg_ack_status == 1) {
             // ACK received - GPS accepted the command
-            v_printf_poll("GPS: CFG-VALSET accepted! NMEA disabled, UBX only\r\n");
+            LOG_INFO("GPS", "CFG-VALSET accepted! NMEA disabled, UBX only");
 
             // CRITICAL: Wait 500ms for GNSS subsystem restart
             // Per u-blox documentation: "Any change to the signal configuration items triggers
             // a restart of the GNSS subsystem. This takes a short time period, so the host
             // application should wait for message acknowledgement and a margin of 0.5 seconds
             // prior to sending any further commands."
-            v_printf_poll("GPS: Waiting 500ms for GNSS subsystem restart...\r\n");
+            LOG_DEBUG("GPS", "Waiting 500ms for GNSS subsystem restart...");
             HAL_Delay(500);
 #if IWDG_USED
             HAL_IWDG_Refresh(&hiwdg1);
 #endif
-            v_printf_poll("GPS: GNSS subsystem ready\r\n");
+            LOG_INFO("GPS", "GNSS subsystem ready");
 
             break;
         } else if(cfg_ack_status == 0) {
             // NAK received - GPS rejected the command
-            v_printf_poll("GPS: CFG-VALSET rejected (NAK) - retrying\r\n");
+            LOG_WARN("GPS", "CFG-VALSET rejected (NAK) - retrying");
         } else {
             // Timeout or error
-            v_printf_poll("GPS: CFG-VALSET ACK timeout - retrying\r\n");
+            LOG_WARN("GPS", "CFG-VALSET ACK timeout - retrying");
         }
 
         cfg_attempts++;
@@ -337,15 +324,15 @@ void v_GPS_Init(void) {
     // STEP 4: Configuration complete (RAM layer - no CFG-SAVE needed)
     // SparkFun method: RAM-only config, no flash save required
     if(cfg_ack_status == 1) {
-        v_printf_poll("GPS: Config complete (RAM layer active - will reset on power cycle)\r\n");
+        LOG_INFO("GPS", "Config complete (RAM layer active - will reset on power cycle)");
     } else {
-        v_printf_poll("GPS: Config failed after 3 attempts\r\n");
+        LOG_ERROR("GPS", "Config failed after 3 attempts");
     }
 
     // Configuration complete - reset communication state
     e_gps_comm = COMM_STAT_READY;
 
-    v_printf_poll("GPS: Init complete - handler will start polling\r\n");
+    LOG_INFO("GPS", "Init complete - handler will start polling");
 }
 
 /*
@@ -382,25 +369,16 @@ void v_GPS_Read_DoneHandler(uint8_t u8_addr, uint8_t* pu8_arr, uint16_t u16_len)
         if(u16_len == 2) {
             // Available bytes count (registers 0xFD, 0xFE) - big-endian
             px_gps->u16_availBytes = (pu8_arr[0] << 8) | pu8_arr[1];
-            v_printf_poll("GPS: Available bytes=%d\r\n", px_gps->u16_availBytes);
+            LOG_DEBUG("GPS", "Available bytes=%d", px_gps->u16_availBytes);
         } else {
             // FIX: Add buffer overflow protection
             if(u16_len <= sizeof(px_gps->u8_rxBuf)) {
                 memcpy(px_gps->u8_rxBuf, pu8_arr, u16_len);
                 px_gps->u16_rxLen = u16_len;
-
-#if GPS_DEBUG_RAW_DATA
-                // Raw hex dump logging (for debugging only)
-                v_printf_poll("GPS: Received %d bytes: ", u16_len);
-                uint16_t dump_len = (u16_len > 16) ? 16 : u16_len;
-                for(uint16_t i = 0; i < dump_len; i++) {
-                    v_printf_poll("%02X ", pu8_arr[i]);
-                }
-                v_printf_poll("%s\r\n", (u16_len > 16) ? "..." : "");
-#endif
+                LOG_DEBUG("GPS", "Received %d bytes", u16_len);
             } else {
                 // Buffer overflow error
-                v_printf_poll("GPS: ERROR - Buffer overflow! len=%d > bufSize=%d\r\n",
+                LOG_ERROR("GPS", "Buffer overflow! len=%d > bufSize=%d",
                               u16_len, sizeof(px_gps->u8_rxBuf));
                 px_gps->u16_rxLen = 0;  // Invalidate data
             }
@@ -415,7 +393,7 @@ void v_GPS_Read_DoneHandler(uint8_t u8_addr, uint8_t* pu8_arr, uint16_t u16_len)
 e_COMM_STAT_t e_GPS_Ready(void) {
     // Simple initialization - driver handles protocol
     if(e_gps_init == COMM_STAT_READY) {
-        v_printf_poll("GPS: Ready - handler will detect device\r\n");
+        LOG_DEBUG("GPS", "Ready - handler will detect device");
         e_gps_init = COMM_STAT_DONE;
     }
     return e_gps_init;
@@ -448,7 +426,7 @@ void v_GPS_Tout_Handler(void) {
 
         // GPS timeout - log warning but don't enter ERROR mode
         // This allows system to continue operating without GPS
-        v_printf_poll("GPS: I2C timeout (no response)\r\n");
+        LOG_WARN("GPS", "I2C timeout (no response)");
     }
 }
 
@@ -464,7 +442,7 @@ static int i_GPS_Write(uint8_t u8_addr, uint16_t u16_reg, uint8_t* pu8_arr, uint
         if(busy_start == 0) {
             busy_start = now;  // Start timeout timer
         } else if((now - busy_start) > 1200) {  // 1.2 second timeout (1.2x nav rate)
-            v_printf_poll("GPS: Write BUSY timeout - force READY recovery\r\n");
+            LOG_WARN("GPS", "Write BUSY timeout - force READY recovery");
             e_gps_comm = COMM_STAT_READY;
             busy_start = 0;
             // Allow this write to proceed after recovery
@@ -486,7 +464,7 @@ static int i_GPS_Write(uint8_t u8_addr, uint16_t u16_reg, uint8_t* pu8_arr, uint
     }
 
     // Actual errors (ret >= 2)
-    v_printf_poll("GPS: Write failed (reg=0x%02X, len=%d, ret=%d)\r\n", u16_reg, u16_len, ret);
+    LOG_ERROR("GPS", "Write failed (reg=0x%02X, len=%d, ret=%d)", u16_reg, u16_len, ret);
     return ret;
 }
 
@@ -500,7 +478,7 @@ static int i_GPS_Read(uint8_t u8_addr, uint16_t u16_reg, uint16_t u16_len) {
         if(busy_start == 0) {
             busy_start = now;  // Start timeout timer
         } else if((now - busy_start) > 1200) {  // 1.2 second timeout (1.2x nav rate)
-            v_printf_poll("GPS: Read BUSY timeout - force READY recovery\r\n");
+            LOG_WARN("GPS", "Read BUSY timeout - force READY recovery");
             e_gps_comm = COMM_STAT_READY;
             busy_start = 0;
             // Allow this read to proceed after recovery
@@ -522,7 +500,7 @@ static int i_GPS_Read(uint8_t u8_addr, uint16_t u16_reg, uint16_t u16_len) {
     }
 
     // Actual errors (ret >= 2)
-    v_printf_poll("GPS: Read failed (reg=0x%02X, len=%d, ret=%d)\r\n", u16_reg, u16_len, ret);
+    LOG_ERROR("GPS", "Read failed (reg=0x%02X, len=%d, ret=%d)", u16_reg, u16_len, ret);
     return ret;
 }
 
@@ -539,7 +517,7 @@ static int i_GPS_Bus(void) {
     // Auto-reset DONE state to READY to allow next transaction
     if(e_gps_comm == COMM_STAT_DONE) {
         if(should_log) {
-            v_printf_poll("GPS_Bus: DONE → READY (returning 0)\r\n");
+            LOG_DEBUG("GPS", "Bus: DONE → READY (returning 0)");
             last_debug_log = now;
         }
         e_gps_comm = COMM_STAT_READY;
@@ -549,7 +527,7 @@ static int i_GPS_Bus(void) {
     // Check if GPS communication channel is ready
     if(e_gps_comm == COMM_STAT_READY) {
         if(should_log) {
-            v_printf_poll("GPS_Bus: READY (returning 0)\r\n");
+            LOG_DEBUG("GPS", "Bus: READY (returning 0)");
             last_debug_log = now;
         }
         return 0;  // Bus is ready for next operation
@@ -557,7 +535,7 @@ static int i_GPS_Bus(void) {
 
     // Bus is busy (COMM_STAT_BUSY or COMM_STAT_OK - waiting for callback)
     if(should_log) {
-        v_printf_poll("GPS_Bus: BUSY (e_gps_comm=%d, returning -1)\r\n", e_gps_comm);
+        LOG_DEBUG("GPS", "Bus: BUSY (e_gps_comm=%d, returning -1)", e_gps_comm);
         last_debug_log = now;
     }
     return -1;
@@ -664,15 +642,14 @@ void v_GPS_Test(void) {
         timRef = u32_Tim_1msGet();
 
         if(b_GPS_HasFix()) {
-            // Using v_printf_poll from uart.h
-            v_printf_poll("GPS: Lat=%.6f Lon=%.6f Alt=%.1fm Sats=%d Fix=%d\r\n",
+            LOG_INFO("GPS", "Lat=%.6f Lon=%.6f Alt=%.1fm Sats=%d Fix=%d",
                           f_GPS_GetLatitude(),
                           f_GPS_GetLongitude(),
                           f_GPS_GetAltitude(),
                           u8_GPS_GetNumSatellites(),
                           u8_GPS_GetFixType());
         } else {
-            v_printf_poll("GPS: No fix (Sats=%d)\r\n", u8_GPS_GetNumSatellites());
+            LOG_INFO("GPS", "No fix (Sats=%d)", u8_GPS_GetNumSatellites());
         }
     }
 }

@@ -6,6 +6,7 @@
 #include "i2c.h"
 //#include "quaternion_mahony.h"
 #include "mode.h"
+#include "lib_log.h"
 
 extern I2C_HandleTypeDef hi2c2;
 static I2C_HandleTypeDef* p_i2c = &hi2c2;
@@ -179,18 +180,18 @@ int i_IMU_Read(uint8_t u8_addr, uint16_t u16_memAddr, uint16_t u16_cnt){
 
 void v_IMU_Tout_Handler(){
 	if((e_imu_evt_L == COMM_STAT_BUSY) && _b_Tim_Is_OVR(u32_Tim_1msGet(), u32_toutRef_L, 2000)){
-		printf("[IMU_TIMEOUT] IMU_LEFT I2C2 timeout\r\n");
-		printf("  ISR=0x%08lX (BUSY=%d, STOPF=%d)\r\n",
+		LOG_ERROR("ICM42670P", "[IMU_TIMEOUT] IMU_LEFT I2C2 timeout");
+		LOG_ERROR("ICM42670P", "  ISR=0x%08lX (BUSY=%d, STOPF=%d)",
 		       p_i2c->Instance->ISR,
 		       (p_i2c->Instance->ISR & 0x8000) ? 1 : 0,  // BUSY bit
 		       (p_i2c->Instance->ISR & 0x0020) ? 1 : 0); // STOPF bit
-		printf("  ErrorCode=0x%08lX\r\n", p_i2c->ErrorCode);
-		if(p_i2c->ErrorCode & HAL_I2C_ERROR_BERR)    printf("    - Bus Error\r\n");
-		if(p_i2c->ErrorCode & HAL_I2C_ERROR_ARLO)    printf("    - Arbitration Lost\r\n");
-		if(p_i2c->ErrorCode & HAL_I2C_ERROR_AF)      printf("    - NACK (device not responding)\r\n");
-		if(p_i2c->ErrorCode & HAL_I2C_ERROR_OVR)     printf("    - Overrun\r\n");
-		if(p_i2c->ErrorCode & HAL_I2C_ERROR_TIMEOUT) printf("    - HAL Timeout\r\n");
-		if(p_i2c->ErrorCode & HAL_I2C_ERROR_DMA)     printf("    - DMA Error\r\n");
+		LOG_ERROR("ICM42670P", "  ErrorCode=0x%08lX", p_i2c->ErrorCode);
+		if(p_i2c->ErrorCode & HAL_I2C_ERROR_BERR)    LOG_ERROR("ICM42670P", "    - Bus Error");
+		if(p_i2c->ErrorCode & HAL_I2C_ERROR_ARLO)    LOG_ERROR("ICM42670P", "    - Arbitration Lost");
+		if(p_i2c->ErrorCode & HAL_I2C_ERROR_AF)      LOG_ERROR("ICM42670P", "    - NACK (device not responding)");
+		if(p_i2c->ErrorCode & HAL_I2C_ERROR_OVR)     LOG_ERROR("ICM42670P", "    - Overrun");
+		if(p_i2c->ErrorCode & HAL_I2C_ERROR_TIMEOUT) LOG_ERROR("ICM42670P", "    - HAL Timeout");
+		if(p_i2c->ErrorCode & HAL_I2C_ERROR_DMA)     LOG_ERROR("ICM42670P", "    - DMA Error");
 
 		// MEDIUM: Abort DMA transaction to prevent I2C bus lockup
 		HAL_I2C_Master_Abort_IT(p_i2c, ADDR_IMU_LEFT);
@@ -202,18 +203,18 @@ void v_IMU_Tout_Handler(){
 	}
 
 	if((e_imu_evt_R == COMM_STAT_BUSY) && _b_Tim_Is_OVR(u32_Tim_1msGet(), u32_toutRef_R, 2000)){
-		printf("[IMU_TIMEOUT] IMU_RIGHT I2C2 timeout\r\n");
-		printf("  ISR=0x%08lX (BUSY=%d, STOPF=%d)\r\n",
+		LOG_ERROR("ICM42670P", "[IMU_TIMEOUT] IMU_RIGHT I2C2 timeout");
+		LOG_ERROR("ICM42670P", "  ISR=0x%08lX (BUSY=%d, STOPF=%d)",
 		       p_i2c->Instance->ISR,
 		       (p_i2c->Instance->ISR & 0x8000) ? 1 : 0,  // BUSY bit
 		       (p_i2c->Instance->ISR & 0x0020) ? 1 : 0); // STOPF bit
-		printf("  ErrorCode=0x%08lX\r\n", p_i2c->ErrorCode);
-		if(p_i2c->ErrorCode & HAL_I2C_ERROR_BERR)    printf("    - Bus Error\r\n");
-		if(p_i2c->ErrorCode & HAL_I2C_ERROR_ARLO)    printf("    - Arbitration Lost\r\n");
-		if(p_i2c->ErrorCode & HAL_I2C_ERROR_AF)      printf("    - NACK (device not responding)\r\n");
-		if(p_i2c->ErrorCode & HAL_I2C_ERROR_OVR)     printf("    - Overrun\r\n");
-		if(p_i2c->ErrorCode & HAL_I2C_ERROR_TIMEOUT) printf("    - HAL Timeout\r\n");
-		if(p_i2c->ErrorCode & HAL_I2C_ERROR_DMA)     printf("    - DMA Error\r\n");
+		LOG_ERROR("ICM42670P", "  ErrorCode=0x%08lX", p_i2c->ErrorCode);
+		if(p_i2c->ErrorCode & HAL_I2C_ERROR_BERR)    LOG_ERROR("ICM42670P", "    - Bus Error");
+		if(p_i2c->ErrorCode & HAL_I2C_ERROR_ARLO)    LOG_ERROR("ICM42670P", "    - Arbitration Lost");
+		if(p_i2c->ErrorCode & HAL_I2C_ERROR_AF)      LOG_ERROR("ICM42670P", "    - NACK (device not responding)");
+		if(p_i2c->ErrorCode & HAL_I2C_ERROR_OVR)     LOG_ERROR("ICM42670P", "    - Overrun");
+		if(p_i2c->ErrorCode & HAL_I2C_ERROR_TIMEOUT) LOG_ERROR("ICM42670P", "    - HAL Timeout");
+		if(p_i2c->ErrorCode & HAL_I2C_ERROR_DMA)     LOG_ERROR("ICM42670P", "    - DMA Error");
 
 		// MEDIUM: Abort DMA transaction to prevent I2C bus lockup
 		HAL_I2C_Master_Abort_IT(p_i2c, ADDR_IMU_RIGHT);

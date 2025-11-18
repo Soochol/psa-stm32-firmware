@@ -6,6 +6,7 @@
 #include "string.h"
 #include "stdio.h"
 #include "mode.h"
+#include "lib_log.h"
 
 #include "minimp3_platform.h"
 
@@ -68,18 +69,18 @@ void v_Codec_Tout_Handler(){
 
 	if(i_toutAct && _b_Tim_Is_OVR(u32_Tim_1msGet(), u32_toutRef, 2000)){
 		// MEDIUM: Abort DMA transaction to prevent I2C bus lockup
-		printf("[CODEC_TIMEOUT] ES8388 I2C5 timeout (addr=0x%02X)\r\n", ADDR_CODEC);
-		printf("  ISR=0x%08lX (BUSY=%d, STOPF=%d)\r\n",
+		LOG_ERROR("ES8388", "I2C5 timeout (addr=0x%02X)", ADDR_CODEC);
+		LOG_ERROR("ES8388", "  ISR=0x%08lX (BUSY=%d, STOPF=%d)",
 		       hi2c5.Instance->ISR,
 		       (hi2c5.Instance->ISR & 0x8000) ? 1 : 0,  // BUSY bit
 		       (hi2c5.Instance->ISR & 0x0020) ? 1 : 0); // STOPF bit
-		printf("  ErrorCode=0x%08lX\r\n", hi2c5.ErrorCode);
-		if(hi2c5.ErrorCode & HAL_I2C_ERROR_BERR)    printf("    - Bus Error\r\n");
-		if(hi2c5.ErrorCode & HAL_I2C_ERROR_ARLO)    printf("    - Arbitration Lost\r\n");
-		if(hi2c5.ErrorCode & HAL_I2C_ERROR_AF)      printf("    - NACK (device not responding)\r\n");
-		if(hi2c5.ErrorCode & HAL_I2C_ERROR_OVR)     printf("    - Overrun\r\n");
-		if(hi2c5.ErrorCode & HAL_I2C_ERROR_TIMEOUT) printf("    - HAL Timeout\r\n");
-		if(hi2c5.ErrorCode & HAL_I2C_ERROR_DMA)     printf("    - DMA Error\r\n");
+		LOG_ERROR("ES8388", "  ErrorCode=0x%08lX", hi2c5.ErrorCode);
+		if(hi2c5.ErrorCode & HAL_I2C_ERROR_BERR)    LOG_ERROR("ES8388", "    - Bus Error");
+		if(hi2c5.ErrorCode & HAL_I2C_ERROR_ARLO)    LOG_ERROR("ES8388", "    - Arbitration Lost");
+		if(hi2c5.ErrorCode & HAL_I2C_ERROR_AF)      LOG_ERROR("ES8388", "    - NACK (device not responding)");
+		if(hi2c5.ErrorCode & HAL_I2C_ERROR_OVR)     LOG_ERROR("ES8388", "    - Overrun");
+		if(hi2c5.ErrorCode & HAL_I2C_ERROR_TIMEOUT) LOG_ERROR("ES8388", "    - HAL Timeout");
+		if(hi2c5.ErrorCode & HAL_I2C_ERROR_DMA)     LOG_ERROR("ES8388", "    - DMA Error");
 
 		HAL_I2C_Master_Abort_IT(&hi2c5, ADDR_CODEC);
 
@@ -192,13 +193,13 @@ void v_AUDIO_Test(){
 			default:
 				order = 0;
 				config = true;
-				printf("config - complete\n");
+				LOG_INFO("ES8388", "config - complete");
 				break;
 			}
 		}
 		else{
 			if(order == 0){
-				printf("speaker on\n");
+				LOG_INFO("ES8388", "speaker on");
 				HAL_GPIO_WritePin(DO_AUDIO_SHDN_GPIO_Port, DO_AUDIO_SHDN_Pin, GPIO_PIN_SET);
 				HAL_Delay(100);
 				order++;
@@ -211,7 +212,7 @@ void v_AUDIO_Test(){
 
 			if(order == 2){
 				HAL_GPIO_WritePin(DO_AUDIO_SHDN_GPIO_Port, DO_AUDIO_SHDN_Pin, GPIO_PIN_RESET);
-				printf("speaker off\n");
+				LOG_INFO("ES8388", "speaker off");
 				timRef = u32_Tim_1msGet();
 				timItv = 5000;
 				order = 0;

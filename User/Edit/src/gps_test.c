@@ -6,6 +6,7 @@
  */
 
 #include "gps_test.h"
+#include "lib_log.h"
 #include "main.h"
 #include "i2c.h"
 #include "uart.h"
@@ -21,24 +22,24 @@ static uint32_t test_count = 0;
  * Attempts to write 0 bytes to GPS address to check ACK
  */
 void v_GPS_Test_I2C_Ping(void) {
-    v_printf_poll("\r\n=== GPS I2C3 Ping Test ===\r\n");
-    v_printf_poll("GPS Address: 0x%02X (7-bit: 0x%02X)\r\n", ADDR_GPS, ADDR_GPS >> 1);
+    LOG_INFO("GPS_TEST", "=== GPS I2C3 Ping Test ===");
+    LOG_INFO("GPS_TEST", "GPS Address: 0x%02X (7-bit: 0x%02X)", ADDR_GPS, ADDR_GPS >> 1);
 
     // Simple write test - GPS should ACK if present
     extern I2C_HandleTypeDef hi2c3;
     HAL_StatusTypeDef status = HAL_I2C_IsDeviceReady(&hi2c3, ADDR_GPS, 3, 100);
 
     if(status == HAL_OK) {
-        v_printf_poll("[PASS] GPS device responded on I2C3!\r\n");
+        LOG_INFO("GPS_TEST", "[PASS] GPS device responded on I2C3!");
     } else if(status == HAL_BUSY) {
-        v_printf_poll("[FAIL] I2C3 bus is BUSY\r\n");
+        LOG_INFO("GPS_TEST", "[FAIL] I2C3 bus is BUSY");
     } else if(status == HAL_TIMEOUT) {
-        v_printf_poll("[FAIL] GPS device timeout (no ACK)\r\n");
+        LOG_INFO("GPS_TEST", "[FAIL] GPS device timeout (no ACK)");
     } else {
-        v_printf_poll("[FAIL] I2C3 error (status=%d)\r\n", status);
+        LOG_INFO("GPS_TEST", "[FAIL] I2C3 error (status=%d)", status);
     }
 
-    v_printf_poll("=========================\r\n\r\n");
+    LOG_INFO("GPS_TEST", "=========================");
 }
 
 /*
@@ -46,7 +47,7 @@ void v_GPS_Test_I2C_Ping(void) {
  * GPS stores available data count in registers 0xFD (MSB) and 0xFE (LSB)
  */
 void v_GPS_Test_Read_AvailableBytes(void) {
-    v_printf_poll("\r\n=== GPS Available Bytes Test ===\r\n");
+    LOG_INFO("GPS_TEST", "=== GPS Available Bytes Test ===");
 
     extern I2C_HandleTypeDef hi2c3;
     uint8_t avail_bytes[2] = {0};
@@ -57,19 +58,19 @@ void v_GPS_Test_Read_AvailableBytes(void) {
 
     if(status == HAL_OK) {
         uint16_t available = (avail_bytes[0] << 8) | avail_bytes[1];
-        v_printf_poll("[PASS] Available bytes: %d (0x%02X%02X)\r\n",
+        LOG_INFO("GPS_TEST", "[PASS] Available bytes: %d (0x%02X%02X)",
                       available, avail_bytes[0], avail_bytes[1]);
 
         if(available > 0) {
-            v_printf_poll("       GPS has data ready to read!\r\n");
+            LOG_INFO("GPS_TEST", "       GPS has data ready to read!");
         } else {
-            v_printf_poll("       No GPS data available yet\r\n");
+            LOG_INFO("GPS_TEST", "       No GPS data available yet");
         }
     } else {
-        v_printf_poll("[FAIL] Could not read available bytes (status=%d)\r\n", status);
+        LOG_INFO("GPS_TEST", "[FAIL] Could not read available bytes (status=%d)", status);
     }
 
-    v_printf_poll("================================\r\n\r\n");
+    LOG_INFO("GPS_TEST", "================================");
 }
 
 /*
@@ -77,7 +78,7 @@ void v_GPS_Test_Read_AvailableBytes(void) {
  * Attempts to read actual GPS data (UBX protocol)
  */
 void v_GPS_Test_Read_Data(void) {
-    v_printf_poll("\r\n=== GPS Data Read Test ===\r\n");
+    LOG_INFO("GPS_TEST", "=== GPS Data Read Test ===");
 
     extern I2C_HandleTypeDef hi2c3;
     uint8_t data_buf[32] = {0};
@@ -87,7 +88,7 @@ void v_GPS_Test_Read_Data(void) {
                                                 data_buf, 32, 100);
 
     if(status == HAL_OK) {
-        v_printf_poll("[PASS] Read 32 bytes from GPS:\r\n");
+        LOG_INFO("GPS_TEST", "[PASS] Read 32 bytes from GPS:");
         v_printf_poll("       ");
         for(int i = 0; i < 32; i++) {
             v_printf_poll("%02X ", data_buf[i]);
@@ -101,19 +102,19 @@ void v_GPS_Test_Read_Data(void) {
         bool found_ubx = false;
         for(int i = 0; i < 31; i++) {
             if(data_buf[i] == 0xB5 && data_buf[i+1] == 0x62) {
-                v_printf_poll("       Found UBX header at offset %d!\r\n", i);
+                LOG_INFO("GPS_TEST", "       Found UBX header at offset %d!", i);
                 found_ubx = true;
                 break;
             }
         }
         if(!found_ubx) {
-            v_printf_poll("       No UBX header found (GPS may be starting up)\r\n");
+            LOG_INFO("GPS_TEST", "       No UBX header found (GPS may be starting up)");
         }
     } else {
-        v_printf_poll("[FAIL] Could not read GPS data (status=%d)\r\n", status);
+        LOG_INFO("GPS_TEST", "[FAIL] Could not read GPS data (status=%d)", status);
     }
 
-    v_printf_poll("==========================\r\n\r\n");
+    LOG_INFO("GPS_TEST", "==========================");
 }
 
 /*
@@ -121,10 +122,10 @@ void v_GPS_Test_Read_Data(void) {
  * Runs all tests in sequence
  */
 void v_GPS_Test_Full_Diagnostic(void) {
-    v_printf_poll("\r\n");
-    v_printf_poll("╔════════════════════════════════════════╗\r\n");
-    v_printf_poll("║   GPS I2C3 Full Diagnostic Test       ║\r\n");
-    v_printf_poll("╚════════════════════════════════════════╝\r\n");
+    LOG_INFO("GPS_TEST", " ");
+    LOG_INFO("GPS_TEST", "========================================");
+    LOG_INFO("GPS_TEST", "   GPS I2C3 Full Diagnostic Test");
+    LOG_INFO("GPS_TEST", "========================================");
 
     // Test 1: Ping
     v_GPS_Test_I2C_Ping();
@@ -139,16 +140,17 @@ void v_GPS_Test_Full_Diagnostic(void) {
     HAL_Delay(100);
 
     // Test 4: Driver status
-    v_printf_poll("\r\n=== GPS Driver Status ===\r\n");
-    v_printf_poll("Fix Type:     %d\r\n", u8_GPS_GetFixType());
-    v_printf_poll("Satellites:   %d\r\n", u8_GPS_GetNumSatellites());
-    v_printf_poll("Latitude:     %.6f°\r\n", f_GPS_GetLatitude());
-    v_printf_poll("Longitude:    %.6f°\r\n", f_GPS_GetLongitude());
-    v_printf_poll("Altitude:     %.1f m\r\n", f_GPS_GetAltitude());
-    v_printf_poll("Speed:        %.2f m/s\r\n", f_GPS_GetSpeed());
-    v_printf_poll("=========================\r\n\r\n");
+    LOG_INFO("GPS_TEST", " ");
+    LOG_INFO("GPS_TEST", "=== GPS Driver Status ===");
+    LOG_INFO("GPS_TEST", "Fix Type:     %d", u8_GPS_GetFixType());
+    LOG_INFO("GPS_TEST", "Satellites:   %d", u8_GPS_GetNumSatellites());
+    LOG_INFO("GPS_TEST", "Latitude:     %.6f°", f_GPS_GetLatitude());
+    LOG_INFO("GPS_TEST", "Longitude:    %.6f°", f_GPS_GetLongitude());
+    LOG_INFO("GPS_TEST", "Altitude:     %.1f m", f_GPS_GetAltitude());
+    LOG_INFO("GPS_TEST", "Speed:        %.2f m/s", f_GPS_GetSpeed());
+    LOG_INFO("GPS_TEST", "=========================");
 
-    v_printf_poll("Diagnostic complete!\r\n\r\n");
+    LOG_INFO("GPS_TEST", "Diagnostic complete!");
 }
 
 /*
@@ -169,57 +171,58 @@ void v_GPS_Test_Monitor(void) {
         HAL_IWDG_Refresh(&hiwdg1);
 #endif
 
-        v_printf_poll("\r\n╔════════════════════ GPS STATUS [%04lu] ════════════════════╗\r\n", test_count);
+        LOG_INFO("GPS_TEST", " ");
+        LOG_INFO("GPS_TEST", "========== GPS STATUS [%04lu] ==========", test_count);
 
         // Check if GPS has fix
         if(b_GPS_HasFix()) {
-            v_printf_poll("║ STATUS: ✓ FIX ACQUIRED                                    ║\r\n");
-            v_printf_poll("║ -------------------------------------------------------- ║\r\n");
-            v_printf_poll("║ Latitude:    %11.7f°                           ║\r\n", f_GPS_GetLatitude());
-            v_printf_poll("║ Longitude:   %11.7f°                           ║\r\n", f_GPS_GetLongitude());
-            v_printf_poll("║ Altitude:    %8.2f m (MSL)                         ║\r\n", f_GPS_GetAltitude());
-            v_printf_poll("║ Speed:       %7.2f m/s                               ║\r\n", f_GPS_GetSpeed());
-            v_printf_poll("║ Satellites:  %2d                                         ║\r\n", u8_GPS_GetNumSatellites());
-            v_printf_poll("║ Fix Type:    %d (3=3D Fix)                              ║\r\n", u8_GPS_GetFixType());
+            LOG_INFO("GPS_TEST", "Status: FIX ACQUIRED");
+            LOG_INFO("GPS_TEST", "-------------------------------------------");
+            LOG_INFO("GPS_TEST", "Latitude:    %11.7f°", f_GPS_GetLatitude());
+            LOG_INFO("GPS_TEST", "Longitude:   %11.7f°", f_GPS_GetLongitude());
+            LOG_INFO("GPS_TEST", "Altitude:    %8.2f m (MSL)", f_GPS_GetAltitude());
+            LOG_INFO("GPS_TEST", "Speed:       %7.2f m/s", f_GPS_GetSpeed());
+            LOG_INFO("GPS_TEST", "Satellites:  %2d", u8_GPS_GetNumSatellites());
+            LOG_INFO("GPS_TEST", "Fix Type:    %d (3=3D Fix)", u8_GPS_GetFixType());
 
             // Get raw PVT data for additional info
             _x_GPS_PVT_t* pvt = px_GPS_GetPVT();
             if(pvt) {
-                v_printf_poll("║ Accuracy:    H=%lu.%03lum, V=%lu.%03lum                      ║\r\n",
+                LOG_INFO("GPS_TEST", "Accuracy:    H=%lu.%03lum, V=%lu.%03lum",
                               (unsigned long)(pvt->hAcc / 1000),
                               (unsigned long)(pvt->hAcc % 1000),
                               (unsigned long)(pvt->vAcc / 1000),
                               (unsigned long)(pvt->vAcc % 1000));
-                v_printf_poll("║ PDOP:        %d.%02d                                     ║\r\n",
+                LOG_INFO("GPS_TEST", "PDOP:        %d.%02d",
                               pvt->pDOP / 100, pvt->pDOP % 100);
-                v_printf_poll("║ Time (UTC):  %04d-%02d-%02d %02d:%02d:%02d                    ║\r\n",
+                LOG_INFO("GPS_TEST", "Time (UTC):  %04d-%02d-%02d %02d:%02d:%02d",
                               pvt->year, pvt->month, pvt->day,
                               pvt->hour, pvt->min, pvt->sec);
-                v_printf_poll("║ GPS TOW:     %lu ms                                  ║\r\n",
+                LOG_INFO("GPS_TEST", "GPS TOW:     %lu ms",
                               (unsigned long)pvt->iTOW);
 
                 // Heading (if moving)
                 int32_t head_deg = pvt->headMot / 100000;
                 int32_t head_frac = pvt->headMot % 100000;
                 if(head_frac < 0) head_frac = -head_frac;
-                v_printf_poll("║ Heading:     %ld.%05ld°                              ║\r\n",
+                LOG_INFO("GPS_TEST", "Heading:     %ld.%05ld°",
                               head_deg, head_frac);
             }
         } else {
-            v_printf_poll("║ STATUS: ✗ NO FIX                                          ║\r\n");
-            v_printf_poll("║ -------------------------------------------------------- ║\r\n");
-            v_printf_poll("║ Fix Type:    %d (0=No Fix, 2=2D, 3=3D)                  ║\r\n", u8_GPS_GetFixType());
-            v_printf_poll("║ Satellites:  %2d (Need 4+ for 3D fix)                   ║\r\n", u8_GPS_GetNumSatellites());
-            v_printf_poll("║ Status:      Waiting for satellite lock...              ║\r\n");
+            LOG_INFO("GPS_TEST", "Status: NO FIX");
+            LOG_INFO("GPS_TEST", "-------------------------------------------");
+            LOG_INFO("GPS_TEST", "Fix Type:    %d (0=No Fix, 2=2D, 3=3D)", u8_GPS_GetFixType());
+            LOG_INFO("GPS_TEST", "Satellites:  %2d (Need 4+ for 3D fix)", u8_GPS_GetNumSatellites());
+            LOG_INFO("GPS_TEST", "Status:      Waiting for satellite lock...");
 
             // Show raw data if available
             _x_GPS_PVT_t* pvt = px_GPS_GetPVT();
             if(pvt && pvt->numSV > 0) {
-                v_printf_poll("║ Info:        %d satellites visible                      ║\r\n",
+                LOG_INFO("GPS_TEST", "Info:        %d satellites visible",
                               pvt->numSV);
             }
         }
 
-        v_printf_poll("╚═══════════════════════════════════════════════════════════╝\r\n\r\n");
+        LOG_INFO("GPS_TEST", "===========================================");
     }
 }

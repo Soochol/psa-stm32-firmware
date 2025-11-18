@@ -1,10 +1,12 @@
 #include "comm_esp.h"
 #include "lib_ringbuf.h"
 #include "stdio.h"
+#include "string.h"
 #include "mode.h"
 #include "tim.h"
 #include "math.h"
 #include "sam_m10q_platform.h"
+#include "lib_log.h"
 
 
 //STX	| LEN	| DIR	| CMD	| DATA	| CHK	| ETX
@@ -500,7 +502,7 @@ static void v_ESP_CtrlProc(uint8_t u8_cmd, uint8_t* pu8_data, uint8_t u8_len){
 	switch(u8_cmd){
 	case ESP_CMD_CTRL_RST:
 		//NVIC Reset
-		printf("[MODE_OFF_TRIGGER] ESP32 reset command (ESP_CMD_CTRL_RST=0x50), prev_mode=%d\r\n", e_Mode_Get_CurrID());
+		LOG_INFO("COMM_ESP", "ESP32 reset command (ESP_CMD_CTRL_RST=0x50), prev_mode=%d", e_Mode_Get_CurrID());
 		v_Mode_SetNext(modeOFF);
 		break;
 	case ESP_CMD_CTRL_MODE:{

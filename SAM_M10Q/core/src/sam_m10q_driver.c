@@ -8,6 +8,7 @@
  */
 
 #include "sam_m10q_driver.h"
+#include "lib_log.h"
 #include <string.h>
 
 /*
@@ -43,11 +44,10 @@ int i_SAM_M10Q_Handler(_x_SAM_M10Q_DRV_t* px_drv) {
 
     // Debug: Print state changes (including IDLE transitions)
     if(px_drv->e_state != prev_state) {
-        extern void v_printf_poll(const char* format, ...);
         const char* state_names[] = {"IDLE", "CHECK_AVAIL", "WAIT_AVAIL", "READ_DATA",
                                      "WAIT_DATA", "PARSE", "POLL_PVT", "WAIT_POLL", "ERROR"};
         if(px_drv->e_state < 9) {
-            v_printf_poll("GPS State: %s\r\n", state_names[px_drv->e_state]);
+            LOG_DEBUG("GPS", "State: %s", state_names[px_drv->e_state]);
         }
         prev_state = px_drv->e_state;
     }
@@ -69,14 +69,12 @@ int i_SAM_M10Q_Handler(_x_SAM_M10Q_DRV_t* px_drv) {
                     if(read_ret == 0) {
                         px_drv->e_state = SAM_M10Q_STATE_WAIT_AVAIL;
                     } else {
-                        extern void v_printf_poll(const char* format, ...);
-                        v_printf_poll("GPS: CHECK_AVAIL - I2C read failed (ret=%d)\r\n", read_ret);
+                        LOG_ERROR("GPS", "CHECK_AVAIL - I2C read failed (ret=%d)", read_ret);
                     }
                 } else {
-                    extern void v_printf_poll(const char* format, ...);
                     static uint32_t last_bus_log = 0;
                     if((currentTime - last_bus_log) > 5000) {  // Log every 5s
-                        v_printf_poll("GPS: CHECK_AVAIL - Bus not ready (status=%d)\r\n", bus_status);
+                        LOG_DEBUG("GPS", "CHECK_AVAIL - Bus not ready (status=%d)", bus_status);
                         last_bus_log = currentTime;
                     }
                 }
@@ -99,15 +97,14 @@ int i_SAM_M10Q_Handler(_x_SAM_M10Q_DRV_t* px_drv) {
                     uint16_t readLen = (px_drv->u16_availBytes < sizeof(px_drv->u8_rxBuf)) ?
                                         px_drv->u16_availBytes : sizeof(px_drv->u8_rxBuf);
 
-                    extern void v_printf_poll(const char* format, ...);
-                    v_printf_poll("GPS: Reading %d bytes from stream...\r\n", readLen);
+                    LOG_DEBUG("GPS", "Reading %d bytes from stream...", readLen);
 
                     int read_ret = px_drv->tr.i_read(px_drv->u8_i2cAddr, SAM_M10Q_REG_STREAM, readLen);
                     if(read_ret == 0) {
                         px_drv->u16_availBytes = 0;  // Clear to prevent re-entry
                         px_drv->e_state = SAM_M10Q_STATE_WAIT_DATA;
                     } else {
-                        v_printf_poll("GPS: Read failed (ret=%d)\r\n", read_ret);
+                        LOG_ERROR("GPS", "Read failed (ret=%d)", read_ret);
                         px_drv->u16_availBytes = 0;  // Clear on error
                         px_drv->e_state = SAM_M10Q_STATE_IDLE;
                     }
@@ -128,8 +125,7 @@ int i_SAM_M10Q_Handler(_x_SAM_M10Q_DRV_t* px_drv) {
                     px_drv->e_state = SAM_M10Q_STATE_PARSE;
                 } else {
                     // No data received, return to idle
-                    extern void v_printf_poll(const char* format, ...);
-                    v_printf_poll("GPS: No data received after read\r\n");
+                    LOG_WARN("GPS", "No data received after read");
                     px_drv->e_state = SAM_M10Q_STATE_IDLE;
                 }
             }
@@ -152,11 +148,10 @@ int i_SAM_M10Q_Handler(_x_SAM_M10Q_DRV_t* px_drv) {
                             i_UBX_ParsePVT(&px_drv->u8_rxBuf[6], &px_drv->x_pvt);
                             px_drv->b_pvtValid = true;
                             px_drv->u32_lastUpdate = currentTime;
-                            extern void v_printf_poll(const char* format, ...);
 
                             // Enhanced UBX-NAV-PVT output with full data structure
-                            v_printf_poll("GPS: NAV-PVT parsed:\r\n");
-                            v_printf_poll("  Fix=%d, Sats=%d, pDOP=%d.%02d\r\n",
+                            LOG_DEBUG("GPS", "NAV-PVT parsed:");
+                            LOG_DEBUG("GPS", "  Fix=%d, Sats=%d, pDOP=%d.%02d",
                                           px_drv->x_pvt.fixType, px_drv->x_pvt.numSV,
                                           px_drv->x_pvt.pDOP / 100, px_drv->x_pvt.pDOP % 100);
 
@@ -167,7 +162,7 @@ int i_SAM_M10Q_Handler(_x_SAM_M10Q_DRV_t* px_drv) {
                             int32_t lon_deg = px_drv->x_pvt.lon / 10000000;
                             int32_t lon_frac = px_drv->x_pvt.lon % 10000000;
                             if(lon_frac < 0) lon_frac = -lon_frac;
-                            v_printf_poll("  Lat=%ld.%07ld° Lon=%ld.%07ld°\r\n",
+                            LOG_DEBUG("GPS", "  Lat=%ld.%07ld° Lon=%ld.%07ld°",
                                           lat_deg, lat_frac, lon_deg, lon_frac);
 
                             // Altitude (hMSL in mm), Speed (gSpeed in mm/s), Heading (headMot in 1e-5 degrees)
@@ -180,18 +175,18 @@ int i_SAM_M10Q_Handler(_x_SAM_M10Q_DRV_t* px_drv) {
                             int32_t head_deg = px_drv->x_pvt.headMot / 100000;
                             int32_t head_frac = px_drv->x_pvt.headMot % 100000;
                             if(head_frac < 0) head_frac = -head_frac;
-                            v_printf_poll("  Alt=%ld.%03ldm Speed=%ld.%03dm/s Head=%ld.%05ld°\r\n",
+                            LOG_DEBUG("GPS", "  Alt=%ld.%03ldm Speed=%ld.%03ldm/s Head=%ld.%05ld°",
                                           alt_m, alt_mm, spd_ms, spd_mms, head_deg, head_frac);
 
                             // Accuracy (hAcc, vAcc in mm - uint32_t)
-                            v_printf_poll("  Acc H=%lu.%03lum V=%lu.%03lum\r\n",
+                            LOG_DEBUG("GPS", "  Acc H=%lu.%03lum V=%lu.%03lum",
                                           (unsigned long)(px_drv->x_pvt.hAcc / 1000),
                                           (unsigned long)(px_drv->x_pvt.hAcc % 1000),
                                           (unsigned long)(px_drv->x_pvt.vAcc / 1000),
                                           (unsigned long)(px_drv->x_pvt.vAcc % 1000));
 
                             // Time (UTC)
-                            v_printf_poll("  Time=%04d-%02d-%02d %02d:%02d:%02d UTC (valid=0x%02X)\r\n",
+                            LOG_DEBUG("GPS", "  Time=%04d-%02d-%02d %02d:%02d:%02d UTC (valid=0x%02X)",
                                           px_drv->x_pvt.year, px_drv->x_pvt.month, px_drv->x_pvt.day,
                                           px_drv->x_pvt.hour, px_drv->x_pvt.min, px_drv->x_pvt.sec,
                                           px_drv->x_pvt.valid);

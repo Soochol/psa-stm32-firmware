@@ -6,6 +6,7 @@
 #include "i2c.h"
 #include "tim.h"
 #include "uart.h"
+#include "lib_log.h"
 
 #define I2C_TIME_OUT_BASE   10
 #define I2C_TIME_OUT_BYTE   1
@@ -520,7 +521,7 @@ int i_TOF_Init(VL53L0X_DEV dev, VL53L0X_Version_t* ver, VL53L0X_DeviceInfo_t* in
 	status = VL53L0X_GetVersion(ver);
 	if(status != VL53L0X_ERROR_NONE){
 #if TOF_LOG_ENABLED
-		v_printf_poll("VL53L0X GetVersion fail\n");
+		LOG_ERROR("VL53L0X", "GetVersion fail");
 #endif
 		return -1;
 	}
@@ -528,7 +529,7 @@ int i_TOF_Init(VL53L0X_DEV dev, VL53L0X_Version_t* ver, VL53L0X_DeviceInfo_t* in
 	status = VL53L0X_DataInit(dev);
 	if(status != VL53L0X_ERROR_NONE){
 #if TOF_LOG_ENABLED
-		v_printf_poll("VL53L0X DataInit fail\n");
+		LOG_ERROR("VL53L0X", "DataInit fail");
 #endif
 		return -1;
 	}
@@ -536,7 +537,7 @@ int i_TOF_Init(VL53L0X_DEV dev, VL53L0X_Version_t* ver, VL53L0X_DeviceInfo_t* in
 	status = VL53L0X_GetDeviceInfo(dev, info);
 	if(status != VL53L0X_ERROR_NONE){
 #if TOF_LOG_ENABLED
-		v_printf_poll("VL53L0X GetDeviceInfo fail\n");
+		LOG_ERROR("VL53L0X", "GetDeviceInfo fail");
 #endif
 		return -1;
 	}
@@ -667,10 +668,10 @@ void v_TOF_CommCheck(){
 				status = _I2CRead(p_dev2, 0xC0, rdBuf, 1);
 				if(status != VL53L0X_ERROR_NONE){
 					tof_err++;
-					v_printf_poll("VL53L0X_2 GetDeviceInfo fail\n");
+					LOG_ERROR("VL53L0X", "TOF2 GetDeviceInfo fail");
 				}
 				else{
-					v_printf_poll("VL53L0X_2 GetDeviceInfo succ : %2X\n", rdBuf[0]);
+					LOG_INFO("VL53L0X", "TOF2 GetDeviceInfo succ : %2X", rdBuf[0]);
 				}
 			}
 			else{
@@ -679,10 +680,10 @@ void v_TOF_CommCheck(){
 				status = _I2CRead(p_dev1, 0xC0, rdBuf, 1);
 				if(status != VL53L0X_ERROR_NONE){
 					tof_err++;
-					v_printf_poll("VL53L0X_1 GetDeviceInfo fail\n");
+					LOG_ERROR("VL53L0X", "TOF1 GetDeviceInfo fail");
 				}
 				else{
-					v_printf_poll("VL53L0X_1 GetDeviceInfo succ : %2X\n", rdBuf[0]);
+					LOG_INFO("VL53L0X", "TOF1 GetDeviceInfo succ : %2X", rdBuf[0]);
 				}
 			}
 			toggle++;
@@ -690,10 +691,10 @@ void v_TOF_CommCheck(){
 			status = VL53L0X_GetProductRevision(p_dev1, &prodMajor1, &prodMinor1);
 			if(status != VL53L0X_ERROR_NONE){
 				tof_err++;
-				v_printf_poll("VL53L0X GetDeviceInfo fail\n");
+				LOG_ERROR("VL53L0X", "GetDeviceInfo fail");
 			}
 			else{
-				v_printf_poll("VL53L0X GetDeviceInfo succ\n");
+				LOG_INFO("VL53L0X", "GetDeviceInfo succ");
 			}
 #endif
 		}

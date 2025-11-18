@@ -4,6 +4,7 @@
 #include "mode.h"
 #include "stdio.h"
 #include "string.h"
+#include "lib_log.h"
 //static _x_keyTIM_t key_
 
 void v_Key_BlowFan_Handler();
@@ -109,7 +110,7 @@ void v_Key_Power_Handler(){
 				if(!p_act->reg.bit.b1_long){
 					//short
 					if(id == modeOFF){
-						printf("[MODE_OFF_TRIGGER] Power button short press (no-op), already in modeOFF\r\n");
+						LOG_INFO("KEY", "Power button short press (no-op), already in modeOFF");
 						v_Mode_SetNext(modeOFF);
 					}
 				}
@@ -122,7 +123,7 @@ void v_Key_Power_Handler(){
 					if(id > modeBOOTING){
 						if(id != modeOFF){
 							//power down
-							printf("[MODE_OFF_TRIGGER] Power button long press (>1.5s), prev_mode=%d\r\n", id);
+							LOG_INFO("KEY", "Power button long press (>1.5s), prev_mode=%d", id);
 							v_Mode_SetNext(modeOFF);
 						}
 						else{

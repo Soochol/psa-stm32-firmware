@@ -22,6 +22,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "lib_log.h"
 #include "io.h"
 #include "tim.h"
 #include "i2c.h"
@@ -306,7 +307,7 @@ int main(void)
   //power enable
   v_IO_Enable_12V();
   uint32_t t_12v_on = HAL_GetTick();
-  printf("[POWER] 12V enabled at t=%lu ms\r\n", t_12v_on);
+  LOG_INFO("POWER", "12V enabled at t=%lu ms", t_12v_on);
 
 #if IWDG_USED
   HAL_IWDG_Refresh(&hiwdg1);
@@ -321,12 +322,12 @@ int main(void)
   HAL_IWDG_Refresh(&hiwdg1);  // Refresh after GPS boot delay
 #endif
 
-  printf("[POWER] GPS boot delay complete at t=%lu ms (elapsed=%lu ms)\r\n",
-         HAL_GetTick(), HAL_GetTick() - t_12v_on);
+  LOG_INFO("POWER", "GPS boot delay complete at t=%lu ms (elapsed=%lu ms)",
+           HAL_GetTick(), HAL_GetTick() - t_12v_on);
 
   // Initialize GPS after 12V power is stable
   v_GPS_Init();
-  printf("[POWER] GPS init completed at t=%lu ms\r\n", HAL_GetTick());
+  LOG_INFO("POWER", "GPS init completed at t=%lu ms", HAL_GetTick());
 
 #if IWDG_USED
   HAL_IWDG_Refresh(&hiwdg1);  // Refresh after GPS init
