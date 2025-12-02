@@ -1201,8 +1201,8 @@ static void v_Mode_Booting(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t* 
 				}
 			}
 			else{
-				// TOF sensor DISABLED - not mounted on Device B
-#if 0
+				// TOF sensor ENABLED
+#if 1
 				if(!(ready_mask & modeCONFIG_TOF)){
 					extern I2C_HandleTypeDef hi2c1;
 					i_I2C_ProbeDevice(&hi2c1, 1, ADDR_TOF1, "TOF");

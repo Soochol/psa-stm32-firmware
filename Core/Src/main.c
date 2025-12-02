@@ -291,6 +291,27 @@ int main(void)
   MX_RTC_Init();
   MX_IWDG1_Init();
   /* USER CODE BEGIN 2 */
+
+  // 리셋 원인 감지 및 로그 출력
+  if (__HAL_RCC_GET_FLAG(RCC_FLAG_IWDG1RST)) {
+    LOG_ERROR("RESET", "*** IWDG1 watchdog reset detected! ***");
+  }
+  if (__HAL_RCC_GET_FLAG(RCC_FLAG_WWDG1RST)) {
+    LOG_ERROR("RESET", "*** WWDG1 window watchdog reset detected! ***");
+  }
+  if (__HAL_RCC_GET_FLAG(RCC_FLAG_SFTRST)) {
+    LOG_WARN("RESET", "Software reset detected");
+  }
+  if (__HAL_RCC_GET_FLAG(RCC_FLAG_BORRST)) {
+    LOG_INFO("RESET", "Brown-out reset detected");
+  }
+  if (__HAL_RCC_GET_FLAG(RCC_FLAG_PINRST)) {
+    LOG_INFO("RESET", "Pin reset (NRST) detected");
+  }
+  if (__HAL_RCC_GET_FLAG(RCC_FLAG_PORRST)) {
+    LOG_INFO("RESET", "Power-on reset detected");
+  }
+  __HAL_RCC_CLEAR_RESET_FLAGS();
   v_Tim_Init();
   v_SD_Init();
   v_IO_Init();
@@ -317,11 +338,13 @@ int main(void)
   // GPS initialization after 12V power is stable
 #if 1  // GPS ENABLED - SAM-M10Q on I2C3
   // Wait for GPS module to boot (SAM-M10Q needs ~1-2 seconds)
-  HAL_Delay(2000);
-
+  // 500ms 간격으로 watchdog refresh하며 총 2초 대기
+  for (int gps_delay_i = 0; gps_delay_i < 4; gps_delay_i++) {
+    HAL_Delay(500);
 #if IWDG_USED
-  HAL_IWDG_Refresh(&hiwdg1);  // Refresh after GPS boot delay
+    HAL_IWDG_Refresh(&hiwdg1);
 #endif
+  }
 
   LOG_INFO("POWER", "GPS boot delay complete at t=%lu ms (elapsed=%lu ms)",
            HAL_GetTick(), HAL_GetTick() - t_12v_on);
@@ -960,7 +983,7 @@ static void MX_IWDG1_Init(void)
   hiwdg1.Instance = IWDG1;
   hiwdg1.Init.Prescaler = IWDG_PRESCALER_32;
   hiwdg1.Init.Window = 4095;
-  hiwdg1.Init.Reload = 1999;
+  hiwdg1.Init.Reload = 3999;  // 4초 타임아웃 (was 1999=2초, 블로킹 딜레이로 인한 리셋 방지)
   if (HAL_IWDG_Init(&hiwdg1) != HAL_OK)
   {
     Error_Handler();
