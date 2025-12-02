@@ -1,6 +1,9 @@
 Import("env")
 import os
 
+# Get the project root directory from PlatformIO environment
+project_dir = env.subst("$PROJECT_DIR")
+
 # Add all source directories
 source_dirs = [
     "Core/Src",
@@ -34,10 +37,11 @@ source_dirs = [
 
 # Add source files
 for src_dir in source_dirs:
-    if os.path.exists(src_dir):
+    full_path = os.path.join(project_dir, src_dir)
+    if os.path.exists(full_path):
         env.BuildSources(
             os.path.join("$BUILD_DIR", src_dir),
-            src_dir,
+            os.path.join("$PROJECT_DIR", src_dir),
             src_filter=["+<*.c>", "+<*.s>", "+<*.S>"]
         )
 
