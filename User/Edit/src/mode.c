@@ -1905,16 +1905,17 @@ typedef struct {
 // 비트 순서: LED1=bit0(LSB), LED5=bit4(MSB)
 static const s_ERROR_LED_CONFIG_t ERROR_LED_TABLE[] = {
 	{modeERR_TEMP_IR,     0b00001},  // ○○○○● - 열화상 카메라
-	{modeERR_TEMP_OUT,    0b00010},  // ○○○●○ - 온도 센서
-	{modeERR_TOF,         0b00011},  // ○○○●● - 거리 센서
-	{modeERR_IMU,         0b00100},  // ○○●○○ - 자이로 센서
-	{modeERR_FSR,         0b00101},  // ○○●○● - 압력 센서
-	{modeERR_AUDIO,       0b00110},  // ○○●●○ - 오디오 모듈
-	{modeERR_MP3_FILE,    0b00111},  // ○○●●● - MP3 파일 없음
-	{modeERR_SD_MOUNT,    0b01000},  // ○●○○○ - SD 카드 오류
-	{modeERR_BLOW_FAN,    0b01001},  // ○●○○● - 송풍팬 고장
-	{modeERR_COOL_FAN,    0b01010},  // ○●○●○ - 쿨링팬 고장
-	{modeERR_ESP_COMM,    0b01011},  // ○●○●● - WiFi 통신 끊김
+	{modeERR_TEMP_OUT,    0b00010},  // ○○○●○ - 실외 온도 센서
+	{modeERR_TEMP_IN,     0b00011},  // ○○○●● - 실내 온도 센서
+	{modeERR_TOF,         0b00100},  // ○○●○○ - 거리 센서
+	{modeERR_IMU,         0b00101},  // ○○●○● - 자이로 센서
+	{modeERR_FSR,         0b00110},  // ○○●●○ - 압력 센서
+	{modeERR_AUDIO,       0b00111},  // ○○●●● - 오디오 모듈
+	{modeERR_MP3_FILE,    0b01000},  // ○●○○○ - MP3 파일 없음
+	{modeERR_SD_MOUNT,    0b01001},  // ○●○○● - SD 카드 오류
+	{modeERR_BLOW_FAN,    0b01010},  // ○●○●○ - 송풍팬 고장
+	{modeERR_COOL_FAN,    0b01011},  // ○●○●● - 쿨링팬 고장
+	{modeERR_ESP_COMM,    0b01100},  // ○●●○○ - WiFi 통신 끊김
 	{modeERR_HEATER_CURR, 0b11111},  // ●●●●● - 히터 과전류 (긴급!)
 };
 #define ERROR_LED_TABLE_SIZE (sizeof(ERROR_LED_TABLE) / sizeof(s_ERROR_LED_CONFIG_t))
@@ -2034,6 +2035,11 @@ static void v_Mode_Error(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t* px
 		}
 
 		if(sound){
+			// 코덱이 아직 초기화 안 됐으면 초기화 계속 진행
+			if(e_Codec_Ready() != COMM_STAT_DONE){
+				return;  // 다음 사이클에서 재시도
+			}
+
 			e_modeERR_t err = e_Mode_Get_Error();
 			uint16_t mp3=0;
 			// LOW: Use named constants instead of magic numbers
