@@ -1,5 +1,6 @@
 #include "adc.h"
 #include "tim.h"
+#include "lib_log.h"
 
 /*
  * ADC1
@@ -201,6 +202,7 @@ static void v_ADC_Test(){
 	f_curr_heatpad = f_ADC_Get_HeatPadCurr();
 	f_curr_heater = f_ADC_Get_HeaterCurr();
 	f_vbat = f_ADC_Get_BatVolt();
+
 }
 
 

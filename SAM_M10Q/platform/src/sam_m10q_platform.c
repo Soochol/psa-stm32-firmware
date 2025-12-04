@@ -16,6 +16,15 @@
 #include "lib_log.h"
 #include <string.h>
 
+// GPS DEBUG 로그 비활성화 (로그 과다 출력 방지)
+#define GPS_DEBUG_LOG_ENABLED	0
+
+#if GPS_DEBUG_LOG_ENABLED
+    #define GPS_LOG_DEBUG(...)  LOG_DEBUG("GPS", __VA_ARGS__)
+#else
+    #define GPS_LOG_DEBUG(...)  ((void)0)
+#endif
+
 // I2C address for GPS is defined in i2c.h as ADDR_GPS
 
 // Driver instance
@@ -54,7 +63,7 @@ static int i_GPS_WaitForACK(I2C_HandleTypeDef* hi2c, uint8_t addr,
     extern IWDG_HandleTypeDef hiwdg1;
 #endif
 
-    LOG_DEBUG("GPS", "Waiting for ACK (Class=0x%02X, ID=0x%02X)...", msgClass, msgID);
+    GPS_LOG_DEBUG("Waiting for ACK (Class=0x%02X, ID=0x%02X)...", msgClass, msgID);
 
     // Start reading immediately - GPS sends ACK very quickly
     while((HAL_GetTick() - start_time) < timeout_ms) {
@@ -85,7 +94,7 @@ static int i_GPS_WaitForACK(I2C_HandleTypeDef* hi2c, uint8_t addr,
             }
 
             // Debug: Show first bytes of what we read (verbose level hex dump)
-            LOG_DEBUG("GPS", "Read %d bytes (first 16)", to_read);
+            GPS_LOG_DEBUG("Read %d bytes (first 16)", to_read);
 
             // Search for UBX ACK message in received data
             for(uint16_t i = 0; i < to_read - 9; i++) {  // ACK message is 10 bytes
@@ -145,7 +154,7 @@ static int i_GPS_DrainPendingData(I2C_HandleTypeDef* hi2c, uint8_t addr) {
     extern IWDG_HandleTypeDef hiwdg1;
 #endif
 
-    LOG_DEBUG("GPS", "Draining...");
+    GPS_LOG_DEBUG("Draining...");
 
     // CRITICAL FIX: Limit attempts to 3 to prevent watchdog timeout
     // 3 attempts × 200ms = 600ms max (safe for 2s watchdog)
@@ -168,11 +177,11 @@ static int i_GPS_DrainPendingData(I2C_HandleTypeDef* hi2c, uint8_t addr) {
         uint16_t avail_bytes = (avail_buf[0] << 8) | avail_buf[1];
 
         if(avail_bytes == 0 || avail_bytes == 0xFFFF) {
-            LOG_DEBUG("GPS", "Drain OK (avail=0x%04X)", avail_bytes);
+            GPS_LOG_DEBUG("Drain OK (avail=0x%04X)", avail_bytes);
             return 0;  // Success
         }
 
-        LOG_DEBUG("GPS", "Drain - %d bytes avail", avail_bytes);
+        GPS_LOG_DEBUG("Drain - %d bytes avail", avail_bytes);
 
         // Read and discard data
         uint16_t to_read = (avail_bytes > sizeof(dummy_buf)) ? sizeof(dummy_buf) : avail_bytes;
@@ -199,19 +208,19 @@ void v_GPS_Init(void) {
     // I2C3 is already initialized in main.c during boot - no need to reset
     extern I2C_HandleTypeDef hi2c3;
 
-    LOG_DEBUG("GPS", "I2C3 State=0x%02X (0x20=READY)", hi2c3.State);
+    GPS_LOG_DEBUG("I2C3 State=0x%02X (0x20=READY)", hi2c3.State);
 
     // CRITICAL: Ensure I2C3 interrupts are enabled for interrupt mode operation
     HAL_NVIC_SetPriority(I2C3_EV_IRQn, 1, 0);
     HAL_NVIC_EnableIRQ(I2C3_EV_IRQn);
     HAL_NVIC_SetPriority(I2C3_ER_IRQn, 1, 0);
     HAL_NVIC_EnableIRQ(I2C3_ER_IRQn);
-    LOG_DEBUG("GPS", "I2C3 interrupts verified and enabled");
+    GPS_LOG_DEBUG("I2C3 interrupts verified and enabled");
 
     // Initialize GPS communication state
     e_gps_comm = COMM_STAT_READY;
     v_I2C3_Set_Comm_Ready();
-    LOG_DEBUG("GPS", "I2C3 ready for GPS communication");
+    GPS_LOG_DEBUG("I2C3 ready for GPS communication");
 
     // Setup transport layer
     _x_SAM_M10Q_TRANS_t trans;
@@ -251,7 +260,7 @@ void v_GPS_Init(void) {
     LOG_INFO("GPS", "Sending CFG-VALSET (%d bytes) to disable NMEA", cfg_len);
 
     // Hex dump first 32 bytes for verification
-    LOG_DEBUG("GPS", "CFG-VALSET created (%d bytes)", cfg_len);
+    GPS_LOG_DEBUG("CFG-VALSET created (%d bytes)", cfg_len);
 
     int cfg_attempts = 0;
     int cfg_ack_status = -1;  // -1=not tried, 0=NAK, 1=ACK
@@ -262,7 +271,7 @@ void v_GPS_Init(void) {
         HAL_IWDG_Refresh(&hiwdg1);
 #endif
 
-        LOG_DEBUG("GPS", "CFG-VALSET attempt %d", cfg_attempts + 1);
+        GPS_LOG_DEBUG("CFG-VALSET attempt %d", cfg_attempts + 1);
 
         // Drain before EVERY attempt (GPS continuously outputs NMEA)
         int drain_ret = i_GPS_DrainPendingData(&hi2c3, ADDR_GPS);
@@ -288,7 +297,7 @@ void v_GPS_Init(void) {
             continue;
         }
 
-        LOG_DEBUG("GPS", "CFG-VALSET sent, waiting for ACK...");
+        GPS_LOG_DEBUG("CFG-VALSET sent, waiting for ACK...");
 
         // Wait for ACK-ACK response (Class=0x06, ID=0x8A for CFG-VALSET)
         cfg_ack_status = i_GPS_WaitForACK(&hi2c3, ADDR_GPS, 0x06, 0x8A, 500);
@@ -302,7 +311,7 @@ void v_GPS_Init(void) {
             // a restart of the GNSS subsystem. This takes a short time period, so the host
             // application should wait for message acknowledgement and a margin of 0.5 seconds
             // prior to sending any further commands."
-            LOG_DEBUG("GPS", "Waiting 500ms for GNSS subsystem restart...");
+            GPS_LOG_DEBUG("Waiting 500ms for GNSS subsystem restart...");
             HAL_Delay(500);
 #if IWDG_USED
             HAL_IWDG_Refresh(&hiwdg1);
@@ -369,13 +378,13 @@ void v_GPS_Read_DoneHandler(uint8_t u8_addr, uint8_t* pu8_arr, uint16_t u16_len)
         if(u16_len == 2) {
             // Available bytes count (registers 0xFD, 0xFE) - big-endian
             px_gps->u16_availBytes = (pu8_arr[0] << 8) | pu8_arr[1];
-            LOG_DEBUG("GPS", "Available bytes=%d", px_gps->u16_availBytes);
+            GPS_LOG_DEBUG("Available bytes=%d", px_gps->u16_availBytes);
         } else {
             // FIX: Add buffer overflow protection
             if(u16_len <= sizeof(px_gps->u8_rxBuf)) {
                 memcpy(px_gps->u8_rxBuf, pu8_arr, u16_len);
                 px_gps->u16_rxLen = u16_len;
-                LOG_DEBUG("GPS", "Received %d bytes", u16_len);
+                GPS_LOG_DEBUG("Received %d bytes", u16_len);
             } else {
                 // Buffer overflow error
                 LOG_ERROR("GPS", "Buffer overflow! len=%d > bufSize=%d",
@@ -393,7 +402,7 @@ void v_GPS_Read_DoneHandler(uint8_t u8_addr, uint8_t* pu8_arr, uint16_t u16_len)
 e_COMM_STAT_t e_GPS_Ready(void) {
     // Simple initialization - driver handles protocol
     if(e_gps_init == COMM_STAT_READY) {
-        LOG_DEBUG("GPS", "Ready - handler will detect device");
+        GPS_LOG_DEBUG("Ready - handler will detect device");
         e_gps_init = COMM_STAT_DONE;
     }
     return e_gps_init;
@@ -517,7 +526,7 @@ static int i_GPS_Bus(void) {
     // Auto-reset DONE state to READY to allow next transaction
     if(e_gps_comm == COMM_STAT_DONE) {
         if(should_log) {
-            LOG_DEBUG("GPS", "Bus: DONE → READY (returning 0)");
+            GPS_LOG_DEBUG("Bus: DONE → READY (returning 0)");
             last_debug_log = now;
         }
         e_gps_comm = COMM_STAT_READY;
@@ -527,7 +536,7 @@ static int i_GPS_Bus(void) {
     // Check if GPS communication channel is ready
     if(e_gps_comm == COMM_STAT_READY) {
         if(should_log) {
-            LOG_DEBUG("GPS", "Bus: READY (returning 0)");
+            GPS_LOG_DEBUG("Bus: READY (returning 0)");
             last_debug_log = now;
         }
         return 0;  // Bus is ready for next operation
@@ -535,7 +544,7 @@ static int i_GPS_Bus(void) {
 
     // Bus is busy (COMM_STAT_BUSY or COMM_STAT_OK - waiting for callback)
     if(should_log) {
-        LOG_DEBUG("GPS", "Bus: BUSY (e_gps_comm=%d, returning -1)", e_gps_comm);
+        GPS_LOG_DEBUG("Bus: BUSY (e_gps_comm=%d, returning -1)", e_gps_comm);
         last_debug_log = now;
     }
     return -1;

@@ -22,7 +22,7 @@
 //#include "quaternion_mahony.h"
 #include "lib_log.h"
 
-#define MODE_LOG_ENABLED	0
+#define MODE_LOG_ENABLED	1
 
 // Forward declaration
 e_modeERR_t e_Mode_Get_Error(void);
@@ -164,6 +164,21 @@ e_modeERR_t e_Mode_Get_Error(){
 
 void v_Mode_Set_Error(e_modeERR_t e_type){
 	e_modeError |= e_type;
+	// 에러 발생 시 즉시 에러 코드 출력 (디버깅용)
+	LOG_ERROR("MODE", "*** ERROR SET: 0x%04X (total=0x%04X) ***", e_type, e_modeError);
+	if(e_type & modeERR_TEMP_IR)     LOG_ERROR("MODE", "  -> modeERR_TEMP_IR (열화상)");
+	if(e_type & modeERR_TEMP_OUT)    LOG_ERROR("MODE", "  -> modeERR_TEMP_OUT (실외온도)");
+	if(e_type & modeERR_TEMP_IN)     LOG_ERROR("MODE", "  -> modeERR_TEMP_IN (실내온도)");
+	if(e_type & modeERR_IMU)         LOG_ERROR("MODE", "  -> modeERR_IMU (자이로)");
+	if(e_type & modeERR_BLOW_FAN)    LOG_ERROR("MODE", "  -> modeERR_BLOW_FAN (송풍팬)");
+	if(e_type & modeERR_COOL_FAN)    LOG_ERROR("MODE", "  -> modeERR_COOL_FAN (쿨링팬)");
+	if(e_type & modeERR_TOF)         LOG_ERROR("MODE", "  -> modeERR_TOF (거리센서)");
+	if(e_type & modeERR_AUDIO)       LOG_ERROR("MODE", "  -> modeERR_AUDIO (오디오)");
+	if(e_type & modeERR_FSR)         LOG_ERROR("MODE", "  -> modeERR_FSR (압력센서)");
+	if(e_type & modeERR_SD_MOUNT)    LOG_ERROR("MODE", "  -> modeERR_SD_MOUNT (SD카드)");
+	if(e_type & modeERR_MP3_FILE)    LOG_ERROR("MODE", "  -> modeERR_MP3_FILE (MP3파일)");
+	if(e_type & modeERR_HEATER_CURR) LOG_ERROR("MODE", "  -> modeERR_HEATER_CURR (히터과전류)");
+	if(e_type & modeERR_ESP_COMM)    LOG_ERROR("MODE", "  -> modeERR_ESP_COMM (WiFi통신)");
 }
 
 
@@ -1035,12 +1050,20 @@ static void v_Mode_Sensing_toESP(){
 		if(imu_evt_right){
 			v_IMU_Clear_EVT_Right();
 		}
+
 		//add imu event left and right
 		v_ESP_Send_Sensing(pi16_IMU_Get_Left(), pi16_IMU_Get_Right(), \
 						u16_FSR_Get_Left(), u16_FSR_Get_Right(), \
 						f_Temp_Out_Get(), f_Temp_In_Get(), f_IR_Temp_Get(), \
 						u16_TOF_Get_1(), u16_TOF_Get_2(), f_ADC_Get_BatVolt(),\
 						imu_evt_left, imu_evt_right);
+
+		// Fall detection - emergency stop (AFTER sending to ESP)
+		if((imu_evt_left & 0x01) || (imu_evt_right & 0x01)){
+			LOG_ERROR("MODE", "FALL DETECTED! L=0x%02X R=0x%02X - Emergency stop!", imu_evt_left, imu_evt_right);
+			v_Mode_Set_Error(modeERR_FALL);
+			v_Mode_SetNext(modeERROR);
+		}
 	}
 }
 
@@ -1916,6 +1939,7 @@ static const s_ERROR_LED_CONFIG_t ERROR_LED_TABLE[] = {
 	{modeERR_BLOW_FAN,    0b01010},  // ○●○●○ - 송풍팬 고장
 	{modeERR_COOL_FAN,    0b01011},  // ○●○●● - 쿨링팬 고장
 	{modeERR_ESP_COMM,    0b01100},  // ○●●○○ - WiFi 통신 끊김
+	{modeERR_FALL,        0b01101},  // ○●●○● - 낙상 감지
 	{modeERR_HEATER_CURR, 0b11111},  // ●●●●● - 히터 과전류 (긴급!)
 };
 #define ERROR_LED_TABLE_SIZE (sizeof(ERROR_LED_TABLE) / sizeof(s_ERROR_LED_CONFIG_t))
@@ -2015,8 +2039,9 @@ static void v_Mode_Error(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t* px
 			LOG_DEBUG("MODE", "error start.");
 			LOG_DEBUG("MODE", "prev mode : %d", px_work->guide.e_prev);
 #endif
-			v_ESP_Send_EvtModeChange(ESP_EVT_MODE_ERROR);
-			v_ESP_Send_Error((uint16_t)e_Mode_Get_Error());
+			// Don't send error to ESP - ESP gets error info from sensing data (imu_evt)
+			// v_ESP_Send_EvtModeChange(ESP_EVT_MODE_ERROR);
+			// v_ESP_Send_Error((uint16_t)e_Mode_Get_Error());
 		}
 		else{
 			px_work->cr.bit.b1_off = 0;

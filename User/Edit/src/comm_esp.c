@@ -91,6 +91,9 @@ static void v_ESP_StatProc(uint8_t u8_cmd, uint8_t* pu8_data, uint8_t u8_len);
 _RING_VAR_DEF(espRx, uint8_t, ESP_RX_ARR_SIZE);
 static uint32_t u32_toutRef;
 static int i_toutAct;
+static uint8_t u8_toutFailCnt;  // consecutive timeout fail counter
+
+#define ESP_TOUT_FAIL_MAX	10  // ERROR after 10 consecutive failures
 
 
 
@@ -545,7 +548,9 @@ static void v_ESP_CtrlProc(uint8_t u8_cmd, uint8_t* pu8_data, uint8_t u8_len){
 
 static void v_ESP_StatProc(uint8_t u8_cmd, uint8_t* pu8_data, uint8_t u8_len){
 	if(u8_cmd == ESP_CMD_STAT){
+		(void)u32_toutRef;  // suppress unused warning when log disabled
 		i_toutAct = 0;
+		u8_toutFailCnt = 0;  // reset fail counter on success
 	}
 }
 
@@ -642,6 +647,7 @@ void v_ESP_Send_Sensing(int16_t* pi16_imu_left, int16_t* pi16_imu_right,\
 	data[cnt++] = u8_imu_left_evt;
 	data[cnt++] = u8_imu_right_evt;
 
+
 	// ===== GPS Data (10 bytes) =====
 	_x_GPS_PVT_t* px_gps = px_GPS_GetPVT();
 
@@ -681,22 +687,31 @@ void v_ESP_Send_Sensing(int16_t* pi16_imu_left, int16_t* pi16_imu_right,\
 
 	v_ESP_Transmit(ESP_DIR_REQ, ESP_CMD_STAT, data, cnt);
 
-	if(i_toutAct == 0){
-		i_toutAct = 1;
-		u32_toutRef = u32_Tim_1msGet();
-	}
+	// always reset timer on each send
+	i_toutAct = 1;
+	u32_toutRef = u32_Tim_1msGet();
 }
 
 /*
  * brief	: ESP <-> STM uart timeout handler
+ * note		: 10 consecutive failures trigger ERROR mode
  * date
  * - create	: 25.08.26
+ * - modify : 25.12.04 - add consecutive fail counter (10x)
  */
 void v_ESP_Tout_Handler(){
 	if(i_toutAct && _b_Tim_Is_OVR(u32_Tim_1msGet(), u32_toutRef, 1000)){
-		i_toutAct = 0;
-		v_Mode_Set_Error(modeERR_ESP_COMM);
-		v_Mode_SetNext(modeERROR);
+		u8_toutFailCnt++;
+
+		if(u8_toutFailCnt >= ESP_TOUT_FAIL_MAX){
+			u8_toutFailCnt = 0;
+			i_toutAct = 0;
+			v_Mode_Set_Error(modeERR_ESP_COMM);
+			v_Mode_SetNext(modeERROR);
+		} else {
+			// reset timer, wait for next packet
+			u32_toutRef = u32_Tim_1msGet();
+		}
 	}
 }
 

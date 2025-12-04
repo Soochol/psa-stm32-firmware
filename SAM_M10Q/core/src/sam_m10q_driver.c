@@ -11,6 +11,15 @@
 #include "lib_log.h"
 #include <string.h>
 
+// GPS DEBUG 로그 비활성화 (로그 과다 출력 방지)
+#define GPS_DEBUG_LOG_ENABLED	0
+
+#if GPS_DEBUG_LOG_ENABLED
+    #define GPS_LOG_DEBUG(...)  LOG_DEBUG("GPS", __VA_ARGS__)
+#else
+    #define GPS_LOG_DEBUG(...)  ((void)0)
+#endif
+
 /*
  * brief: Initialize SAM-M10Q driver instance
  * return: SAM_M10Q_RET_OK if successful
@@ -48,7 +57,7 @@ int i_SAM_M10Q_Handler(_x_SAM_M10Q_DRV_t* px_drv) {
                                      "WAIT_DATA", "PARSE", "POLL_PVT", "WAIT_POLL", "ERROR"};
         (void)state_names;  // Used only in LOG_DEBUG (suppress warning when logs disabled)
         if(px_drv->e_state < 9) {
-            LOG_DEBUG("GPS", "State: %s", state_names[px_drv->e_state]);
+            GPS_LOG_DEBUG("State: %s", state_names[px_drv->e_state]);
         }
         prev_state = px_drv->e_state;
     }
@@ -75,7 +84,7 @@ int i_SAM_M10Q_Handler(_x_SAM_M10Q_DRV_t* px_drv) {
                 } else {
                     static uint32_t last_bus_log = 0;
                     if((currentTime - last_bus_log) > 5000) {  // Log every 5s
-                        LOG_DEBUG("GPS", "CHECK_AVAIL - Bus not ready (status=%d)", bus_status);
+                        GPS_LOG_DEBUG("CHECK_AVAIL - Bus not ready (status=%d)", bus_status);
                         last_bus_log = currentTime;
                     }
                 }
@@ -98,7 +107,7 @@ int i_SAM_M10Q_Handler(_x_SAM_M10Q_DRV_t* px_drv) {
                     uint16_t readLen = (px_drv->u16_availBytes < sizeof(px_drv->u8_rxBuf)) ?
                                         px_drv->u16_availBytes : sizeof(px_drv->u8_rxBuf);
 
-                    LOG_DEBUG("GPS", "Reading %d bytes from stream...", readLen);
+                    GPS_LOG_DEBUG("Reading %d bytes from stream...", readLen);
 
                     int read_ret = px_drv->tr.i_read(px_drv->u8_i2cAddr, SAM_M10Q_REG_STREAM, readLen);
                     if(read_ret == 0) {
@@ -151,8 +160,8 @@ int i_SAM_M10Q_Handler(_x_SAM_M10Q_DRV_t* px_drv) {
                             px_drv->u32_lastUpdate = currentTime;
 
                             // Enhanced UBX-NAV-PVT output with full data structure
-                            LOG_DEBUG("GPS", "NAV-PVT parsed:");
-                            LOG_DEBUG("GPS", "  Fix=%d, Sats=%d, pDOP=%d.%02d",
+                            GPS_LOG_DEBUG("NAV-PVT parsed:");
+                            GPS_LOG_DEBUG("  Fix=%d, Sats=%d, pDOP=%d.%02d",
                                           px_drv->x_pvt.fixType, px_drv->x_pvt.numSV,
                                           px_drv->x_pvt.pDOP / 100, px_drv->x_pvt.pDOP % 100);
 
@@ -164,7 +173,7 @@ int i_SAM_M10Q_Handler(_x_SAM_M10Q_DRV_t* px_drv) {
                             int32_t lon_frac = px_drv->x_pvt.lon % 10000000;
                             if(lon_frac < 0) lon_frac = -lon_frac;
                             (void)lat_deg; (void)lat_frac; (void)lon_deg; (void)lon_frac;  // Suppress warnings when logs disabled
-                            LOG_DEBUG("GPS", "  Lat=%ld.%07ld° Lon=%ld.%07ld°",
+                            GPS_LOG_DEBUG("  Lat=%ld.%07ld° Lon=%ld.%07ld°",
                                           lat_deg, lat_frac, lon_deg, lon_frac);
 
                             // Altitude (hMSL in mm), Speed (gSpeed in mm/s), Heading (headMot in 1e-5 degrees)
@@ -178,18 +187,18 @@ int i_SAM_M10Q_Handler(_x_SAM_M10Q_DRV_t* px_drv) {
                             int32_t head_frac = px_drv->x_pvt.headMot % 100000;
                             if(head_frac < 0) head_frac = -head_frac;
                             (void)alt_m; (void)alt_mm; (void)spd_ms; (void)spd_mms; (void)head_deg; (void)head_frac;  // Suppress warnings
-                            LOG_DEBUG("GPS", "  Alt=%ld.%03ldm Speed=%ld.%03ldm/s Head=%ld.%05ld°",
+                            GPS_LOG_DEBUG("  Alt=%ld.%03ldm Speed=%ld.%03ldm/s Head=%ld.%05ld°",
                                           alt_m, alt_mm, spd_ms, spd_mms, head_deg, head_frac);
 
                             // Accuracy (hAcc, vAcc in mm - uint32_t)
-                            LOG_DEBUG("GPS", "  Acc H=%lu.%03lum V=%lu.%03lum",
+                            GPS_LOG_DEBUG("  Acc H=%lu.%03lum V=%lu.%03lum",
                                           (unsigned long)(px_drv->x_pvt.hAcc / 1000),
                                           (unsigned long)(px_drv->x_pvt.hAcc % 1000),
                                           (unsigned long)(px_drv->x_pvt.vAcc / 1000),
                                           (unsigned long)(px_drv->x_pvt.vAcc % 1000));
 
                             // Time (UTC)
-                            LOG_DEBUG("GPS", "  Time=%04d-%02d-%02d %02d:%02d:%02d UTC (valid=0x%02X)",
+                            GPS_LOG_DEBUG("  Time=%04d-%02d-%02d %02d:%02d:%02d UTC (valid=0x%02X)",
                                           px_drv->x_pvt.year, px_drv->x_pvt.month, px_drv->x_pvt.day,
                                           px_drv->x_pvt.hour, px_drv->x_pvt.min, px_drv->x_pvt.sec,
                                           px_drv->x_pvt.valid);

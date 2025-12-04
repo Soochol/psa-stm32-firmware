@@ -15,7 +15,7 @@ extern uint32_t u32_Tim_1msGet(void);
  * Set LOG_ENABLE to 1 to enable all logs, 0 to disable
  */
 
-#define LOG_ENABLE 0
+#define LOG_ENABLE 1
 
 #if LOG_ENABLE
     #define LOG_ERROR(module, ...) do { printf("[%lu][ERROR][%s] ", u32_Tim_1msGet(), module); printf(__VA_ARGS__); printf("\r\n"); } while(0)

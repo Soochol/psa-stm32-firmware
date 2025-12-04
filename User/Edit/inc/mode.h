@@ -182,6 +182,8 @@ typedef enum {
 	modeERR_HEATER_CURR	=(1<<11),
 	//add : 1.00.27
 	modeERR_ESP_COMM	=(1<<12),
+	//add : 1.00.36
+	modeERR_FALL		=(1<<13),
 } e_modeERR_t;
 void v_Mode_Set_Error(e_modeERR_t e_type);
 void v_Mode_Error_LED_Test(e_modeERR_t test_error);  // LED 에러 패턴 테스트 함수

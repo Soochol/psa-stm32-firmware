@@ -11,7 +11,7 @@
 #include "minimp3_platform.h"
 
 
-#define AUDIO_LOG_ENABLED	0
+#define AUDIO_LOG_ENABLED	1
 
 bool b_AUDIO_Init();
 

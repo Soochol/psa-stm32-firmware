@@ -13,7 +13,7 @@ extern SD_HandleTypeDef hsd2;
 SD_HandleTypeDef* p_sd = &hsd2;
 
 
-#define SD_LOG_ENABLED	0
+#define SD_LOG_ENABLED	1
 
 
 #define SD_CAHCHED_USED

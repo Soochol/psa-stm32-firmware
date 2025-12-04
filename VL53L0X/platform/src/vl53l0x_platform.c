@@ -12,7 +12,7 @@
 #define I2C_TIME_OUT_BYTE   1
 #define VL53L0X_OsDelay(...) HAL_Delay(2)
 
-#define TOF_LOG_ENABLED	0
+#define TOF_LOG_ENABLED	1
 
 #ifndef HAL_I2C_MODULE_ENABLED
 #warning "HAL I2C module must be enable "

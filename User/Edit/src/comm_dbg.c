@@ -10,7 +10,7 @@
 #define DBG_RX_ARR_SIZE	(128)
 #define DBG_RX_EOL		('\r')
 
-#define DBG_LOG_ENABLED	0
+#define DBG_LOG_ENABLED	1
 
 
 //variable
