@@ -6,6 +6,7 @@
 #include "tim.h"
 #include "math.h"
 #include "sam_m10q_platform.h"
+#include "minimp3_platform.h"
 #include "lib_log.h"
 
 
@@ -57,6 +58,7 @@ typedef enum {
 	ESP_CMD_CTRL_MODE			=0x51,	//add
 	ESP_CMD_CTRL_SPK_ON			=0x52,
 	ESP_CMD_CTRL_BLOWFAN_ON		=0x53,
+	ESP_CMD_CTRL_SPK_PLAY		=0x54,
 	ESP_CMD_CTRL_COOLFAN_ON		=0x55,
 	//STATUS
 	ESP_CMD_STAT=0x70,
@@ -527,6 +529,11 @@ static void v_ESP_CtrlProc(uint8_t u8_cmd, uint8_t* pu8_data, uint8_t u8_len){
 		}
 		else{
 			v_Mode_BlowFan_Disable();
+		}
+		break;
+	case ESP_CMD_CTRL_SPK_PLAY:
+		if(pu8_data[0] >= 1 && pu8_data[0] <= 33){
+			i_MP3_Begin(pu8_data[0]);
 		}
 		break;
 	case ESP_CMD_CTRL_COOLFAN_ON:
