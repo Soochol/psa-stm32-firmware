@@ -1063,13 +1063,31 @@ void v_Mode_Sensing_Handler(){
 	v_Temp_IR_Data_Handler();
 	v_TOF_Handler();
 
-	// TOF stuck → modeERROR
+	// TOF stuck → XSHUT reset, fail → modeERROR
 	if(u8_TOF_Is_Stuck()){
-		LOG_ERROR("TOF", "Stuck detected, ERROR");
-		v_I2C_DiagDump();
-		v_Mode_Set_Error(modeERR_TOF);
-		v_ESP_Send_Error((uint16_t)e_Mode_Get_Error());
-		v_Mode_SetNext(modeERROR);
+		static uint8_t tof_reset_cnt;
+		if(tof_reset_cnt < 3){
+			tof_reset_cnt++;
+			LOG_WARN("TOF", "Stuck, reset %u/3",
+				(unsigned)tof_reset_cnt);
+			v_TOF_Deinit();
+			if(e_TOF_Ready() == COMM_STAT_DONE){
+				v_TOF_Clear_Stuck();
+				LOG_INFO("TOF", "Reset OK");
+			} else {
+				LOG_ERROR("TOF", "Reset FAIL");
+				v_I2C_DiagDump();
+				v_Mode_Set_Error(modeERR_TOF);
+				v_ESP_Send_Error((uint16_t)e_Mode_Get_Error());
+				v_Mode_SetNext(modeERROR);
+			}
+		} else {
+			LOG_ERROR("TOF", "Stuck 3x, ERROR");
+			v_I2C_DiagDump();
+			v_Mode_Set_Error(modeERR_TOF);
+			v_ESP_Send_Error((uint16_t)e_Mode_Get_Error());
+			v_Mode_SetNext(modeERROR);
+		}
 	}
 
 	//to esp

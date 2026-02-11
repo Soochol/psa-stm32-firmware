@@ -514,7 +514,7 @@ VL53L0X_DeviceInfo_t tof_info1, tof_info2;
 
 uint32_t tof_err;
 
-#define TOF_STUCK_THRESHOLD  10  // 10 x 100ms = 1s
+#define TOF_STUCK_THRESHOLD  50  // 50 x 100ms = 5s
 
 static uint32_t u32_tof_prev_val;   // prev measurement (mm<<8 | frac)
 static uint8_t  u8_tof_stuck_cnt;   // consecutive same-value counter
@@ -732,6 +732,8 @@ e_COMM_STAT_t e_TOF_Ready(){
 		p_dev1->I2cDevAddr = ADDR_TOF1;
 		p_dev1->I2cHandle = p_i2c_tof1;
 
+		v_TOF1_SHUT_Low();
+		HAL_Delay(10);
 		v_TOF1_SHUT_High();
 		HAL_Delay(100);
 
@@ -828,6 +830,12 @@ uint16_t u16_TOF_Get_2(){
 }
 
 uint8_t u8_TOF_Is_Stuck(void){ return u8_tof_stuck; }
+
+void v_TOF_Clear_Stuck(void){
+	u8_tof_stuck = 0;
+	u8_tof_stuck_cnt = 0;
+	u32_tof_prev_val = 0;
+}
 
 
 #if 0

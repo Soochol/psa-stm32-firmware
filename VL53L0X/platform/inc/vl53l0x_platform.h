@@ -276,6 +276,7 @@ void v_TOF2_GPIO_Callback();
 
 void v_TOF2_Init();
 
+void v_TOF1_SHUT_Low();
 void v_TOF_Deinit();
 e_COMM_STAT_t e_TOF_Ready();
 void v_TOF_Handler();
@@ -286,6 +287,7 @@ uint8_t u8_TOF_Get_Frac_1();
 uint16_t u16_TOF_Get_2();
 
 uint8_t u8_TOF_Is_Stuck(void);
+void v_TOF_Clear_Stuck(void);
 
 
 #ifdef __cplusplus
