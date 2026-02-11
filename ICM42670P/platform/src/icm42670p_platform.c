@@ -1645,6 +1645,8 @@ bool b_IMU_Config(bool* pb_init, uint8_t u8_addr, uint8_t* pu8_id){
 			break;
 		case 11:
 			imu_int_source0 = u8_rd[0];
+			LOG_INFO("IMU", "%s ID=0x%02X OK",
+				(u8_addr == ADDR_IMU_LEFT) ? "L" : "R", *pu8_id);
 			return true;
 		default:
 			break;
@@ -1900,6 +1902,24 @@ void v_IMU_Handler(){
 			}
 		}
 		if(mask == 0x83){
+			// 2s periodic IMU data log for RTT debug
+			static uint32_t imuLogRef;
+			if(_b_Tim_Is_OVR(u32_Tim_1msGet(), imuLogRef, 2000)){
+				imuLogRef = u32_Tim_1msGet();
+				LOG_INFO("IMU", "L ax=%d ay=%d az=%d",
+					imu_left[0], imu_left[1], imu_left[2]);
+				LOG_INFO("IMU", "R ax=%d ay=%d az=%d",
+					imu_right[0], imu_right[1], imu_right[2]);
+				LOG_INFO("IMU", "tilt L=(%d,%d) R=(%d,%d)",
+					(int)angle_left.x, (int)angle_left.y,
+					(int)angle_right.x, (int)angle_right.y);
+			}
+			if(imu_evt_left){
+				LOG_INFO("IMU", "EVT L=0x%02X", imu_evt_left);
+			}
+			if(imu_evt_right){
+				LOG_INFO("IMU", "EVT R=0x%02X", imu_evt_right);
+			}
 			timItv = 100;
 			mask = 0x00;
 		}

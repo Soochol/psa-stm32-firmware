@@ -111,6 +111,7 @@ const Diskio_drvTypeDef  SD_Driver =
 
 /* USER CODE BEGIN beforeFunctionSection */
 /* can be used to modify / undefine following code or add new code */
+__attribute__((weak)) void v_SD_BusyWait_Yield(void) { }
 /* USER CODE END beforeFunctionSection */
 
 /* Private functions ---------------------------------------------------------*/
@@ -125,6 +126,7 @@ static int SD_CheckStatusWithTimeout(uint32_t timeout)
     {
       return 0;
     }
+    v_SD_BusyWait_Yield();
   }
 
   return -1;
@@ -216,6 +218,7 @@ DRESULT SD_read(BYTE lun, BYTE *buff, DWORD sector, UINT count)
       timeout = HAL_GetTick();
       while((ReadStatus == 0) && ((HAL_GetTick() - timeout) < SD_TIMEOUT))
       {
+        v_SD_BusyWait_Yield();
       }
       /* in case of a timeout return error */
       if (ReadStatus == 0)
@@ -229,6 +232,7 @@ DRESULT SD_read(BYTE lun, BYTE *buff, DWORD sector, UINT count)
 
         while((HAL_GetTick() - timeout) < SD_TIMEOUT)
         {
+          v_SD_BusyWait_Yield();
           if (BSP_SD_GetCardState() == SD_TRANSFER_OK)
           {
             res = RES_OK;
@@ -261,6 +265,7 @@ DRESULT SD_read(BYTE lun, BYTE *buff, DWORD sector, UINT count)
           timeout = HAL_GetTick();
           while((ReadStatus == 0) && ((HAL_GetTick() - timeout) < SD_TIMEOUT))
           {
+            v_SD_BusyWait_Yield();
           }
           if (ReadStatus == 0)
           {

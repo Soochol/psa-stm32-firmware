@@ -169,28 +169,28 @@ SECTIONS
   } >RAM_D1
   
   /* RAM_D2 */
-  .my_d2_section :
+  .my_d2_section (NOLOAD) :
   {
   	. = ALIGN(32);
   	*(.my_d2_section)
   	. = ALIGN(32);
   } >RAM_D2
-  
+
   /* RAM_D3 */
-  .my_d3_section :
+  .my_d3_section (NOLOAD) :
   {
   	. = ALIGN(32);
   	*(.my_d3_section)
   	. = ALIGN(32);
   } >RAM_D3
-  
+
   /* NOCACHE */
-  .my_nocache_section :
+  .my_nocache_section (NOLOAD) :
   {
   	*(.my_nocache_section)
   } >RAM_NOCACHE_D2
-  
-  .my_nocache_d3 :
+
+  .my_nocache_d3 (NOLOAD) :
   {
   	*(.my_nocache_d3)
   } >RAM_NOCACHE_D3

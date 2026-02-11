@@ -197,16 +197,11 @@ void v_I2C_DiagDump(void) {
 	(void)hi2c1; (void)hi2c2; (void)hi2c3; (void)hi2c4; (void)hi2c5;  // Suppress warnings when logs disabled
 
 	LOG_ERROR("I2C", "Bus Status Dump:");
-	LOG_ERROR("I2C", "I2C1: State=0x%02X, Error=0x%08lX, ISR=0x%08lX",
-	          hi2c1.State, hi2c1.ErrorCode, hi2c1.Instance->ISR);
-	LOG_ERROR("I2C", "I2C2: State=0x%02X, Error=0x%08lX, ISR=0x%08lX",
-	          hi2c2.State, hi2c2.ErrorCode, hi2c2.Instance->ISR);
-	LOG_ERROR("I2C", "I2C3: State=0x%02X, Error=0x%08lX, ISR=0x%08lX",
-	          hi2c3.State, hi2c3.ErrorCode, hi2c3.Instance->ISR);
-	LOG_ERROR("I2C", "I2C4: State=0x%02X, Error=0x%08lX, ISR=0x%08lX",
-	          hi2c4.State, hi2c4.ErrorCode, hi2c4.Instance->ISR);
-	LOG_ERROR("I2C", "I2C5: State=0x%02X, Error=0x%08lX, ISR=0x%08lX",
-	          hi2c5.State, hi2c5.ErrorCode, hi2c5.Instance->ISR);
+	LOG_ERROR("I2C", "I2C1: S=0x%02X E=0x%08X", hi2c1.State, hi2c1.ErrorCode);
+	LOG_ERROR("I2C", "I2C2: S=0x%02X E=0x%08X", hi2c2.State, hi2c2.ErrorCode);
+	LOG_ERROR("I2C", "I2C3: S=0x%02X E=0x%08X", hi2c3.State, hi2c3.ErrorCode);
+	LOG_ERROR("I2C", "I2C4: S=0x%02X E=0x%08X", hi2c4.State, hi2c4.ErrorCode);
+	LOG_ERROR("I2C", "I2C5: S=0x%02X E=0x%08X", hi2c5.State, hi2c5.ErrorCode);
 }
 
 /**
@@ -227,10 +222,10 @@ int i_I2C_ProbeDevice(void* p_i2c_handle, uint8_t bus_num, uint8_t dev_addr, con
 	HAL_StatusTypeDef ret = HAL_I2C_IsDeviceReady(p_i2c, dev_addr, 3, 100);
 
 	if(ret == HAL_OK) {
-		LOG_DEBUG("I2C", "I2C%d_PROBE: %s ACK \u2713", bus_num, dev_name);
+		LOG_DEBUG("I2C", "I2C%d:%s ACK", bus_num, dev_name);
 		return 0;
 	} else {
-		LOG_DEBUG("I2C", "I2C%d_PROBE: %s NACK \u2717 (HAL_Status=%d)", bus_num, dev_name, ret);
+		LOG_DEBUG("I2C", "I2C%d:%s NAK(%d)", bus_num, dev_name, ret);
 		return -1;
 	}
 }

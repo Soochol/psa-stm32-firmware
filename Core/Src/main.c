@@ -43,6 +43,7 @@
 #include "gps_test.h"			//GPS Test
 #include "mode.h"
 #include "comm_esp.h"
+#include "SEGGER_RTT.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -230,6 +231,7 @@ int main(void)
   HAL_Init();
 
   /* USER CODE BEGIN Init */
+  __enable_irq();  // Ensure PRIMASK=0 (probe-rs may leave PRIMASK=1 after reset)
   SCB_EnableDCache();
   SCB_EnableICache();
   MPU_Config_Noncache1();
@@ -243,6 +245,9 @@ int main(void)
   PeriphCommonClock_Config();
 
   /* USER CODE BEGIN SysInit */
+  SEGGER_RTT_Init();
+  SEGGER_RTT_printf(0, "\r\n[RTT] === PSA STM32 Boot ===\r\n");
+  SEGGER_RTT_printf(0, "[RTT] SystemClock OK\r\n");
   DWT_Init();
 
 
@@ -265,31 +270,43 @@ int main(void)
   /* USER CODE END SysInit */
 
   /* Initialize all configured peripherals */
+  SEGGER_RTT_printf(0, "[P]GPIO\r\n");
   MX_GPIO_Init();
   MX_DMA_Init();
   MX_BDMA_Init();
+  SEGGER_RTT_printf(0, "[P]SAI\r\n");
   MX_SAI1_Init();
+  SEGGER_RTT_printf(0, "[P]ADC\r\n");
   MX_ADC1_Init();
   MX_ADC3_Init();
   MX_DAC1_Init();
+  SEGGER_RTT_printf(0, "[P]I2C\r\n");
   MX_I2C1_Init();
   MX_I2C2_Init();
   MX_I2C3_Init();
   MX_I2C4_Init();
+  SEGGER_RTT_printf(0, "[P]SD\r\n");
   MX_SDMMC2_SD_Init();
+  SEGGER_RTT_printf(0, "[P]TIM\r\n");
   MX_TIM2_Init();
   MX_TIM4_Init();
+  SEGGER_RTT_printf(0, "[P]UART\r\n");
   MX_UART4_Init();
   MX_UART5_Init();
   MX_UART8_Init();
   MX_USART1_UART_Init();
   MX_USART3_UART_Init();
+  SEGGER_RTT_printf(0, "[P]FS\r\n");
   MX_FATFS_Init();
   MX_TIM7_Init();
+  SEGGER_RTT_printf(0, "[P]I2C5\r\n");
   MX_I2C5_Init();
   MX_TIM1_Init();
-  MX_RTC_Init();
+  SEGGER_RTT_printf(0, "[P]RTC\r\n");
+  MX_RTC_Init();  // Note: May fail on some boards - see RTC_Init 0 for graceful handling
+  SEGGER_RTT_printf(0, "[P]IWDG\r\n");
   MX_IWDG1_Init();
+  SEGGER_RTT_printf(0, "[RTT] Peripherals init done\r\n");
   /* USER CODE BEGIN 2 */
   v_Tim_Init();
   v_SD_Init();
@@ -304,11 +321,12 @@ int main(void)
   v_RGB_Init();
   v_Mode_Init();
 
+  SEGGER_RTT_printf(0, "[RTT] Sensors init done\r\n");
   //power enable
   v_IO_Enable_12V();
   uint32_t t_12v_on = HAL_GetTick();
   (void)t_12v_on;  // Used only in LOG_INFO (suppress warning when logs disabled)
-  LOG_INFO("POWER", "12V enabled at t=%lu ms", t_12v_on);
+  LOG_INFO("POWER", "12V enabled at t=%u ms", t_12v_on);
 
 #if IWDG_USED
   HAL_IWDG_Refresh(&hiwdg1);
@@ -317,18 +335,20 @@ int main(void)
   // GPS initialization after 12V power is stable
 #if 1  // GPS ENABLED - SAM-M10Q on I2C3
   // Wait for GPS module to boot (SAM-M10Q needs ~1-2 seconds)
-  HAL_Delay(2000);
-
+  // Split 2000ms delay into 500ms chunks with IWDG refresh to prevent watchdog reset
+  for(int gps_wait = 0; gps_wait < 4; gps_wait++){
+    HAL_Delay(500);
 #if IWDG_USED
-  HAL_IWDG_Refresh(&hiwdg1);  // Refresh after GPS boot delay
+    HAL_IWDG_Refresh(&hiwdg1);
 #endif
+  }
 
-  LOG_INFO("POWER", "GPS boot delay complete at t=%lu ms (elapsed=%lu ms)",
-           HAL_GetTick(), HAL_GetTick() - t_12v_on);
+  LOG_INFO("POWER", "GPS boot delay done t=%u ms", HAL_GetTick());
 
   // Initialize GPS after 12V power is stable
+  SEGGER_RTT_printf(0, "[RTT] GPS init start\r\n");
   v_GPS_Init();
-  LOG_INFO("POWER", "GPS init completed at t=%lu ms", HAL_GetTick());
+  LOG_INFO("POWER", "GPS init done t=%u ms", HAL_GetTick());
 
 #if IWDG_USED
   HAL_IWDG_Refresh(&hiwdg1);  // Refresh after GPS init
@@ -339,6 +359,7 @@ int main(void)
 
   if(b_MountSD())	{v_Mode_Set_MP3_Play(1);}
   else				{v_Mode_Set_MP3_Play(0);}
+  SEGGER_RTT_printf(0, "[RTT] === Init complete, entering main loop ===\r\n");
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -1021,7 +1042,10 @@ static void MX_RTC_Init(void)
   hrtc.Init.OutPutRemap = RTC_OUTPUT_REMAP_NONE;
   if (HAL_RTC_Init(&hrtc) != HAL_OK)
   {
-    Error_Handler();
+    /* USER CODE BEGIN RTC_Init_Error */
+    // RTC init failure is non-fatal - log warning and continue
+    SEGGER_RTT_printf(0, "[W]RTC init FAIL\r\n");
+    /* USER CODE END RTC_Init_Error */
   }
   /* USER CODE BEGIN RTC_Init 2 */
 
@@ -1875,10 +1899,17 @@ void MPU_Config(void)
 void Error_Handler(void)
 {
   /* USER CODE BEGIN Error_Handler_Debug */
-  /* User can add his own implementation to report the HAL error return state */
-  __disable_irq();
+  // Capture LR FIRST before any function calls clobber it
+  volatile uint32_t lr;
+  __asm volatile ("mov %0, lr" : "=r" (lr));
+  SEGGER_RTT_printf(0, "\r\n[!]ERR @LR=0x%08X t=%u\r\n", lr, HAL_GetTick());
+  // Keep IRQs enabled and refresh IWDG so probe-rs can connect for RTT readout
   while (1)
   {
+#if IWDG_USED
+    HAL_IWDG_Refresh(&hiwdg1);
+#endif
+    HAL_Delay(100);
   }
   /* USER CODE END Error_Handler_Debug */
 }

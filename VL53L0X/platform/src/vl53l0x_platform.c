@@ -12,7 +12,7 @@
 #define I2C_TIME_OUT_BYTE   1
 #define VL53L0X_OsDelay(...) HAL_Delay(2)
 
-#define TOF_LOG_ENABLED	0
+#define TOF_LOG_ENABLED	1
 
 #ifndef HAL_I2C_MODULE_ENABLED
 #warning "HAL I2C module must be enable "
@@ -730,17 +730,24 @@ e_COMM_STAT_t e_TOF_Ready(){
 		v_TOF1_SHUT_High();
 		HAL_Delay(100);
 
+		LOG_INFO("TOF", "Init addr=0x%02X", ADDR_TOF1);
+
 		if(i_TOF_Init(p_dev1, &tof_ver1, &tof_info1) != 0){
+			LOG_ERROR("TOF", "Init FAIL");
 			return e_tof_config = COMM_STAT_ERR;
 		}
+		LOG_INFO("TOF", "Init OK, ranging...");
+
 #if TOF_SINGLE
 		v_TOF_RangingTest(p_dev1);
 		v_TOF_RangingTest(p_dev2);
 #else
 		if(i_TOF_RangingTest_Cont(p_dev1) != 0){
+			LOG_ERROR("TOF", "Ranging start FAIL");
 			return e_tof_config = COMM_STAT_ERR;
 		}
 #endif
+		LOG_INFO("TOF", "Ranging OK - READY");
 		e_tof_config = COMM_STAT_DONE;
 	}
 	return e_tof_config;
@@ -751,10 +758,10 @@ uint8_t tof_ready1;
 
 void v_TOF_Handler(){
 	static uint32_t timRef;
+	static uint32_t logRef;
 	if(e_tof_config != COMM_STAT_DONE){return;}
 	if(!_b_Tim_Is_OVR(u32_Tim_1msGet(), timRef, 100)){return;}
 	timRef = u32_Tim_1msGet();
-	//static uint32_t timRef;
 
 	int status;
 #if TOF_SINGLE
@@ -772,6 +779,16 @@ void v_TOF_Handler(){
 		VL53L0X_ClearInterruptMask(p_dev1, 0);
 	}
 #endif
+
+	// 1s periodic distance log for RTT debug
+	if(_b_Tim_Is_OVR(u32_Tim_1msGet(), logRef, 1000)){
+		logRef = u32_Tim_1msGet();
+		LOG_INFO("TOF", "d=%umm st=%u rdy=%u err=%u",
+			(unsigned)tof1_meas.RangeMilliMeter,
+			(unsigned)tof1_meas.RangeStatus,
+			(unsigned)tof_ready1,
+			(unsigned)tof_err);
+	}
 }
 
 

@@ -2,20 +2,40 @@
 #define __LIB_LOG_H
 
 #include <stdio.h>
+#include "SEGGER_RTT.h"
 
-// Forward declaration for timestamp function
-extern uint32_t u32_Tim_1msGet(void);
+// Log level: 0=OFF, 1=ERR, 2=WARN, 3=INFO, 4=DBG
+// Set via build flag: -DLOG_LEVEL=3
+#ifndef LOG_LEVEL
+  #define LOG_LEVEL  1
+#endif
 
-/**
- * @brief Logging macros for structured debug output
- *
- * These macros provide consistent logging format across the codebase.
- * Format: [timestamp_ms][LEVEL][MODULE] message
- */
+#if LOG_LEVEL >= 1
+  #define LOG_ERROR(mod, fmt, ...) \
+    SEGGER_RTT_printf(0, "[E/%s]" fmt "\r\n", mod, ##__VA_ARGS__)
+#else
+  #define LOG_ERROR(mod, ...) ((void)0)
+#endif
 
-#define LOG_ERROR(module, ...) ((void)0)  // ERROR logs disabled
-#define LOG_WARN(module, ...)  ((void)0)  // WARN logs disabled
-#define LOG_INFO(module, ...)  ((void)0)  // INFO logs disabled
-#define LOG_DEBUG(module, ...) ((void)0)  // DEBUG logs disabled
+#if LOG_LEVEL >= 2
+  #define LOG_WARN(mod, fmt, ...) \
+    SEGGER_RTT_printf(0, "[W/%s]" fmt "\r\n", mod, ##__VA_ARGS__)
+#else
+  #define LOG_WARN(mod, ...) ((void)0)
+#endif
+
+#if LOG_LEVEL >= 3
+  #define LOG_INFO(mod, fmt, ...) \
+    SEGGER_RTT_printf(0, "[I/%s]" fmt "\r\n", mod, ##__VA_ARGS__)
+#else
+  #define LOG_INFO(mod, ...) ((void)0)
+#endif
+
+#if LOG_LEVEL >= 4
+  #define LOG_DEBUG(mod, fmt, ...) \
+    SEGGER_RTT_printf(0, "[D/%s]" fmt "\r\n", mod, ##__VA_ARGS__)
+#else
+  #define LOG_DEBUG(mod, ...) ((void)0)
+#endif
 
 #endif // __LIB_LOG_H

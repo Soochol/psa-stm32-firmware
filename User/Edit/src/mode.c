@@ -21,6 +21,7 @@
 //tilt
 //#include "quaternion_mahony.h"
 #include "lib_log.h"
+#include "SEGGER_RTT.h"
 
 #define MODE_LOG_ENABLED	0
 
@@ -360,6 +361,9 @@ static void v_Mode_GyroAI_Handler(){
 
 		if(actL <= actAngle){
 			//active
+			if(e_mode_tilt != MODE_TILT_ACT){
+				LOG_INFO("TILT", "ACT ang=%d thr=%d", (int)actL, actAngle);
+			}
 			e_mode_tilt = MODE_TILT_ACT;
 			if(mode != modeFORCE_UP && mode != modeFORCE_ON){
 				v_Mode_SetNext(modeFORCE_UP);
@@ -367,6 +371,9 @@ static void v_Mode_GyroAI_Handler(){
 		}
 		else if(actL > relAngle){
 			//release
+			if(e_mode_tilt != MODE_TILT_REL){
+				LOG_INFO("TILT", "REL ang=%d thr=%d", (int)actL, relAngle);
+			}
 			e_mode_tilt = MODE_TILT_REL;
 			if(mode == modeFORCE_UP || mode == modeFORCE_ON){
 				v_Mode_SetNext(modeFORCE_DOWN);
@@ -1150,7 +1157,7 @@ static void v_Mode_Booting(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t* 
 				// Only attempt initialization if probe succeeded
 				if(imu_probe_result == 0){
 					ret = e_IMU_Ready();
-					if(ret == COMM_STAT_DONE){ready_mask |= modeCONFIG_IMU;}
+					if(ret == COMM_STAT_DONE){ready_mask |= modeCONFIG_IMU; SEGGER_RTT_printf(0, "[B]IMU OK m=0x%02X\r\n", ready_mask);}
 					else if(ret == COMM_STAT_ERR){
 						LOG_ERROR("MODE", "IMU init FAILED on I2C2 - Device B hardware issue?");
 						v_Mode_Set_Error(modeERR_IMU);
@@ -1170,7 +1177,7 @@ static void v_Mode_Booting(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t* 
 					}
 
 					ret = e_FSR_Ready();
-					if(ret == COMM_STAT_DONE)		{ready_mask |= modeCONFIG_FSR;}
+					if(ret == COMM_STAT_DONE)		{ready_mask |= modeCONFIG_FSR; SEGGER_RTT_printf(0, "[B]FSR OK m=0x%02X\r\n", ready_mask);}
 					else if(ret == COMM_STAT_ERR)	{
 						LOG_ERROR("MODE", "FSR init FAILED on I2C2 - ADC issue");
 						v_Mode_Set_Error(modeERR_FSR);
@@ -1180,7 +1187,7 @@ static void v_Mode_Booting(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t* 
 			}
 			if(!(ready_mask & modeCONFIG_AUDIO)){
 				e_COMM_STAT_t ret = e_Codec_Ready();
-				if(ret == COMM_STAT_DONE)		{ready_mask |= modeCONFIG_AUDIO;}
+				if(ret == COMM_STAT_DONE)		{ready_mask |= modeCONFIG_AUDIO; SEGGER_RTT_printf(0, "[B]AUD OK m=0x%02X\r\n", ready_mask);}
 				else if(ret == COMM_STAT_ERR)	{v_Mode_Set_Error(modeERR_AUDIO);}
 			}
 			if(!(ready_mask & modeCONFIG_TEMP_OUT)){
@@ -1194,21 +1201,21 @@ static void v_Mode_Booting(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t* 
 				}
 
 				e_COMM_STAT_t ret = e_Temp_InOut_Ready();
-				if(ret == COMM_STAT_DONE)		{ready_mask |= modeCONFIG_TEMP_OUT;}
+				if(ret == COMM_STAT_DONE)		{ready_mask |= modeCONFIG_TEMP_OUT; SEGGER_RTT_printf(0, "[B]TMP OK m=0x%02X\r\n", ready_mask);}
 				else if(ret == COMM_STAT_ERR)	{
 					LOG_ERROR("MODE", "Temperature sensor init FAILED on I2C1");
 					v_Mode_Set_Error(modeERR_TEMP_OUT);
 				}
 			}
 			else{
-				// TOF sensor DISABLED - not mounted on Device B
-#if 0
+				// TOF sensor ENABLED for debugging
+#if 1
 				if(!(ready_mask & modeCONFIG_TOF)){
 					extern I2C_HandleTypeDef hi2c1;
 					i_I2C_ProbeDevice(&hi2c1, 1, ADDR_TOF1, "TOF");
 
 					e_COMM_STAT_t ret = e_TOF_Ready();
-					if(ret == COMM_STAT_DONE)		{ready_mask |= modeCONFIG_TOF;}
+					if(ret == COMM_STAT_DONE)		{ready_mask |= modeCONFIG_TOF; SEGGER_RTT_printf(0, "[B]TOF OK m=0x%02X\r\n", ready_mask);}
 					else if(ret == COMM_STAT_ERR)	{
 						LOG_ERROR("MODE", "TOF sensor init FAILED on I2C1");
 						v_Mode_Set_Error(modeERR_TOF);
@@ -1217,6 +1224,7 @@ static void v_Mode_Booting(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t* 
 #else
 				// Skip TOF - assume always ready
 				ready_mask |= modeCONFIG_TOF;
+				SEGGER_RTT_printf(0, "[B]TOF skip m=0x%02X\r\n", ready_mask);
 #endif
 			}
 			if(ready_mask == (modeCONFIG_IMU | modeCONFIG_AUDIO | modeCONFIG_TEMP_OUT | modeCONFIG_TOF)){
@@ -1230,7 +1238,7 @@ static void v_Mode_Booting(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t* 
 					}
 
 					e_COMM_STAT_t ret = e_IR_Temp_Ready();
-					if(ret == COMM_STAT_DONE)		{ready_mask |= modeCONFIG_IR_TEMP;}
+					if(ret == COMM_STAT_DONE)		{ready_mask |= modeCONFIG_IR_TEMP; SEGGER_RTT_printf(0, "[B]IR OK m=0x%02X\r\n", ready_mask);}
 					else if(ret == COMM_STAT_ERR)	{
 						LOG_ERROR("MODE", "IR Temperature init FAILED on I2C4 - MLX90640 issue");
 						v_Mode_Set_Error(modeERR_TEMP_IR);
@@ -1268,6 +1276,7 @@ static void v_Mode_Booting(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t* 
 		//timeout
 		if(_b_Tim_Is_OVR(u32_Tim_1msGet(), px_pub->u32_timToutRef, tout)){
 			//timeout to error
+			SEGGER_RTT_printf(0, "[B]TOUT m=0x%02X/0x%02X\r\n", ready_mask, modeCONFIG_CPLT);
 			LOG_ERROR("MODE", "Sensor init timeout - ready_mask=0x%04X (expect 0x%04X)",
 			       ready_mask, modeCONFIG_CPLT);
 			LOG_ERROR("MODE", "Missing sensors:");
@@ -1458,6 +1467,7 @@ static void v_Mode_ForceUp(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t* 
 	if(px_work->cr.bit.b1_upd){
 		px_work->cr.bit.b1_upd = 0;
 		if(px_work->cr.bit.b1_on){
+			LOG_INFO("FORCE", "UP enter tout=%us", (unsigned)u32_Mode_Get_ForceUp_Tout());
 			//timeout
 			px_pub->u32_timToutRef = u32_Tim_1msGet();
 			tout = u32_Mode_Get_ForceUp_Tout() * MODE_TOUT_TO_MS_MULT;
@@ -1490,6 +1500,7 @@ static void v_Mode_ForceUp(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t* 
 
 		int temp = i_Mode_Is_TempHeater_Over(&px_pub->i_tempRenew, f_Mode_Get_Temp_ForceUp());
 		if(temp > 0){
+			LOG_INFO("FORCE", "UP temp reached -> ON");
 			v_Mode_Heater_Off();
 			v_Mode_SetNext(modeFORCE_ON);
 		}
@@ -1546,6 +1557,7 @@ static void v_Mode_ForceOn(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t* 
 		px_work->cr.bit.b1_upd = 0;
 
 		if(px_work->cr.bit.b1_on){
+			LOG_INFO("FORCE", "ON enter tout=%us", (unsigned)u32_Mode_Get_ForceOn_Tout());
 			//timeout
 			px_pub->u32_timToutRef = u32_Tim_1msGet();
 			tout = u32_Mode_Get_ForceOn_Tout() * MODE_TOUT_TO_MS_MULT;
@@ -1631,6 +1643,7 @@ static void v_Mode_ForceDown(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t
 		px_work->cr.bit.b1_upd = 0;
 
 		if(px_work->cr.bit.b1_on){
+			LOG_INFO("FORCE", "DOWN enter tout=%us", (unsigned)u32_Mode_Get_ForceDown_Tout());
 			//timeout
 			px_pub->u32_tim_ref = u32_Tim_1msGet();
 			tout = u32_Mode_Get_ForceDown_Tout() * MODE_TOUT_TO_MS_MULT;
@@ -1671,6 +1684,7 @@ static void v_Mode_ForceDown(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t
 		if(_b_Tim_Is_OVR(u32_Tim_1msGet(), coolDelayRef, coolDelay)){
 			int temp = i_Mode_Is_TempHeater_Under(&px_pub->i_tempRenew, f_Mode_Get_Temp_Waiting());
 			if(temp > 0){
+				LOG_INFO("FORCE", "DOWN cooled -> WAITING");
 				v_Mode_CoolFan_Disable();
 				v_Mode_SetNext(modeWAITING);
 			}
@@ -1976,6 +1990,19 @@ static void v_Mode_Error(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t* px
 		px_work->cr.bit.b1_upd = 0;
 
 		if(px_work->cr.bit.b1_on){
+			// RTT error bitmap dump
+			SEGGER_RTT_printf(0, "\r\n[!]modeERR=0x%04X\r\n", (uint16_t)e_Mode_Get_Error());
+			uint16_t err_bits = (uint16_t)e_Mode_Get_Error();
+			if(err_bits & 0x0001) SEGGER_RTT_WriteString(0, " IR_TEMP\r\n");
+			if(err_bits & 0x0002) SEGGER_RTT_WriteString(0, " TEMP_OUT\r\n");
+			if(err_bits & 0x0004) SEGGER_RTT_WriteString(0, " TEMP_IN\r\n");
+			if(err_bits & 0x0008) SEGGER_RTT_WriteString(0, " IMU\r\n");
+			if(err_bits & 0x0040) SEGGER_RTT_WriteString(0, " TOF\r\n");
+			if(err_bits & 0x0080) SEGGER_RTT_WriteString(0, " AUDIO\r\n");
+			if(err_bits & 0x0100) SEGGER_RTT_WriteString(0, " FSR\r\n");
+			if(err_bits & 0x0200) SEGGER_RTT_WriteString(0, " SD\r\n");
+			if(err_bits & 0x1000) SEGGER_RTT_WriteString(0, " ESP\r\n");
+
 			//led
 			px_pub->u32_timLedRef = u32_Tim_1msGet();
 			px_pub->u32_timLedItv = 0;

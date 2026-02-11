@@ -2,6 +2,13 @@
 #include "lib_tim.h"
 #include "uart.h"
 #include "sk6812_platform.h"
+#include "SEGGER_RTT.h"
+#include "lib_log.h"
+#include "mode.h"
+#include "as6221_platform.h"
+#include "mlx90640_platform.h"
+#include "adc.h"
+#include "vl53l0x_platform.h"
 //extern
 extern TIM_HandleTypeDef htim2;
 extern TIM_HandleTypeDef htim4;
@@ -30,17 +37,40 @@ uint32_t u32_Tim_1msGet(){
 	return HAL_GetTick();
 }
 
-// LOW: Removed unused variable 'u32_tick1s' (only used in commented debug print)
+extern uint32_t one_cycle;
+
+// Mode name lookup for RTT heartbeat
+static const char* const MODE_NAMES[] = {
+	"BOOT","HEAL","WAIT","F_UP","F_ON","F_DN","SLP","OFF","ERR"
+};
+
 void v_Tim_1s_Test(){
 	static uint32_t timRef;
+	static uint32_t hb_cnt = 0;
 	if(_b_Tim_Is_OVR(u32_Tim_1msGet(), timRef, 1000)){
 		timRef = u32_Tim_1msGet();
-		// LOW: Removed increment of unused variable
-		//v_printf_poll("tim : %d\n", u32_tick1s);
+		hb_cnt++;
+		if(hb_cnt % 5 == 0){
+			int mid = (int)e_Mode_Get_CurrID();
+			const char* mname = (mid >= 0 && mid < 9) ? MODE_NAMES[mid] : "?";
+			SEGGER_RTT_printf(0, "[H]%us %s(%d)\r\n",
+				u32_Tim_1msGet()/1000, mname, mid);
+			SEGGER_RTT_printf(0, "[T]in=%dC out=%dC ir=%dC bat=%dV t=%u\r\n",
+				(int)f_Temp_In_Get(), (int)f_Temp_Out_Get(),
+				(int)f_IR_Temp_Get(),
+				(int)f_ADC_Get_BatVolt(),
+				(unsigned)u16_TOF_Get_1());
+			uint32_t us = one_cycle / (SystemCoreClock / 1000000);
+			SEGGER_RTT_printf(0, "[D]cyc=%uus\r\n", us);
+		}
 	}
 	v_1Cycle_Time();
 }
 
+// Override weak SD busy-wait yield to keep heartbeat alive during SD reads
+void v_SD_BusyWait_Yield(void) {
+	v_Tim_1s_Test();
+}
 
 
 

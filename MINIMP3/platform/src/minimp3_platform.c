@@ -8,6 +8,7 @@
 #include <math.h>
 #include "tim.h"
 #include "sd.h"
+#include "lib_log.h"
 #include "fatfs.h"
 
 
@@ -1043,6 +1044,7 @@ int i_MP3_Playing(){
 }
 
 int i_MP3_Begin(uint16_t u16_num){
+	LOG_INFO("MP3", "play #%u", (unsigned)u16_num);
 #ifdef MP3_BYPASS
 	e_mp3_stat = MP3_DONE;
 #else

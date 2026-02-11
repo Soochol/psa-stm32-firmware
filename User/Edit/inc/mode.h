@@ -389,6 +389,7 @@ void v_Mode_BlowFan_Disable();
 #define MODE_MP3_ERROR_BLOW_FAN			30		// Blow fan error
 #define MODE_MP3_ERROR_COOL_FAN			31		// Cool fan error
 #define MODE_MP3_ERROR_TOF				32		// Time-of-flight sensor error
+#define MODE_MP3_CHECK_MOUNT			33		// Mount status check alert
 
 /////////////////////////////////
 //	CONVERSION MULTIPLIERS

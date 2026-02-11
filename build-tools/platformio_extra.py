@@ -33,6 +33,7 @@ source_dirs = [
     "User/Drv/src",
     "User/Edit/src",
     "User/Lib/src",
+    "RTT/src",
 ]
 
 # Add source files
