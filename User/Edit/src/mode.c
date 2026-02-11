@@ -1544,7 +1544,7 @@ static void v_Mode_ForceUp(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t* 
 	}
 	else if(px_work->cr.bit.b1_off){
 		if(px_work->guide.e_next != modeFORCE_ON){
-			i_MP3_ForceStop();
+			//i_MP3_ForceStop(); // allow audio to finish during mode transition
 		}
 		v_Mode_MoveNext(px_work);
 		v_Mode_Heater_Off();
@@ -1633,7 +1633,7 @@ static void v_Mode_ForceOn(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t* 
 	else if(px_work->cr.bit.b1_off){
 		v_Mode_MoveNext(px_work);
 		v_Mode_Heater_Off();
-		i_MP3_ForceStop();
+		//i_MP3_ForceStop(); // allow audio to finish during mode transition
 	}
 
 	v_Mode_Sensing_Handler();
@@ -1730,7 +1730,7 @@ static void v_Mode_ForceDown(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t
 	else if(px_work->cr.bit.b1_off){
 		v_Mode_MoveNext(px_work);
 		v_Mode_CoolFan_Disable();
-		i_MP3_ForceStop();
+		//i_MP3_ForceStop(); // allow audio to finish during mode transition
 	}
 
 	//led
