@@ -282,7 +282,10 @@ void v_TOF_Handler();
 
 
 uint16_t u16_TOF_Get_1();
+uint8_t u8_TOF_Get_Frac_1();
 uint16_t u16_TOF_Get_2();
+
+uint8_t u8_TOF_Is_Stuck(void);
 
 
 #ifdef __cplusplus

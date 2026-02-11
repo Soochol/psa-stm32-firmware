@@ -514,6 +514,11 @@ VL53L0X_DeviceInfo_t tof_info1, tof_info2;
 
 uint32_t tof_err;
 
+#define TOF_STUCK_THRESHOLD  10  // 10 x 100ms = 1s
+
+static uint32_t u32_tof_prev_val;   // prev measurement (mm<<8 | frac)
+static uint8_t  u8_tof_stuck_cnt;   // consecutive same-value counter
+static uint8_t  u8_tof_stuck;       // stuck detected flag
 
 
 int i_TOF_Init(VL53L0X_DEV dev, VL53L0X_Version_t* ver, VL53L0X_DeviceInfo_t* info){
@@ -777,17 +782,35 @@ void v_TOF_Handler(){
 		status = VL53L0X_GetRangingMeasurementData(p_dev1, &tof1_meas);
 		if(status != VL53L0X_ERROR_NONE){tof_err++;}
 		VL53L0X_ClearInterruptMask(p_dev1, 0);
+
+		// === Stuck detection ===
+		{
+			uint16_t mm   = tof1_meas.RangeMilliMeter;
+			uint8_t  frac = tof1_meas.RangeFractionalPart;
+			uint32_t val  = ((uint32_t)mm << 8) | frac;
+
+			if(val == u32_tof_prev_val){
+				if(u8_tof_stuck_cnt < 255) u8_tof_stuck_cnt++;
+			} else {
+				u8_tof_stuck_cnt = 0;
+			}
+			u32_tof_prev_val = val;
+
+			if(u8_tof_stuck_cnt >= TOF_STUCK_THRESHOLD){
+				u8_tof_stuck = 1;
+			}
+		}
 	}
 #endif
 
 	// 1s periodic distance log for RTT debug
 	if(_b_Tim_Is_OVR(u32_Tim_1msGet(), logRef, 1000)){
 		logRef = u32_Tim_1msGet();
-		LOG_INFO("TOF", "d=%umm st=%u rdy=%u err=%u",
+		LOG_INFO("TOF", "d=%u st=%u e=%u s=%u",
 			(unsigned)tof1_meas.RangeMilliMeter,
 			(unsigned)tof1_meas.RangeStatus,
-			(unsigned)tof_ready1,
-			(unsigned)tof_err);
+			(unsigned)tof_err,
+			(unsigned)u8_tof_stuck_cnt);
 	}
 }
 
@@ -796,10 +819,15 @@ uint16_t u16_TOF_Get_1(){
 	return tof1_meas.RangeMilliMeter;
 }
 
+uint8_t u8_TOF_Get_Frac_1(){
+	return tof1_meas.RangeFractionalPart;
+}
+
 uint16_t u16_TOF_Get_2(){
 	return tof2_meas.RangeMilliMeter;
 }
 
+uint8_t u8_TOF_Is_Stuck(void){ return u8_tof_stuck; }
 
 
 #if 0

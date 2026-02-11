@@ -1063,6 +1063,15 @@ void v_Mode_Sensing_Handler(){
 	v_Temp_IR_Data_Handler();
 	v_TOF_Handler();
 
+	// TOF stuck → modeERROR
+	if(u8_TOF_Is_Stuck()){
+		LOG_ERROR("TOF", "Stuck detected, ERROR");
+		v_I2C_DiagDump();
+		v_Mode_Set_Error(modeERR_TOF);
+		v_ESP_Send_Error((uint16_t)e_Mode_Get_Error());
+		v_Mode_SetNext(modeERROR);
+	}
+
 	//to esp
 	v_Mode_Sensing_toESP();
 
