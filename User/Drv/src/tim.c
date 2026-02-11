@@ -63,9 +63,10 @@ void v_Tim_1s_Test(){
 				ti/10, ti%10 < 0 ? -(ti%10) : ti%10,
 				to/10, to%10 < 0 ? -(to%10) : to%10,
 				tr/10, tr%10 < 0 ? -(tr%10) : tr%10);
-			SEGGER_RTT_printf(0, "[T]bat=%d.%dV t=%u\r\n",
+			unsigned tf = (unsigned)u8_TOF_Get_Frac_1() * 10 / 256;
+			SEGGER_RTT_printf(0, "[T]bat=%d.%dV t=%u.%u\r\n",
 				bv/10, bv%10 < 0 ? -(bv%10) : bv%10,
-				(unsigned)u16_TOF_Get_1());
+				(unsigned)u16_TOF_Get_1(), tf);
 			uint32_t us = one_cycle / (SystemCoreClock / 1000000);
 			SEGGER_RTT_printf(0, "[D]cyc=%uus\r\n", us);
 		}

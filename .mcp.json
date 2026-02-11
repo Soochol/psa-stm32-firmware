@@ -1,18 +1,8 @@
 {
   "mcpServers": {
-    "git": {
-      "command": "npx",
-      "args": ["-y", "@cyanheads/git-mcp-server"],
-      "env": {
-        "GIT_BINARY_PATH": "git"
-      }
-    },
-    "github": {
-      "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-github"],
-      "env": {
-        "GITHUB_PERSONAL_ACCESS_TOKEN": ""
-      }
+    "embedded-debugger": {
+      "command": "C:\\Users\\bless\\.cargo\\bin\\embedded-debugger-mcp.exe",
+      "args": []
     }
   }
 }

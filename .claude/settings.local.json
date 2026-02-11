@@ -29,7 +29,19 @@
       "Bash(git reset:*)",
       "Bash(git stash:*)",
       "Bash(git mv:*)",
-      "Bash(git merge:*)"
+      "Bash(git merge:*)",
+      "Bash(C:Usersbless.platformiopenvScriptspio.exe run -e stm32_debug)",
+      "Bash(cmd /c:*)",
+      "mcp__embedded-debugger__list_probes",
+      "Bash(dir:*)",
+      "Bash(\"C:\\\\Users\\\\bless\\\\.platformio\\\\penv\\\\Scripts\\\\pio.exe\" run -e stm32_debug -d \"c:\\\\Users\\\\bless\\\\code\\\\workspace-psa-firmware\\\\psa-stm32-firmware\")",
+      "Bash(git status:*)",
+      "Bash(\"C:\\\\Users\\\\bless\\\\.platformio\\\\penv\\\\Scripts\\\\pio.exe\" run -d \"c:\\\\Users\\\\bless\\\\code\\\\workspace-psa-firmware\\\\psa-esp32-firmware\")",
+      "Bash(powershell -Command:*)",
+      "mcp__embedded-debugger__connect",
+      "Bash(C:Usersbless.platformiopenvScriptsplatformio.exe run -e stm32_debug -d \"c:\\\\Users\\\\bless\\\\code\\\\workspace-psa-firmware\\\\psa-stm32-firmware\")",
+      "Bash(python -m platformio run:*)",
+      "Bash(\"C:/Users/bless/.platformio/penv/Scripts/pio.exe\" run -e stm32_debug)"
     ],
     "deny": [],
     "ask": []
