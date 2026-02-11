@@ -55,10 +55,16 @@ void v_Tim_1s_Test(){
 			const char* mname = (mid >= 0 && mid < 9) ? MODE_NAMES[mid] : "?";
 			SEGGER_RTT_printf(0, "[H]%us %s(%d)\r\n",
 				u32_Tim_1msGet()/1000, mname, mid);
-			SEGGER_RTT_printf(0, "[T]in=%dC out=%dC ir=%dC bat=%dV t=%u\r\n",
-				(int)f_Temp_In_Get(), (int)f_Temp_Out_Get(),
-				(int)f_IR_Temp_Get(),
-				(int)f_ADC_Get_BatVolt(),
+			int ti = (int)(f_Temp_In_Get() * 10);
+			int to = (int)(f_Temp_Out_Get() * 10);
+			int tr = (int)(f_IR_Temp_Get() * 10);
+			int bv = (int)(f_ADC_Get_BatVolt() * 10);
+			SEGGER_RTT_printf(0, "[T]in=%d.%d out=%d.%d ir=%d.%d\r\n",
+				ti/10, ti%10 < 0 ? -(ti%10) : ti%10,
+				to/10, to%10 < 0 ? -(to%10) : to%10,
+				tr/10, tr%10 < 0 ? -(tr%10) : tr%10);
+			SEGGER_RTT_printf(0, "[T]bat=%d.%dV t=%u\r\n",
+				bv/10, bv%10 < 0 ? -(bv%10) : bv%10,
 				(unsigned)u16_TOF_Get_1());
 			uint32_t us = one_cycle / (SystemCoreClock / 1000000);
 			SEGGER_RTT_printf(0, "[D]cyc=%uus\r\n", us);
