@@ -775,6 +775,7 @@ int i_MP3_Start(uint16_t u16_mp3_num){
 }
 
 int i_MP3_Stop(){
+	SEGGER_RTT_printf(0, "[MP3] Stop!\r\n");
 	memset(sai_buf, 0, sizeof(sai_buf));
 	//speaker close
 	HAL_GPIO_WritePin(DO_AUDIO_SHDN_GPIO_Port, DO_AUDIO_SHDN_Pin, GPIO_PIN_RESET);
@@ -913,6 +914,7 @@ int i_MP3_Start(uint16_t u16_mp3_num){
 }
 
 int i_MP3_Stop(){
+	SEGGER_RTT_printf(0, "[MP3] Stop called! stat=%d\r\n", e_mp3_stat);
 	//speaker close
 	HAL_GPIO_WritePin(DO_AUDIO_SHDN_GPIO_Port, DO_AUDIO_SHDN_Pin, GPIO_PIN_RESET);
 
@@ -1008,6 +1010,7 @@ int i_MP3_Player(uint16_t u16_num){
 }
 
 int i_MP3_ForceStop(){
+	SEGGER_RTT_printf(0, "[MP3] ForceStop called! stat=%d\r\n", e_mp3_stat);
 	i_MP3_Stop();
 	e_mp3_stat = MP3_IDLE;
 	return e_mp3_stat;

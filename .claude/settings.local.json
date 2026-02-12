@@ -41,7 +41,8 @@
       "mcp__embedded-debugger__connect",
       "Bash(C:Usersbless.platformiopenvScriptsplatformio.exe run -e stm32_debug -d \"c:\\\\Users\\\\bless\\\\code\\\\workspace-psa-firmware\\\\psa-stm32-firmware\")",
       "Bash(python -m platformio run:*)",
-      "Bash(\"C:/Users/bless/.platformio/penv/Scripts/pio.exe\" run -e stm32_debug)"
+      "Bash(\"C:/Users/bless/.platformio/penv/Scripts/pio.exe\" run -e stm32_debug)",
+      "Bash(C:/Users/bless/.platformio/penv/Scripts/pio.exe run -e stm32_debug)"
     ],
     "deny": [],
     "ask": []
