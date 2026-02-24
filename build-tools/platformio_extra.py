@@ -22,6 +22,7 @@ source_dirs = [
     "ICM42670P/core/src",
     "ICM42670P/platform/src",
     "MINIMP3/platform/src",
+    "MINIMP3/flash_audio/src",
     "MLX90640/core/src",
     "MLX90640/platform/src",
     "SAM_M10Q/core/src",

@@ -6,6 +6,9 @@
 
 #define MP3_CACHE_USED	0
 
+/* 1 = Flash 내장 배열 사용 (SD 카드 불필요), 0 = SD 카드 FatFS 사용 */
+#define MP3_USE_FLASH  1
+
 
 void v_MP3_Init();
 

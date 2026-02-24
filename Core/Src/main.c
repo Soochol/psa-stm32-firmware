@@ -219,7 +219,8 @@ int main(void)
 {
 
   /* USER CODE BEGIN 1 */
-
+  /* Enable debug connections in all D1 power modes (keeps CoreSight clocked) */
+  SET_BIT(DBGMCU->CR, DBGMCU_CR_DBG_SLEEPD1 | DBGMCU_CR_DBG_STOPD1 | DBGMCU_CR_DBG_STANDBYD1);
   /* USER CODE END 1 */
 
   /* MPU Configuration--------------------------------------------------------*/
@@ -357,8 +358,12 @@ int main(void)
 
   HAL_Delay(100);
 
+#if MP3_USE_FLASH
+  v_Mode_Set_MP3_Play(1);  // Flash 내장 MP3: SD 카드 불필요
+#else
   if(b_MountSD())	{v_Mode_Set_MP3_Play(1);}
   else				{v_Mode_Set_MP3_Play(0);}
+#endif
   SEGGER_RTT_printf(0, "[RTT] === Init complete, entering main loop ===\r\n");
   /* USER CODE END 2 */
 
@@ -379,6 +384,18 @@ int main(void)
 	  // watchdog will still trigger reset after 2 seconds
 #endif
 	  v_Tim_1s_Test();
+
+#if MP3_USE_FLASH
+	  /* Flash MP3 부팅 테스트: 코덱 준비 후 MP3 #1 자동 1회 재생 */
+	  {
+		  static int s_flash_test_done = 0;
+		  if(!s_flash_test_done && e_Codec_Ready() == COMM_STAT_DONE){
+			  s_flash_test_done = 1;
+			  SEGGER_RTT_printf(0, "[MP3] Boot test: playing #1\r\n");
+			  i_MP3_Begin(1);
+		  }
+	  }
+#endif
 
 	  v_ADC_Handler();
 	  v_Uart_Handler();

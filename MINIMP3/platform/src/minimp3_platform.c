@@ -11,6 +11,13 @@
 #include "lib_log.h"
 #include "fatfs.h"
 
+/* MP3_USE_FLASH is defined in minimp3_platform.h */
+#if MP3_USE_FLASH
+#include "mp3_flash_data.h"
+static uint16_t mp3_flash_idx;   /* 현재 파일 인덱스 (0-based) */
+static uint32_t mp3_flash_pos;   /* Flash 배열 내 읽기 위치 */
+#endif
+
 
 
 extern SAI_HandleTypeDef hsai_BlockA1;
@@ -749,12 +756,49 @@ int i_MP3_Start(uint16_t u16_mp3_num){
 	memset(sai_buf, 0, sizeof(sai_buf));
 	HAL_SAI_Transmit_DMA(p_A1, (uint8_t*)dummy, sizeof(dummy) / 2);
 
-	//	SD	//
 	mp3_offset = 0;
+	mp3_remain = 0;
 	mp3_end = false;
 
+#if MP3_USE_FLASH
+	u16_mp3_num -= 1;
+	if(u16_mp3_num >= MP3_FLASH_NUM_FILES){
+		SEGGER_RTT_printf(0, "[MP3] Flash start ERR: num=%u out of range\r\n", u16_mp3_num);
+		return -1;
+	}
+	mp3_flash_idx = u16_mp3_num;
+	mp3_flash_pos = 0;
+	b_file_open = true;
+	SEGGER_RTT_printf(0, "[MP3] Flash start: idx=%u size=%u\r\n", mp3_flash_idx, (unsigned)mp3_flash_size[mp3_flash_idx]);
+
+	/* --- 초기 데이터 로드 + 첫 프레임 디코드 (SD 모드와 동일) --- */
+	{
+		uint32_t to_read = MP3_FILE_SIZE;
+		uint32_t avail = mp3_flash_size[mp3_flash_idx] - mp3_flash_pos;
+		if(avail < to_read){ to_read = avail; }
+		memcpy(mp3_file, mp3_flash_data[mp3_flash_idx] + mp3_flash_pos, to_read);
+		mp3_flash_pos += to_read;
+		mp3_remain = (UINT)to_read;
+		mp3_offset = 0;
+
+		if(mp3_remain == MP3_FILE_SIZE)	{mp3_end = false;}
+		else							{mp3_end = true;}
+
+		int samples = mp3dec_decode_frame(&mp3dec, mp3_file, mp3_remain, mp3_pcm, &mp3_info);
+		SEGGER_RTT_printf(0, "[MP3] 1st frame: samples=%d hz=%d ch=%d fb=%d\r\n",
+			samples, mp3_info.hz, mp3_info.channels, mp3_info.frame_bytes);
+		mp3_offset += mp3_info.frame_bytes;
+		mp3_remain -= mp3_info.frame_bytes;
+
+		for(size_t i = 0; i < samples; i++){
+			mp3_pcm_mono[2*i] = 0;
+			mp3_pcm_mono[2*i + 1] = mp3_pcm[i];
+		}
+		feed_buffer(PLAY_BUF_SAMPLES / 2, mp3_pcm_mono, samples, mp3_info.channels * 2);
+	}
+#else
 	if(b_IsMountSD() == false){
-		return - 1;
+		return -1;
 	}
 	u16_mp3_num -= 1;
 	if(u16_mp3_num >= 33){return false;}
@@ -766,6 +810,7 @@ int i_MP3_Start(uint16_t u16_mp3_num){
 	else{
 		b_file_open = true;
 	}
+#endif
 
 	//speaker open
 	HAL_GPIO_WritePin(DO_AUDIO_SHDN_GPIO_Port, DO_AUDIO_SHDN_Pin, GPIO_PIN_SET);
@@ -786,10 +831,12 @@ int i_MP3_Stop(){
 
 	__HAL_DMA_CLEAR_FLAG(&hdma_sai1_b, DMA_FLAG_TCIF1_5 | DMA_FLAG_HTIF1_5 | DMA_FLAG_TEIF1_5 | DMA_FLAG_DMEIF1_5);
 
+#if !MP3_USE_FLASH
 	if(b_file_open){
 		f_close(&mp3File);
-		b_file_open = false;
 	}
+#endif
+	b_file_open = false;
 	mp3_end = false;
 	return 0;
 }
@@ -800,6 +847,7 @@ int i_MP3_Decode(){
 	if(i_spk_open){
 		if(_b_Tim_Is_OVR(u32_Tim_1msGet(), u32_spk_timRef, 100)){
 			//circular
+			SEGGER_RTT_printf(0, "[MP3] SAI DMA start (after delay)\r\n");
 			HAL_SAI_Transmit_DMA(p_B1, (uint8_t*)sai_buf, PLAY_BUF_SAMPLES);
 			i_spk_open = 0;
 		}
@@ -812,7 +860,18 @@ int i_MP3_Decode(){
 			//if(mp3_end && mp3_remain == 0){break;}
 			if(mp3_remain < 512){	//512 -> 384 (
 				memmove(mp3_file, mp3_file + mp3_offset, mp3_remain);
+#if MP3_USE_FLASH
+				{
+					uint32_t to_read = MP3_FILE_SIZE - mp3_remain;
+					uint32_t avail = mp3_flash_size[mp3_flash_idx] - mp3_flash_pos;
+					if(avail < to_read){ to_read = avail; }
+					memcpy(&mp3_file[mp3_remain], mp3_flash_data[mp3_flash_idx] + mp3_flash_pos, to_read);
+					byteRead = (UINT)to_read;
+					mp3_flash_pos += to_read;
+				}
+#else
 				f_read(&mp3File, &mp3_file[mp3_remain], (MP3_FILE_SIZE - mp3_remain), &byteRead);	//SDMMC
+#endif
 				mp3_remain += byteRead;
 				mp3_offset = 0;
 
@@ -952,6 +1011,10 @@ int i_MP3_Decode(){
 		if(mp3_remain){
 			int samples = mp3dec_decode_frame(&mp3dec, &mp3_file[mp3_offset], mp3_remain, mp3_pcm, &mp3_info);
 			mp3ReadCnt++;
+			if(mp3ReadCnt == 1){
+				SEGGER_RTT_printf(0, "[MP3] 1st frame: samples=%d hz=%d ch=%d frame_bytes=%d\r\n",
+					samples, mp3_info.hz, mp3_info.channels, mp3_info.frame_bytes);
+			}
 			mp3_offset += mp3_info.frame_bytes;
 			mp3_remain -= mp3_info.frame_bytes;
 
