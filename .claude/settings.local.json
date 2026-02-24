@@ -42,7 +42,13 @@
       "Bash(C:Usersbless.platformiopenvScriptsplatformio.exe run -e stm32_debug -d \"c:\\\\Users\\\\bless\\\\code\\\\workspace-psa-firmware\\\\psa-stm32-firmware\")",
       "Bash(python -m platformio run:*)",
       "Bash(\"C:/Users/bless/.platformio/penv/Scripts/pio.exe\" run -e stm32_debug)",
-      "Bash(C:/Users/bless/.platformio/penv/Scripts/pio.exe run -e stm32_debug)"
+      "Bash(C:/Users/bless/.platformio/penv/Scripts/pio.exe run -e stm32_debug)",
+      "Bash(~/.platformio/packages/tool-openocd/bin/openocd:*)",
+      "WebFetch(domain:community.st.com)",
+      "Bash(git -C /home/dev/code/psa-stm32-firmware ls-files:*)",
+      "Bash(git -C /home/dev/code/psa-stm32-firmware status --short -- \"세팅_음성파일_48k/\")",
+      "Bash(git -C /home/dev/code/psa-stm32-firmware status --short)",
+      "Bash(git -C /home/dev/code/psa-stm32-firmware log --oneline -5)"
     ],
     "deny": [],
     "ask": []
