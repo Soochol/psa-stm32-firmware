@@ -308,9 +308,9 @@ void v_Mode_BlowFan_Disable();
 /////////////////////////////////
 #define MODE_BAT_VOL_ALERT	32.5f	//unit : volt	//alert
 //#define MODE_BAT_VOL_LOW
-#define MODE_BAT_VOL_LV1	36.4f	//unit : volt	//10 ~ 44 %
-#define MODE_BAT_VOL_LV2	39.4f	//unit : volt	//45 ~ 74 %
-//#define MODE_BAT_VOL_LV3	39.4f	//unit : volt	//90%
+#define MODE_BAT_VOL_LV1	35.5f	//unit : volt	//~15 %
+#define MODE_BAT_VOL_LV2	38.0f	//unit : volt	//~45 %
+//#define MODE_BAT_VOL_LV3			//unit : volt	//> LV2
 #define MODE_BAT_OFFSET		0.3f	//unit : volt
 #define MODE_BAT_TIME_REFRESH	100	//unit : ms
 
