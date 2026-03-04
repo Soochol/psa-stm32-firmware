@@ -360,10 +360,12 @@ int main(void)
 
 #if MP3_USE_FLASH
   v_Mode_Set_MP3_Play(1);  // Flash 내장 MP3: SD 카드 불필요
+  b_MountSD();              // SD mount for sensor logging
 #else
   if(b_MountSD())	{v_Mode_Set_MP3_Play(1);}
   else				{v_Mode_Set_MP3_Play(0);}
 #endif
+  b_SD_Log_Open();          // sensor.bin + sensor_fmt.txt
   SEGGER_RTT_printf(0, "[RTT] === Init complete, entering main loop ===\r\n");
   /* USER CODE END 2 */
 

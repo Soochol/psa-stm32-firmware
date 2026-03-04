@@ -329,6 +329,154 @@ bool b_UnMountSD(){
 }
 
 
+//////////////////////////////////
+//		SENSOR LOG				//
+//////////////////////////////////
+
+#define SD_LOG_RECORD_SIZE		56		// 4B timestamp + 52B sensor data
+#define SD_LOG_FLUSH_ITV		10000	// 10s flush interval (ms)
+#define SD_LOG_BUF_MAX			100		// max records per flush (10s / 100ms)
+#define SD_LOG_BUF_SIZE			(SD_LOG_RECORD_SIZE * SD_LOG_BUF_MAX)	// 5600 bytes
+
+static FIL logFile;
+static bool b_logOpen;
+static uint8_t u8_logBuf[SD_LOG_BUF_SIZE];
+static uint16_t u16_logBufIdx;
+static uint32_t u32_logFlushRef;
+
+static const char c_sensorFmt[] =
+"PSA Sensor Binary Log Format\r\n"
+"=============================\r\n"
+"File: sensor.bin\r\n"
+"Record Size: 56 bytes\r\n"
+"Interval: 100ms\r\n"
+"\r\n"
+"Byte Layout (per record):\r\n"
+"--------------------------\r\n"
+"[0-3]   timestamp_ms    uint32  LE    System tick (ms since boot)\r\n"
+"[4-9]   imu_l_gyro      int16x3 BE    Left IMU Gyroscope (X,Y,Z)\r\n"
+"[10-15] imu_l_accel     int16x3 BE    Left IMU Accelerometer (X,Y,Z)\r\n"
+"[16-21] imu_r_gyro      int16x3 BE    Right IMU Gyroscope (X,Y,Z)\r\n"
+"[22-27] imu_r_accel     int16x3 BE    Right IMU Accelerometer (X,Y,Z)\r\n"
+"[28-29] fsr_left        uint16  BE    Force Sensor Left\r\n"
+"[30-31] fsr_right       uint16  BE    Force Sensor Right\r\n"
+"[32-33] temp_out        [int,dec]     Outdoor Temp (byte0=integer, byte1=decimal*10)\r\n"
+"[34-35] temp_in         [int,dec]     Indoor Temp\r\n"
+"[36-37] temp_ir         [int,dec]     IR Temp\r\n"
+"[38-39] tof1            uint16  BE    Time-of-Flight Sensor 1\r\n"
+"[40-41] tof2            uint16  BE    Time-of-Flight Sensor 2\r\n"
+"[42-43] battery         [int,dec]     Battery Voltage\r\n"
+"[44]    imu_l_evt       uint8         Left IMU Event Flags\r\n"
+"[45]    imu_r_evt       uint8         Right IMU Event Flags\r\n"
+"[46-49] gps_lat         float   BE    GPS Latitude (IEEE754)\r\n"
+"[50-53] gps_lon         float   BE    GPS Longitude (IEEE754)\r\n"
+"[54]    gps_sat         uint8         Number of Satellites\r\n"
+"[55]    gps_fix         uint8         Fix Type (0=none,1=2D,2=3D)\r\n"
+"\r\n"
+"Notes:\r\n"
+"- LE = Little-Endian, BE = Big-Endian\r\n"
+"- Temperature: value = byte0 + (byte1 / 10.0)\r\n"
+"- GPS zeros when no fix available\r\n"
+"- Total records = file_size / 56\r\n";
+
+
+/*
+ * brief	: open sensor log files (sensor.bin + sensor_fmt.txt)
+ * date
+ * - create	: 26.03.04
+ */
+bool b_SD_Log_Open(){
+	if(!b_SdMount) return false;
+
+	// create sensor_fmt.txt (overwrite)
+	FIL fmtFile;
+	UINT bw;
+	if(f_open(&fmtFile, "sensor_fmt.txt", FA_CREATE_ALWAYS | FA_WRITE) == FR_OK){
+		f_write(&fmtFile, c_sensorFmt, strlen(c_sensorFmt), (void*)&bw);
+		f_close(&fmtFile);
+	}
+
+	// open sensor.bin (append)
+	res = f_open(&logFile, "sensor.bin", FA_OPEN_APPEND | FA_WRITE);
+	if(res != FR_OK){
+		b_logOpen = false;
+		return false;
+	}
+
+	b_logOpen = true;
+	u16_logBufIdx = 0;
+	u32_logFlushRef = u32_Tim_1msGet();
+	return true;
+}
+
+
+/*
+ * brief	: accumulate sensor data to buffer, flush every 10s
+ * date
+ * - create	: 26.03.04
+ * param
+ * - pu8_data	: sensor data (52 bytes, same as ESP format)
+ * - u16_len	: data length
+ */
+void v_SD_Log_Write(uint8_t* pu8_data, uint16_t u16_len){
+	if(!b_logOpen) return;
+	if((u16_logBufIdx + 4 + u16_len) > SD_LOG_BUF_SIZE) return;
+
+	// prepend timestamp (4B LE)
+	uint32_t ts = u32_Tim_1msGet();
+	u8_logBuf[u16_logBufIdx++] = ts & 0xFF;
+	u8_logBuf[u16_logBufIdx++] = (ts >> 8) & 0xFF;
+	u8_logBuf[u16_logBufIdx++] = (ts >> 16) & 0xFF;
+	u8_logBuf[u16_logBufIdx++] = (ts >> 24) & 0xFF;
+
+	// append sensor data
+	memcpy(&u8_logBuf[u16_logBufIdx], pu8_data, u16_len);
+	u16_logBufIdx += u16_len;
+
+	// flush every 10s
+	if(_b_Tim_Is_OVR(u32_Tim_1msGet(), u32_logFlushRef, SD_LOG_FLUSH_ITV)){
+		v_SD_Log_Flush();
+	}
+}
+
+
+/*
+ * brief	: flush buffer to SD card and clear
+ * date
+ * - create	: 26.03.04
+ */
+void v_SD_Log_Flush(){
+	if(!b_logOpen || u16_logBufIdx == 0) return;
+
+	UINT bw;
+	res = f_write(&logFile, u8_logBuf, u16_logBufIdx, (void*)&bw);
+	if(res == FR_OK){
+		f_sync(&logFile);
+	}
+
+	// clear buffer
+	u16_logBufIdx = 0;
+	u32_logFlushRef = u32_Tim_1msGet();
+}
+
+
+/*
+ * brief	: close sensor log file
+ * date
+ * - create	: 26.03.04
+ */
+void v_SD_Log_Close(){
+	if(!b_logOpen) return;
+
+	// flush remaining data
+	if(u16_logBufIdx > 0){
+		v_SD_Log_Flush();
+	}
+	f_close(&logFile);
+	b_logOpen = false;
+}
+
+
 /*
  * brief	: fatfs read
  * date

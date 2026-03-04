@@ -8,6 +8,7 @@
 #include "sam_m10q_platform.h"
 #include "minimp3_platform.h"
 #include "lib_log.h"
+#include "sd.h"
 
 
 //STX	| LEN	| DIR	| CMD	| DATA	| CHK	| ETX
@@ -687,6 +688,9 @@ void v_ESP_Send_Sensing(int16_t* pi16_imu_left, int16_t* pi16_imu_right,\
 	}
 
 	v_ESP_Transmit(ESP_DIR_REQ, ESP_CMD_STAT, data, cnt);
+
+	// SD sensor log
+	v_SD_Log_Write(data, cnt);
 
 	if(i_toutAct == 0){
 		i_toutAct = 1;
