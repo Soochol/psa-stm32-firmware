@@ -131,12 +131,9 @@ void v_FSR_Tout_Handler(){
 			u8_fsr_i2c2_retry_cnt++;
 			LOG_WARN("ADS111x", "FSR recovery %u/3", (unsigned)u8_fsr_i2c2_retry_cnt);
 		} else {
-			e_fsr_config = COMM_STAT_ERR;
+			e_fsr_config = COMM_STAT_READY;  // force re-config
 			u8_fsr_i2c2_retry_cnt = 0;
-			LOG_ERROR("ADS111x", "FSR 3x recovery failed - entering ERROR");
-			v_Mode_Set_Error(modeERR_FSR);
-			v_ESP_Send_Error((uint16_t)e_Mode_Get_Error());
-			v_Mode_SetNext(modeERROR);
+			LOG_WARN("ADS111x", "FSR re-init after 3x fail");
 		}
 	}
 
@@ -161,12 +158,9 @@ void v_FSR_Tout_Handler(){
 			u8_fsr_i2c2_retry_cnt++;
 			LOG_WARN("ADS111x", "FSR recovery %u/3", (unsigned)u8_fsr_i2c2_retry_cnt);
 		} else {
-			e_fsr_config = COMM_STAT_ERR;
+			e_fsr_config = COMM_STAT_READY;  // force re-config
 			u8_fsr_i2c2_retry_cnt = 0;
-			LOG_ERROR("ADS111x", "FSR 3x recovery failed - entering ERROR");
-			v_Mode_Set_Error(modeERR_FSR);
-			v_ESP_Send_Error((uint16_t)e_Mode_Get_Error());
-			v_Mode_SetNext(modeERROR);
+			LOG_WARN("ADS111x", "FSR re-init after 3x fail");
 		}
 	}
 }

@@ -203,16 +203,13 @@ void v_IMU_Tout_Handler(){
 			u8_imu_i2c2_retry_cnt++;
 			LOG_WARN("ICM42670P", "IMU recovery %u/3", (unsigned)u8_imu_i2c2_retry_cnt);
 		} else {
-			e_imu_config = COMM_STAT_ERR;
+			e_imu_config = COMM_STAT_READY;  // force re-init
 			b_imu_available = false;
 			b_imu_handler_reset = true;
 			memset(imu_left, 0, sizeof(imu_left));
 			memset(imu_right, 0, sizeof(imu_right));
 			u8_imu_i2c2_retry_cnt = 0;
-			LOG_ERROR("ICM42670P", "IMU 3x recovery failed - entering ERROR");
-			v_Mode_Set_Error(modeERR_IMU);
-			v_ESP_Send_Error((uint16_t)e_Mode_Get_Error());
-			v_Mode_SetNext(modeERROR);
+			LOG_WARN("ICM42670P", "IMU re-init after 3x fail");
 		}
 	}
 
@@ -236,16 +233,13 @@ void v_IMU_Tout_Handler(){
 			u8_imu_i2c2_retry_cnt++;
 			LOG_WARN("ICM42670P", "IMU recovery %u/3", (unsigned)u8_imu_i2c2_retry_cnt);
 		} else {
-			e_imu_config = COMM_STAT_ERR;
+			e_imu_config = COMM_STAT_READY;  // force re-init
 			b_imu_available = false;
 			b_imu_handler_reset = true;
 			memset(imu_left, 0, sizeof(imu_left));
 			memset(imu_right, 0, sizeof(imu_right));
 			u8_imu_i2c2_retry_cnt = 0;
-			LOG_ERROR("ICM42670P", "IMU 3x recovery failed - entering ERROR");
-			v_Mode_Set_Error(modeERR_IMU);
-			v_ESP_Send_Error((uint16_t)e_Mode_Get_Error());
-			v_Mode_SetNext(modeERROR);
+			LOG_WARN("ICM42670P", "IMU re-init after 3x fail");
 		}
 	}
 }
