@@ -148,6 +148,13 @@ static x_I2C_BUF_t i2c1_buf;
 
 
 
+void v_I2C1_Reset_CommState(void){
+	e_comm_i2c1 = COMM_STAT_READY;
+	u8_i2c1_addr = 0;
+	u16_i2c1_rdCnt = 0;
+	i2c1_buf.u16_cnt = 0;
+}
+
 int i_I2C1_Write(uint8_t u8_addr, uint16_t u16_reg, uint8_t* pu8_arr, uint16_t u16_len){
 	// CRITICAL: Validate pointer parameters to prevent hard fault
 	if(pu8_arr == NULL || u16_len == 0){

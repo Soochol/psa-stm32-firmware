@@ -111,50 +111,72 @@ int i_Temp_InOut_Read(uint8_t u8_addr, uint16_t u16_memAddr, uint16_t u16_cnt){
 
 static e_COMM_STAT_t e_temp_inout_config;
 
+static uint8_t u8_temp_i2c1_retry_cnt;
+
 void v_Temp_InOut_Tout_Handler(){
 	if((e_temp_in_evt == COMM_STAT_BUSY) && _b_Tim_Is_OVR(u32_Tim_1msGet(), u32_toutRef_In, 2000)){
-		// MEDIUM: Abort DMA transaction to prevent I2C bus lockup
 		LOG_ERROR("AS6221", "TEMP_INDOOR I2C1 timeout (addr=0x%02X)", ADDR_TEMP_INDOOR);
-		LOG_ERROR("AS6221", "  ISR=0x%08lX (BUSY=%d, STOPF=%d)",
-		       p_i2c->Instance->ISR,
-		       (p_i2c->Instance->ISR & 0x8000) ? 1 : 0,  // BUSY bit
-		       (p_i2c->Instance->ISR & 0x0020) ? 1 : 0); // STOPF bit
 		LOG_ERROR("AS6221", "  ErrorCode=0x%08lX", p_i2c->ErrorCode);
-		if(p_i2c->ErrorCode & HAL_I2C_ERROR_BERR)    LOG_ERROR("AS6221", "    - Bus Error");
-		if(p_i2c->ErrorCode & HAL_I2C_ERROR_ARLO)    LOG_ERROR("AS6221", "    - Arbitration Lost");
-		if(p_i2c->ErrorCode & HAL_I2C_ERROR_AF)      LOG_ERROR("AS6221", "    - NACK (device not responding)");
-		if(p_i2c->ErrorCode & HAL_I2C_ERROR_OVR)     LOG_ERROR("AS6221", "    - Overrun");
-		if(p_i2c->ErrorCode & HAL_I2C_ERROR_TIMEOUT) LOG_ERROR("AS6221", "    - HAL Timeout");
-		if(p_i2c->ErrorCode & HAL_I2C_ERROR_DMA)     LOG_ERROR("AS6221", "    - DMA Error");
 
-		HAL_I2C_Master_Abort_IT(p_i2c, ADDR_TEMP_INDOOR);
-		e_temp_in_evt = COMM_STAT_READY;
-		e_temp_inout_config = COMM_STAT_ERR;
-		v_Mode_Set_Error(modeERR_TEMP_IN);  // FIX 1.00.35: Was modeERR_TEMP_OUT (copy-paste bug)
-		v_Mode_SetNext(modeERROR);
+		if(u8_temp_i2c1_retry_cnt < 3){
+			u8_temp_i2c1_retry_cnt++;
+			LOG_WARN("AS6221", "I2C1 bus recovery %u/3", (unsigned)u8_temp_i2c1_retry_cnt);
+			v_I2C1_Bus_Recovery_FastMode();
+			__HAL_RCC_I2C1_FORCE_RESET();
+			HAL_Delay(1);
+			__HAL_RCC_I2C1_RELEASE_RESET();
+			HAL_Delay(1);
+			HAL_I2C_DeInit(p_i2c);
+			p_i2c->State = HAL_I2C_STATE_RESET;
+			p_i2c->ErrorCode = HAL_I2C_ERROR_NONE;
+			HAL_I2C_Init(p_i2c);
+			v_I2C1_Reset_CommState();
+			e_temp_in_evt = COMM_STAT_READY;
+			e_temp_out_evt = COMM_STAT_READY;
+			u32_toutRef_In = u32_Tim_1msGet();
+			u32_toutRef_Out = u32_Tim_1msGet();
+		} else {
+			HAL_I2C_Master_Abort_IT(p_i2c, ADDR_TEMP_INDOOR);
+			e_temp_in_evt = COMM_STAT_READY;
+			e_temp_inout_config = COMM_STAT_ERR;
+			v_Mode_Set_Error(modeERR_TEMP_IN);
+			v_Mode_SetNext(modeERROR);
+		}
 	}
 
 	if((e_temp_out_evt == COMM_STAT_BUSY) && _b_Tim_Is_OVR(u32_Tim_1msGet(), u32_toutRef_Out, 2000)){
-		// MEDIUM: Abort DMA transaction to prevent I2C bus lockup
 		LOG_ERROR("AS6221", "TEMP_OUTDOOR I2C1 timeout (addr=0x%02X)", ADDR_TEMP_OUTDOOR);
-		LOG_ERROR("AS6221", "  ISR=0x%08lX (BUSY=%d, STOPF=%d)",
-		       p_i2c->Instance->ISR,
-		       (p_i2c->Instance->ISR & 0x8000) ? 1 : 0,  // BUSY bit
-		       (p_i2c->Instance->ISR & 0x0020) ? 1 : 0); // STOPF bit
 		LOG_ERROR("AS6221", "  ErrorCode=0x%08lX", p_i2c->ErrorCode);
-		if(p_i2c->ErrorCode & HAL_I2C_ERROR_BERR)    LOG_ERROR("AS6221", "    - Bus Error");
-		if(p_i2c->ErrorCode & HAL_I2C_ERROR_ARLO)    LOG_ERROR("AS6221", "    - Arbitration Lost");
-		if(p_i2c->ErrorCode & HAL_I2C_ERROR_AF)      LOG_ERROR("AS6221", "    - NACK (device not responding)");
-		if(p_i2c->ErrorCode & HAL_I2C_ERROR_OVR)     LOG_ERROR("AS6221", "    - Overrun");
-		if(p_i2c->ErrorCode & HAL_I2C_ERROR_TIMEOUT) LOG_ERROR("AS6221", "    - HAL Timeout");
-		if(p_i2c->ErrorCode & HAL_I2C_ERROR_DMA)     LOG_ERROR("AS6221", "    - DMA Error");
 
-		HAL_I2C_Master_Abort_IT(p_i2c, ADDR_TEMP_OUTDOOR);
-		e_temp_out_evt = COMM_STAT_READY;
-		e_temp_inout_config = COMM_STAT_ERR;
-		v_Mode_Set_Error(modeERR_TEMP_OUT);
-		v_Mode_SetNext(modeERROR);
+		if(u8_temp_i2c1_retry_cnt < 3){
+			u8_temp_i2c1_retry_cnt++;
+			LOG_WARN("AS6221", "I2C1 bus recovery %u/3", (unsigned)u8_temp_i2c1_retry_cnt);
+			v_I2C1_Bus_Recovery_FastMode();
+			__HAL_RCC_I2C1_FORCE_RESET();
+			HAL_Delay(1);
+			__HAL_RCC_I2C1_RELEASE_RESET();
+			HAL_Delay(1);
+			HAL_I2C_DeInit(p_i2c);
+			p_i2c->State = HAL_I2C_STATE_RESET;
+			p_i2c->ErrorCode = HAL_I2C_ERROR_NONE;
+			HAL_I2C_Init(p_i2c);
+			v_I2C1_Reset_CommState();
+			e_temp_in_evt = COMM_STAT_READY;
+			e_temp_out_evt = COMM_STAT_READY;
+			u32_toutRef_In = u32_Tim_1msGet();
+			u32_toutRef_Out = u32_Tim_1msGet();
+		} else {
+			HAL_I2C_Master_Abort_IT(p_i2c, ADDR_TEMP_OUTDOOR);
+			e_temp_out_evt = COMM_STAT_READY;
+			e_temp_inout_config = COMM_STAT_ERR;
+			v_Mode_Set_Error(modeERR_TEMP_OUT);
+			v_Mode_SetNext(modeERROR);
+		}
 	}
+}
+
+void v_Temp_InOut_Reset_RetryCnt(void){
+	u8_temp_i2c1_retry_cnt = 0;
 }
 
 /*

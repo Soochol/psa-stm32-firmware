@@ -1108,9 +1108,13 @@ void v_Mode_Sensing_Handler(){
 			hi2c1.ErrorCode = HAL_I2C_ERROR_NONE;
 			HAL_I2C_Init(&hi2c1);
 
-			// 4. e_TOF_Ready: XSHUT HIGH → boot → DataInit → calibration → start
+			// 4. Reset I2C1 DMA comm state (temp sensor shares this bus)
+			v_I2C1_Reset_CommState();
+
+			// 5. e_TOF_Ready: XSHUT HIGH → boot → DataInit → calibration → start
 			if(e_TOF_Ready() == COMM_STAT_DONE){
 				v_TOF_Clear_Stuck();
+				v_Temp_InOut_Reset_RetryCnt();
 				tof_reset_cnt = 0;
 				LOG_INFO("TOF", "Reset OK");
 			} else {

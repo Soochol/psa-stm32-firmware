@@ -21,6 +21,7 @@ void v_AS6221_Read_DoneHandler(uint8_t u8_addr, uint8_t* pu8_arr, uint16_t u16_l
 
 void v_Temp_InOut_Deinit();
 void v_Temp_InOut_Tout_Handler();
+void v_Temp_InOut_Reset_RetryCnt(void);
 e_COMM_STAT_t e_Temp_InOut_Ready();
 
 void v_Temp_InOut_Handler();
