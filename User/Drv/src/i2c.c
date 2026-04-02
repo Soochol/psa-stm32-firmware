@@ -507,8 +507,8 @@ int i_I2C4_Config_1MHz(){
 
 
 // e_comm_i2c4 already declared above (line 268) - removed duplicate
-static uint8_t u8_i2c4_addr;
-static uint16_t u16_i2c4_rdCnt;
+static volatile uint8_t u8_i2c4_addr;
+static volatile uint16_t u16_i2c4_rdCnt;
 
 #define I2C4_RD_SIZE	256
 #define I2C4_WR_SIZE	32
@@ -522,6 +522,54 @@ void v_I2C3_Set_Comm_Ready(){
 
 void v_I2C4_Set_Comm_Ready(){
 	e_comm_i2c4 = COMM_STAT_READY;
+}
+
+void v_I2C4_Reset_CommState(void){
+	e_comm_i2c4 = COMM_STAT_READY;
+	u8_i2c4_addr = 0;
+	u16_i2c4_rdCnt = 0;
+}
+
+void v_I2C4_Bus_Recovery_FastMode(void){
+	GPIO_InitTypeDef GPIO_InitStruct = {0};
+	__HAL_RCC_GPIOB_CLK_ENABLE();
+
+	GPIO_InitStruct.Pin = I2C4_SCL_ACT_Pin | I2C4_SDA_ACT_Pin;
+	GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_OD;
+	GPIO_InitStruct.Pull = GPIO_NOPULL;
+	GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+	HAL_GPIO_Init(I2C4_SCL_ACT_GPIO_Port, &GPIO_InitStruct);
+
+	// Always 9 SCL cycles + STOP
+	for (int i = 0; i < 9; i++){
+		HAL_GPIO_WritePin(I2C4_SCL_ACT_GPIO_Port, I2C4_SCL_ACT_Pin, GPIO_PIN_SET);
+		delay_us(2);
+		HAL_GPIO_WritePin(I2C4_SCL_ACT_GPIO_Port, I2C4_SCL_ACT_Pin, GPIO_PIN_RESET);
+		delay_us(2);
+	}
+	// STOP: SDA LOW → SCL HIGH → SDA HIGH
+	HAL_GPIO_WritePin(I2C4_SDA_ACT_GPIO_Port, I2C4_SDA_ACT_Pin, GPIO_PIN_RESET);
+	delay_us(2);
+	HAL_GPIO_WritePin(I2C4_SCL_ACT_GPIO_Port, I2C4_SCL_ACT_Pin, GPIO_PIN_SET);
+	delay_us(2);
+	HAL_GPIO_WritePin(I2C4_SDA_ACT_GPIO_Port, I2C4_SDA_ACT_Pin, GPIO_PIN_SET);
+	delay_us(2);
+
+	// If SDA still LOW, 30 more cycles
+	if (HAL_GPIO_ReadPin(I2C4_SDA_ACT_GPIO_Port, I2C4_SDA_ACT_Pin) == GPIO_PIN_RESET){
+		for (int i = 0; i < 30; i++){
+			HAL_GPIO_WritePin(I2C4_SCL_ACT_GPIO_Port, I2C4_SCL_ACT_Pin, GPIO_PIN_SET);
+			delay_us(2);
+			HAL_GPIO_WritePin(I2C4_SCL_ACT_GPIO_Port, I2C4_SCL_ACT_Pin, GPIO_PIN_RESET);
+			delay_us(2);
+		}
+		HAL_GPIO_WritePin(I2C4_SDA_ACT_GPIO_Port, I2C4_SDA_ACT_Pin, GPIO_PIN_RESET);
+		delay_us(2);
+		HAL_GPIO_WritePin(I2C4_SCL_ACT_GPIO_Port, I2C4_SCL_ACT_Pin, GPIO_PIN_SET);
+		delay_us(2);
+		HAL_GPIO_WritePin(I2C4_SDA_ACT_GPIO_Port, I2C4_SDA_ACT_Pin, GPIO_PIN_SET);
+		delay_us(2);
+	}
 }
 
 int i_I2C4_Write_DMA(uint8_t u8_addr, uint16_t u16_reg, uint8_t* pu8_arr, uint16_t u16_len){
@@ -906,6 +954,9 @@ void HAL_I2C_ErrorCallback(I2C_HandleTypeDef *hi2c){
 	}
 	else if(hi2c == p_i2c2){
 		e_comm_i2c2 = COMM_STAT_READY;
+	}
+	else if(hi2c == p_i2c4){
+		e_comm_i2c4 = COMM_STAT_READY;
 	}
 }
 

@@ -99,6 +99,8 @@ void v_I2C1_Bus_Recovery_FastMode(void);
 void v_I2C1_Reset_CommState(void);
 void v_I2C2_Bus_Recovery_FastMode(void);
 void v_I2C2_Reset_CommState(void);
+void v_I2C4_Bus_Recovery_FastMode(void);
+void v_I2C4_Reset_CommState(void);
 void v_I2C5_Bus_Recovery_FastMode(void);
 
 

@@ -20,6 +20,7 @@ void v_Temp_IR_RD_Done(uint8_t* pu8, uint16_t u16_cnt);
 void v_Temp_IR_Test();
 
 void v_Temp_IR_Tout_Handler();
+void v_Temp_IR_Reset_RetryCnt(void);
 void v_Temp_IR_Data_Handler();
 
 #endif

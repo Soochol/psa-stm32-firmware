@@ -113,34 +113,41 @@ int i_Temp_IR_Read_DMA(uint8_t u8_addr, uint16_t u16_memAddr, uint16_t u16_cnt){
 	return i_I2C4_Read_DMA(u8_addr, u16_memAddr, u16_cnt << 1);
 }
 
+static uint8_t u8_ir_i2c4_retry_cnt;
+
 void v_Temp_IR_Tout_Handler(){
 	if(u32_tempIR_ErrCnt > 10 || ((e_tempIR_evt == COMM_STAT_BUSY) && _b_Tim_Is_OVR(u32_Tim_1msGet(), u32_toutRef, 2000))){
-		// MEDIUM: Abort DMA transaction to prevent I2C bus lockup
 		if(u32_tempIR_ErrCnt > 10) {
-			LOG_ERROR("MLX90640", "MLX90640 error count exceeded: %lu", u32_tempIR_ErrCnt);
-		}
-		if((e_tempIR_evt == COMM_STAT_BUSY) && _b_Tim_Is_OVR(u32_Tim_1msGet(), u32_toutRef, 2000)) {
-			LOG_ERROR("MLX90640", "MLX90640 I2C4 timeout (addr=0x%02X)", ADDR_IR_TEMP);
-			LOG_ERROR("MLX90640", "  ISR=0x%08lX (BUSY=%d, STOPF=%d)",
-			       hi2c4.Instance->ISR,
-			       (hi2c4.Instance->ISR & 0x8000) ? 1 : 0,  // BUSY bit
-			       (hi2c4.Instance->ISR & 0x0020) ? 1 : 0); // STOPF bit
-			LOG_ERROR("MLX90640", "  ErrorCode=0x%08lX", hi2c4.ErrorCode);
-			if(hi2c4.ErrorCode & HAL_I2C_ERROR_BERR)    LOG_ERROR("MLX90640", "    - Bus Error");
-			if(hi2c4.ErrorCode & HAL_I2C_ERROR_ARLO)    LOG_ERROR("MLX90640", "    - Arbitration Lost");
-			if(hi2c4.ErrorCode & HAL_I2C_ERROR_AF)      LOG_ERROR("MLX90640", "    - NACK (device not responding)");
-			if(hi2c4.ErrorCode & HAL_I2C_ERROR_OVR)     LOG_ERROR("MLX90640", "    - Overrun");
-			if(hi2c4.ErrorCode & HAL_I2C_ERROR_TIMEOUT) LOG_ERROR("MLX90640", "    - HAL Timeout");
-			if(hi2c4.ErrorCode & HAL_I2C_ERROR_DMA)     LOG_ERROR("MLX90640", "    - DMA Error");
+			LOG_ERROR("MLX90640", "Error count exceeded: %lu", u32_tempIR_ErrCnt);
+		} else {
+			LOG_ERROR("MLX90640", "I2C4 timeout (addr=0x%02X) ErrorCode=0x%08lX",
+				ADDR_IR_TEMP, hi2c4.ErrorCode);
 		}
 
+		// Full I2C4 recovery
 		HAL_I2C_Master_Abort_IT(&hi2c4, ADDR_IR_TEMP);
-		//timeout
+		v_I2C4_Bus_Recovery_FastMode();
+		HAL_I2C_DeInit(&hi2c4);
+		hi2c4.State = HAL_I2C_STATE_RESET;
+		hi2c4.ErrorCode = HAL_I2C_ERROR_NONE;
+		HAL_I2C_Init(&hi2c4);
+		v_I2C4_Reset_CommState();
 		e_tempIR_evt = COMM_STAT_READY;
-		e_tempIR_config = COMM_STAT_ERR;
-		v_Mode_Set_Error(modeERR_TEMP_IR);
-		v_Mode_SetNext(modeERROR);
+		u32_toutRef = u32_Tim_1msGet();
+		u32_tempIR_ErrCnt = 0;
+		if(u8_ir_i2c4_retry_cnt < 3){
+			u8_ir_i2c4_retry_cnt++;
+			LOG_WARN("MLX90640", "IR recovery %u/3", (unsigned)u8_ir_i2c4_retry_cnt);
+		} else {
+			e_tempIR_config = COMM_STAT_READY;  // force re-init
+			u8_ir_i2c4_retry_cnt = 0;
+			LOG_WARN("MLX90640", "IR re-init after 3x fail");
+		}
 	}
+}
+
+void v_Temp_IR_Reset_RetryCnt(void){
+	u8_ir_i2c4_retry_cnt = 0;
 }
 
 //////////////////////////////////
