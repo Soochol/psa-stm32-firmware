@@ -97,6 +97,7 @@ static uint8_t u8_arr_right[IMU_RX_SIZE];
 
 static uint32_t u32_toutRef_L, u32_toutRef_R;
 static e_COMM_STAT_t e_imu_config;
+static bool b_imu_available = false;
 
 static uint8_t u8_rd_L[IMU_RX_SIZE];
 static uint8_t u8_rd_R[IMU_RX_SIZE];
@@ -180,49 +181,49 @@ int i_IMU_Read(uint8_t u8_addr, uint16_t u16_memAddr, uint16_t u16_cnt){
 
 void v_IMU_Tout_Handler(){
 	if((e_imu_evt_L == COMM_STAT_BUSY) && _b_Tim_Is_OVR(u32_Tim_1msGet(), u32_toutRef_L, 2000)){
-		LOG_ERROR("ICM42670P", "[IMU_TIMEOUT] IMU_LEFT I2C2 timeout");
-		LOG_ERROR("ICM42670P", "  ISR=0x%08lX (BUSY=%d, STOPF=%d)",
+		LOG_WARN("ICM42670P", "[IMU_TIMEOUT] IMU_LEFT I2C2 timeout - degrading gracefully");
+		LOG_WARN("ICM42670P", "  ISR=0x%08lX (BUSY=%d, STOPF=%d)",
 		       p_i2c->Instance->ISR,
 		       (p_i2c->Instance->ISR & 0x8000) ? 1 : 0,  // BUSY bit
 		       (p_i2c->Instance->ISR & 0x0020) ? 1 : 0); // STOPF bit
-		LOG_ERROR("ICM42670P", "  ErrorCode=0x%08lX", p_i2c->ErrorCode);
-		if(p_i2c->ErrorCode & HAL_I2C_ERROR_BERR)    LOG_ERROR("ICM42670P", "    - Bus Error");
-		if(p_i2c->ErrorCode & HAL_I2C_ERROR_ARLO)    LOG_ERROR("ICM42670P", "    - Arbitration Lost");
-		if(p_i2c->ErrorCode & HAL_I2C_ERROR_AF)      LOG_ERROR("ICM42670P", "    - NACK (device not responding)");
-		if(p_i2c->ErrorCode & HAL_I2C_ERROR_OVR)     LOG_ERROR("ICM42670P", "    - Overrun");
-		if(p_i2c->ErrorCode & HAL_I2C_ERROR_TIMEOUT) LOG_ERROR("ICM42670P", "    - HAL Timeout");
-		if(p_i2c->ErrorCode & HAL_I2C_ERROR_DMA)     LOG_ERROR("ICM42670P", "    - DMA Error");
+		LOG_WARN("ICM42670P", "  ErrorCode=0x%08lX", p_i2c->ErrorCode);
+		if(p_i2c->ErrorCode & HAL_I2C_ERROR_BERR)    LOG_WARN("ICM42670P", "    - Bus Error");
+		if(p_i2c->ErrorCode & HAL_I2C_ERROR_ARLO)    LOG_WARN("ICM42670P", "    - Arbitration Lost");
+		if(p_i2c->ErrorCode & HAL_I2C_ERROR_AF)      LOG_WARN("ICM42670P", "    - NACK (device not responding)");
+		if(p_i2c->ErrorCode & HAL_I2C_ERROR_OVR)     LOG_WARN("ICM42670P", "    - Overrun");
+		if(p_i2c->ErrorCode & HAL_I2C_ERROR_TIMEOUT) LOG_WARN("ICM42670P", "    - HAL Timeout");
+		if(p_i2c->ErrorCode & HAL_I2C_ERROR_DMA)     LOG_WARN("ICM42670P", "    - DMA Error");
 
-		// MEDIUM: Abort DMA transaction to prevent I2C bus lockup
+		// Abort DMA transaction to prevent I2C bus lockup
 		HAL_I2C_Master_Abort_IT(p_i2c, ADDR_IMU_LEFT);
-		//timeout
+		// Graceful degradation: disable IMU but do NOT enter ERROR mode
 		e_imu_evt_L = COMM_STAT_READY;
 		e_imu_config = COMM_STAT_ERR;
-		v_Mode_Set_Error(modeERR_IMU);
-		v_Mode_SetNext(modeERROR);
+		b_imu_available = false;
+		memset(imu_left, 0, sizeof(imu_left));
 	}
 
 	if((e_imu_evt_R == COMM_STAT_BUSY) && _b_Tim_Is_OVR(u32_Tim_1msGet(), u32_toutRef_R, 2000)){
-		LOG_ERROR("ICM42670P", "[IMU_TIMEOUT] IMU_RIGHT I2C2 timeout");
-		LOG_ERROR("ICM42670P", "  ISR=0x%08lX (BUSY=%d, STOPF=%d)",
+		LOG_WARN("ICM42670P", "[IMU_TIMEOUT] IMU_RIGHT I2C2 timeout - degrading gracefully");
+		LOG_WARN("ICM42670P", "  ISR=0x%08lX (BUSY=%d, STOPF=%d)",
 		       p_i2c->Instance->ISR,
 		       (p_i2c->Instance->ISR & 0x8000) ? 1 : 0,  // BUSY bit
 		       (p_i2c->Instance->ISR & 0x0020) ? 1 : 0); // STOPF bit
-		LOG_ERROR("ICM42670P", "  ErrorCode=0x%08lX", p_i2c->ErrorCode);
-		if(p_i2c->ErrorCode & HAL_I2C_ERROR_BERR)    LOG_ERROR("ICM42670P", "    - Bus Error");
-		if(p_i2c->ErrorCode & HAL_I2C_ERROR_ARLO)    LOG_ERROR("ICM42670P", "    - Arbitration Lost");
-		if(p_i2c->ErrorCode & HAL_I2C_ERROR_AF)      LOG_ERROR("ICM42670P", "    - NACK (device not responding)");
-		if(p_i2c->ErrorCode & HAL_I2C_ERROR_OVR)     LOG_ERROR("ICM42670P", "    - Overrun");
-		if(p_i2c->ErrorCode & HAL_I2C_ERROR_TIMEOUT) LOG_ERROR("ICM42670P", "    - HAL Timeout");
-		if(p_i2c->ErrorCode & HAL_I2C_ERROR_DMA)     LOG_ERROR("ICM42670P", "    - DMA Error");
+		LOG_WARN("ICM42670P", "  ErrorCode=0x%08lX", p_i2c->ErrorCode);
+		if(p_i2c->ErrorCode & HAL_I2C_ERROR_BERR)    LOG_WARN("ICM42670P", "    - Bus Error");
+		if(p_i2c->ErrorCode & HAL_I2C_ERROR_ARLO)    LOG_WARN("ICM42670P", "    - Arbitration Lost");
+		if(p_i2c->ErrorCode & HAL_I2C_ERROR_AF)      LOG_WARN("ICM42670P", "    - NACK (device not responding)");
+		if(p_i2c->ErrorCode & HAL_I2C_ERROR_OVR)     LOG_WARN("ICM42670P", "    - Overrun");
+		if(p_i2c->ErrorCode & HAL_I2C_ERROR_TIMEOUT) LOG_WARN("ICM42670P", "    - HAL Timeout");
+		if(p_i2c->ErrorCode & HAL_I2C_ERROR_DMA)     LOG_WARN("ICM42670P", "    - DMA Error");
 
-		// MEDIUM: Abort DMA transaction to prevent I2C bus lockup
+		// Abort DMA transaction to prevent I2C bus lockup
 		HAL_I2C_Master_Abort_IT(p_i2c, ADDR_IMU_RIGHT);
-		//timeout
+		// Graceful degradation: disable IMU but do NOT enter ERROR mode
 		e_imu_evt_R = COMM_STAT_READY;
 		e_imu_config = COMM_STAT_ERR;
-		v_Mode_Set_Error(modeERR_IMU);
-		v_Mode_SetNext(modeERROR);
+		b_imu_available = false;
+		memset(imu_right, 0, sizeof(imu_right));
 	}
 }
 
@@ -1770,7 +1771,12 @@ float f_IMU_Get_Tilt_Z_Center_R(){
 
 void v_IMU_Deinit(){
 	e_imu_config = COMM_STAT_READY;
+	b_imu_available = false;
 	v_IMU_Tilt_Center_Disable();
+}
+
+int i_IMU_Is_Available(){
+	return b_imu_available ? 1 : 0;
 }
 
 e_COMM_STAT_t e_IMU_Ready(){
@@ -1819,6 +1825,7 @@ e_COMM_STAT_t e_IMU_Ready(){
 				if(b_IMU_Config(&init, ADDR_IMU_RIGHT, &imu_id_right) == true){
 					mask = 0;
 					e_imu_config = COMM_STAT_DONE;
+					b_imu_available = true;
 				}
 				else{
 					timItv = 10;
@@ -1930,11 +1937,15 @@ void v_IMU_Handler(){
 
 
 
+static int16_t dummy_imu_data[7] = {0};
+
 int16_t* pi16_IMU_Get_Left(){
+	if(!b_imu_available) return dummy_imu_data;
 	return imu_left;
 }
 
 int16_t* pi16_IMU_Get_Right(){
+	if(!b_imu_available) return dummy_imu_data;
 	return imu_right;
 }
 
@@ -1956,18 +1967,22 @@ void v_IMU_Clear_EVT_Right(){
 
 // angle_offset_left, angle_offset_right;
 _x_XYZ_t x_IMU_Get_Offset_Left(){
+	if(!b_imu_available){ _x_XYZ_t zero = {0}; return zero; }
 	return angle_offset_left;
 }
 
 _x_XYZ_t x_IMU_Get_Offset_Right(){
+	if(!b_imu_available){ _x_XYZ_t zero = {0}; return zero; }
 	return angle_offset_right;
 }
 
 _x_XYZ_t x_IMU_Get_Angle_Left(){
+	if(!b_imu_available){ _x_XYZ_t zero = {0}; return zero; }
 	return angle_left;
 }
 
 _x_XYZ_t x_IMU_Get_Angle_Right(){
+	if(!b_imu_available){ _x_XYZ_t zero = {0}; return zero; }
 	return angle_right;
 }
 

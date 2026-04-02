@@ -40,6 +40,7 @@ float f_IMU_Get_Tilt_Z_Center_R();
 void v_IMU_Init();
 void v_IMU_Deinit();
 e_COMM_STAT_t e_IMU_Ready();
+int i_IMU_Is_Available();
 void v_IMU_Handler();
 
 void v_IMU_Handler_T();

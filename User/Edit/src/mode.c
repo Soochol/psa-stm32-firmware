@@ -350,6 +350,7 @@ void v_Mode_Set_GyroAngle_Rel(int i_angle){
 
 static void v_Mode_GyroAI_Handler(){
 	if(e_mode_ai != MODE_AI_STM){return;}
+	if(!i_IMU_Is_Available()){return;}  // IMU degraded - skip tilt control
 	if(e_Mode_Get_CurrID() >= modeHEALING){
 		_x_XYZ_t L = x_IMU_Get_Angle_Left();
 #if GYRO_AI_AXIS_X
@@ -1225,10 +1226,8 @@ static void v_Mode_Booting(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t* 
 					// If both IMU sensors NACK, skip initialization to avoid timeout
 					if(ret_L != 0 && ret_R != 0){
 						imu_probe_result = 1;  // Both NACK
-						LOG_WARN("MODE", "Both IMU sensors NACK - skipping init to avoid watchdog");
-						LOG_ERROR("MODE", "System will enter ERROR mode with IMU error");
-						ready_mask |= modeCONFIG_IMU;  // Skip init
-						v_Mode_Set_Error(modeERR_IMU);  // Set error flag
+						LOG_WARN("MODE", "Both IMU sensors NACK - IMU disabled for this session");
+						ready_mask |= modeCONFIG_IMU;  // Skip init, continue boot
 					}
 					else{
 						imu_probe_result = 0;  // At least one ACK
@@ -1241,8 +1240,8 @@ static void v_Mode_Booting(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t* 
 					ret = e_IMU_Ready();
 					if(ret == COMM_STAT_DONE){ready_mask |= modeCONFIG_IMU; SEGGER_RTT_printf(0, "[B]IMU OK m=0x%02X\r\n", ready_mask);}
 					else if(ret == COMM_STAT_ERR){
-						LOG_ERROR("MODE", "IMU init FAILED on I2C2 - Device B hardware issue?");
-						v_Mode_Set_Error(modeERR_IMU);
+						LOG_WARN("MODE", "IMU init FAILED on I2C2 - IMU disabled for this session");
+						ready_mask |= modeCONFIG_IMU;  // Skip IMU, continue boot
 					}
 				}
 			}
@@ -1362,7 +1361,7 @@ static void v_Mode_Booting(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t* 
 		}
 
 #if MODE_IMU_USED
-		if(tilt == 0 && mp3_wait == 0 && ready_mask == modeCONFIG_CPLT && !i_IMU_Tilt_Is_Center()){
+		if(tilt == 0 && mp3_wait == 0 && ready_mask == modeCONFIG_CPLT && (!i_IMU_Is_Available() || !i_IMU_Tilt_Is_Center())){
 #else
 		if(tilt == 0 && mp3_wait == 0 && ready_mask == modeCONFIG_CPLT){
 #endif
@@ -1377,7 +1376,7 @@ static void v_Mode_Booting(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t* 
 			       ready_mask, modeCONFIG_CPLT);
 			LOG_ERROR("MODE", "Missing sensors:");
 #if MODE_IMU_USED
-			if(!(ready_mask & modeCONFIG_IMU))    LOG_ERROR("MODE", "  - IMU");
+			if(!(ready_mask & modeCONFIG_IMU))    LOG_WARN("MODE", "  - IMU (non-fatal)");
 #endif
 			if(!(ready_mask & modeCONFIG_FSR))    LOG_ERROR("MODE", "  - FSR");
 			if(!(ready_mask & modeCONFIG_AUDIO))  LOG_ERROR("MODE", "  - Audio Codec");
@@ -1387,7 +1386,10 @@ static void v_Mode_Booting(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t* 
 
 			e_modeERR_t err=0;
 #if MODE_IMU_USED
-			if(!(ready_mask & modeCONFIG_IMU)){err |= modeERR_IMU;}
+			if(!(ready_mask & modeCONFIG_IMU)){
+				LOG_WARN("MODE", "  IMU init timeout - disabled for this session");
+				ready_mask |= modeCONFIG_IMU;  // Non-fatal: mark as handled
+			}
 #endif
 			if(!(ready_mask & modeCONFIG_IR_TEMP)){err |= modeERR_TEMP_IR;}
 			if(!(ready_mask & modeCONFIG_TOF)){err |= modeERR_TOF;}
@@ -1406,10 +1408,12 @@ static void v_Mode_Booting(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t* 
 		}
 
 #if MODE_IMU_USED
-		//tilt calculation
-		v_IMU_Handler();
-		if(_b_Tim_Is_OVR(u32_Tim_1msGet(), timTiltRef, MODE_TILT_CENTER_TIMEOUT)){
-			v_IMU_Tilt_Center_Disable();
+		//tilt calculation - only if IMU is available
+		if(i_IMU_Is_Available()){
+			v_IMU_Handler();
+			if(_b_Tim_Is_OVR(u32_Tim_1msGet(), timTiltRef, MODE_TILT_CENTER_TIMEOUT)){
+				v_IMU_Tilt_Center_Disable();
+			}
 		}
 #endif
 	}
