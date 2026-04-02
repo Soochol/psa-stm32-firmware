@@ -284,56 +284,20 @@ void v_TOF1_SHUT_Low(){
 #define VL53L0X_FN_MEM	1
 
 //	Function	//
+#define TOF_I2C_TIMEOUT_MS	50
+
 static int _I2CWrite(VL53L0X_DEV Dev, uint8_t index, uint8_t *pdata, uint32_t count) {
-#if VL53L0X_FN_MEM
-	int status = HAL_I2C_Mem_Write(Dev->I2cHandle, Dev->I2cDevAddr, index, I2C_MEMADD_SIZE_8BIT, pdata, count, 1000);
-    if(status == HAL_OK)		{i2c_tof2_ok++;}
-    else{
-    	if(status == HAL_BUSY)	{i2c_tof2_busy++;}
-    	else					{i2c_tof2_err++;}
-    }
-    return status;
-#else
-    _I2CBuffer[0] = index;
-    memcpy(&_I2CBuffer[1], pdata, count);
-    int status = HAL_I2C_Master_Transmit(Dev->I2cHandle, Dev->I2cDevAddr, _I2CBuffer, count + 1, 1000);
-    if(status == HAL_OK)		{i2c_tof2_ok++;}
-	else{
-		if(status == HAL_BUSY)	{i2c_tof2_busy++;}
-		else					{i2c_tof2_err++;}
-	}
-    return status;
-#endif
+	int status = i_I2C1_Write_Sync(Dev->I2cDevAddr, index, pdata, count, TOF_I2C_TIMEOUT_MS);
+	if(status == 0)	{i2c_tof2_ok++;}
+	else			{i2c_tof2_err++;}
+	return status;
 }
 
 static int _I2CRead(VL53L0X_DEV Dev, uint8_t index, uint8_t *pdata, uint32_t count) {
-#if VL53L0X_FN_MEM
-	int status = HAL_I2C_Mem_Read(Dev->I2cHandle, Dev->I2cDevAddr, index, I2C_MEMADD_SIZE_8BIT, pdata, count, 1000);
-    if(status == HAL_OK)		{i2c_tof2_ok++;}
-	else{
-		if(status == HAL_BUSY)	{i2c_tof2_busy++;}
-		else					{i2c_tof2_err++;}
-	}
-    return status;
-#else
-    //write
-    _I2CBuffer[0] = index;
-    int status = HAL_I2C_Master_Transmit(Dev->I2cHandle, Dev->I2cDevAddr, _I2CBuffer, 1, 1000);
-	if(status == HAL_OK)		{i2c_tof2_ok++;}
-	else{
-		if(status == HAL_BUSY)	{i2c_tof2_busy++;}
-		else					{i2c_tof2_err++;}
-		return status;
-	}
-	//read
-	status = HAL_I2C_Master_Receive(Dev->I2cHandle, Dev->I2cDevAddr, pdata, count, 1000);
-	if(status == HAL_OK)		{i2c_tof2_ok++;}
-	else{
-		if(status == HAL_BUSY)	{i2c_tof2_busy++;}
-		else					{i2c_tof2_err++;}
-	}
+	int status = i_I2C1_Read_Sync(Dev->I2cDevAddr, index, pdata, count, TOF_I2C_TIMEOUT_MS);
+	if(status == 0)	{i2c_tof2_ok++;}
+	else			{i2c_tof2_err++;}
 	return status;
-#endif
 }
 
 // the ranging_sensor_comms.dll will take care of the page selection

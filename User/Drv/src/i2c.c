@@ -155,6 +155,55 @@ void v_I2C1_Reset_CommState(void){
 	i2c1_buf.u16_cnt = 0;
 }
 
+static volatile bool b_i2c1_sync_done;
+
+int i_I2C1_Write_Sync(uint8_t u8_addr, uint16_t u16_reg, uint8_t* pu8_data, uint16_t u16_len, uint32_t u32_timeout_ms){
+	if(pu8_data == NULL || u16_len == 0 || u16_len >= I2C1_WR_SIZE) return -1;
+	uint32_t start = u32_Tim_1msGet();
+	// Wait for bus free
+	while(e_comm_i2c1 != COMM_STAT_READY){
+		if(_b_Tim_Is_OVR(u32_Tim_1msGet(), start, u32_timeout_ms)) return -1;
+	}
+	// Start DMA
+	b_i2c1_sync_done = false;
+	u8_i2c1_addr = u8_addr;
+	memcpy(u8_i2c1_wrArr, pu8_data, u16_len);
+	if(HAL_I2C_Mem_Write_DMA(p_i2c1, u8_addr, u16_reg, I2C_MEMADD_SIZE_8BIT, u8_i2c1_wrArr, u16_len) != HAL_OK){
+		e_comm_i2c1 = COMM_STAT_READY;
+		return -1;
+	}
+	e_comm_i2c1 = COMM_STAT_OK;
+	// Wait for completion
+	while(!b_i2c1_sync_done){
+		if(_b_Tim_Is_OVR(u32_Tim_1msGet(), start, u32_timeout_ms)) return -1;
+	}
+	return 0;
+}
+
+int i_I2C1_Read_Sync(uint8_t u8_addr, uint16_t u16_reg, uint8_t* pu8_data, uint16_t u16_len, uint32_t u32_timeout_ms){
+	if(pu8_data == NULL || u16_len == 0 || u16_len > I2C1_RD_SIZE) return -1;
+	uint32_t start = u32_Tim_1msGet();
+	// Wait for bus free
+	while(e_comm_i2c1 != COMM_STAT_READY){
+		if(_b_Tim_Is_OVR(u32_Tim_1msGet(), start, u32_timeout_ms)) return -1;
+	}
+	// Start DMA
+	b_i2c1_sync_done = false;
+	u8_i2c1_addr = u8_addr;
+	u16_i2c1_rdCnt = u16_len;
+	if(HAL_I2C_Mem_Read_DMA(p_i2c1, u8_addr, u16_reg, I2C_MEMADD_SIZE_8BIT, u8_i2c1_rdArr, u16_len) != HAL_OK){
+		e_comm_i2c1 = COMM_STAT_READY;
+		return -1;
+	}
+	e_comm_i2c1 = COMM_STAT_OK;
+	// Wait for completion
+	while(!b_i2c1_sync_done){
+		if(_b_Tim_Is_OVR(u32_Tim_1msGet(), start, u32_timeout_ms)) return -1;
+	}
+	memcpy(pu8_data, u8_i2c1_rdArr, u16_len);
+	return 0;
+}
+
 int i_I2C1_Write(uint8_t u8_addr, uint16_t u16_reg, uint8_t* pu8_arr, uint16_t u16_len){
 	// CRITICAL: Validate pointer parameters to prevent hard fault
 	if(pu8_arr == NULL || u16_len == 0){
@@ -833,7 +882,11 @@ void HAL_I2C_MasterRxCpltCallback(I2C_HandleTypeDef *hi2c){
 uint32_t i2c_error;
 void HAL_I2C_ErrorCallback(I2C_HandleTypeDef *hi2c){
 	i2c_error++;
-	if(hi2c == p_i2c2){
+	if(hi2c == p_i2c1){
+		b_i2c1_sync_done = true;  // unblock sync wait on error
+		e_comm_i2c1 = COMM_STAT_READY;
+	}
+	else if(hi2c == p_i2c2){
 
 	}
 }
@@ -866,7 +919,7 @@ void HAL_I2C_MemTxCpltCallback(I2C_HandleTypeDef *hi2c){
 			v_AS6221_Write_DoneHandler(u8_i2c1_addr);
 		}
 		else if(u8_i2c1_addr == ADDR_TOF1){
-
+			b_i2c1_sync_done = true;
 		}
 	}
 	else if(hi2c == p_i2c2){
@@ -957,7 +1010,7 @@ void HAL_I2C_MemRxCpltCallback(I2C_HandleTypeDef *hi2c){
 			v_AS6221_Read_DoneHandler(u8_i2c1_addr, u8_i2c1_rdArr, u16_i2c1_rdCnt);
 		}
 		else if(u8_i2c1_addr == ADDR_TOF1){
-
+			b_i2c1_sync_done = true;
 		}
 		u8_i2c1_addr = 0;
 		u16_i2c1_rdCnt = 0;
