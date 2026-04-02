@@ -182,6 +182,14 @@ void v_Temp_InOut_Tout_Handler(){
 
 void v_Temp_InOut_Reset_RetryCnt(void){
 	u8_temp_i2c1_retry_cnt = 0;
+	// If temp was disabled after 3x failure, re-enable for next attempt
+	if(e_temp_inout_config == COMM_STAT_ERR){
+		e_temp_inout_config = COMM_STAT_READY;
+		b_temp_available = false;
+		e_temp_in_evt = COMM_STAT_READY;
+		e_temp_out_evt = COMM_STAT_READY;
+		LOG_INFO("AS6221", "Temp sensor re-enabled after bus recovery");
+	}
 }
 
 /*
@@ -245,6 +253,11 @@ e_COMM_STAT_t e_Temp_InOut_Ready(){
 
 
 void v_Temp_InOut_Handler(){
+	// Re-init if config was reset by bus recovery
+	if(e_temp_inout_config == COMM_STAT_READY){
+		e_Temp_InOut_Ready();
+		return;
+	}
 	if(e_temp_inout_config != COMM_STAT_DONE){return;}  // Stop I2C1 access after error
 	static uint32_t timRef;
 	static uint32_t timItv;
