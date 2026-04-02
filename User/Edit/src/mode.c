@@ -1085,7 +1085,9 @@ void v_Mode_Sensing_Handler(){
 	v_TOF_Handler();
 
 	// TOF stuck → XSHUT kill → I2C bus recovery → full re-init (3x retry)
-	if(u8_TOF_Is_Stuck()){
+	// Skip if TOF error already declared — prevents v_Mode_SetNext re-call
+	// that overwrites modeERROR entry flags (cr.u8) and blocks MP3 playback
+	if(u8_TOF_Is_Stuck() && !(e_Mode_Get_Error() & modeERR_TOF)){
 		static uint8_t tof_reset_cnt;
 		tof_reset_cnt++;
 		LOG_WARN("TOF", "Stuck, reset %u/3", (unsigned)tof_reset_cnt);
