@@ -140,10 +140,13 @@ void v_Temp_IR_Tout_Handler(){
 			u8_ir_i2c4_retry_cnt++;
 			LOG_WARN("MLX90640", "IR recovery %u/3", (unsigned)u8_ir_i2c4_retry_cnt);
 		} else {
-			e_tempIR_config = COMM_STAT_READY;  // force re-init
+			e_tempIR_config = COMM_STAT_ERR;
 			b_tempIR_handler_reset = true;
 			u8_ir_i2c4_retry_cnt = 0;
-			LOG_WARN("MLX90640", "IR re-init after 3x fail");
+			LOG_ERROR("MLX90640", "IR 3x recovery failed - entering ERROR");
+			v_Mode_Set_Error(modeERR_TEMP_IR);
+			v_ESP_Send_Error((uint16_t)e_Mode_Get_Error());
+			v_Mode_SetNext(modeERROR);
 		}
 	}
 }

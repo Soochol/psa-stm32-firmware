@@ -1084,11 +1084,11 @@ void v_Mode_Sensing_Handler(){
 	v_Temp_IR_Data_Handler();
 	v_TOF_Handler();
 
-	// TOF stuck → XSHUT kill → I2C bus recovery → full re-init (unlimited retry)
+	// TOF stuck → XSHUT kill → I2C bus recovery → full re-init (3x retry)
 	if(u8_TOF_Is_Stuck()){
 		static uint8_t tof_reset_cnt;
 		tof_reset_cnt++;
-		LOG_WARN("TOF", "Stuck, reset #%u", (unsigned)tof_reset_cnt);
+		LOG_WARN("TOF", "Stuck, reset %u/3", (unsigned)tof_reset_cnt);
 
 		// 1. Hardware kill FIRST (no I2C needed)
 		v_TOF_Deinit_NoI2C();
@@ -1116,8 +1116,13 @@ void v_Mode_Sensing_Handler(){
 			v_Temp_InOut_Reset_RetryCnt();
 			tof_reset_cnt = 0;
 			LOG_INFO("TOF", "Reset OK");
+		} else if(tof_reset_cnt >= 3){
+			LOG_ERROR("TOF", "3x recovery failed - entering ERROR");
+			v_Mode_Set_Error(modeERR_TOF);
+			v_ESP_Send_Error((uint16_t)e_Mode_Get_Error());
+			v_Mode_SetNext(modeERROR);
 		} else {
-			LOG_ERROR("TOF", "Reset FAIL #%u", (unsigned)tof_reset_cnt);
+			LOG_ERROR("TOF", "Reset FAIL %u/3", (unsigned)tof_reset_cnt);
 		}
 	}
 

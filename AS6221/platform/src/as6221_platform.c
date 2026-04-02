@@ -137,10 +137,13 @@ void v_Temp_InOut_Tout_Handler(){
 			u8_temp_i2c1_retry_cnt++;
 			LOG_WARN("AS6221", "Temp recovery %u/3", (unsigned)u8_temp_i2c1_retry_cnt);
 		} else {
-			e_temp_inout_config = COMM_STAT_READY;  // force CONFIG re-write
+			e_temp_inout_config = COMM_STAT_ERR;
 			b_temp_available = false;
 			u8_temp_i2c1_retry_cnt = 0;
-			LOG_WARN("AS6221", "Temp re-init after 3x fail");
+			LOG_ERROR("AS6221", "Temp 3x recovery failed - entering ERROR");
+			v_Mode_Set_Error(modeERR_TEMP_OUT);
+			v_ESP_Send_Error((uint16_t)e_Mode_Get_Error());
+			v_Mode_SetNext(modeERROR);
 		}
 	}
 
@@ -166,10 +169,13 @@ void v_Temp_InOut_Tout_Handler(){
 			u8_temp_i2c1_retry_cnt++;
 			LOG_WARN("AS6221", "Temp recovery %u/3", (unsigned)u8_temp_i2c1_retry_cnt);
 		} else {
-			e_temp_inout_config = COMM_STAT_READY;  // force CONFIG re-write
+			e_temp_inout_config = COMM_STAT_ERR;
 			b_temp_available = false;
 			u8_temp_i2c1_retry_cnt = 0;
-			LOG_WARN("AS6221", "Temp re-init after 3x fail");
+			LOG_ERROR("AS6221", "Temp 3x recovery failed - entering ERROR");
+			v_Mode_Set_Error(modeERR_TEMP_OUT);
+			v_ESP_Send_Error((uint16_t)e_Mode_Get_Error());
+			v_Mode_SetNext(modeERROR);
 		}
 	}
 }
