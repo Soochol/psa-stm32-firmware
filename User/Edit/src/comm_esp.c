@@ -706,8 +706,7 @@ void v_ESP_Send_Sensing(int16_t* pi16_imu_left, int16_t* pi16_imu_right,\
 void v_ESP_Tout_Handler(){
 	if(i_toutAct && _b_Tim_Is_OVR(u32_Tim_1msGet(), u32_toutRef, 1000)){
 		i_toutAct = 0;
-		v_Mode_Set_Error(modeERR_ESP_COMM);
-		v_Mode_SetNext(modeERROR);
+		LOG_WARN("COMM_ESP", "ESP STAT response timeout - retrying");
 	}
 }
 

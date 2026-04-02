@@ -1286,8 +1286,8 @@ static void v_Mode_Booting(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t* 
 				e_COMM_STAT_t ret = e_Temp_InOut_Ready();
 				if(ret == COMM_STAT_DONE)		{ready_mask |= modeCONFIG_TEMP_OUT; SEGGER_RTT_printf(0, "[B]TMP OK m=0x%02X\r\n", ready_mask);}
 				else if(ret == COMM_STAT_ERR)	{
-					LOG_ERROR("MODE", "Temperature sensor init FAILED on I2C1");
-					v_Mode_Set_Error(modeERR_TEMP_OUT);
+					LOG_WARN("MODE", "Temperature sensor init FAILED on I2C1 - disabled for this session");
+					ready_mask |= modeCONFIG_TEMP_OUT;  // Skip, continue boot
 				}
 			}
 			else{
@@ -1380,7 +1380,7 @@ static void v_Mode_Booting(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t* 
 #endif
 			if(!(ready_mask & modeCONFIG_FSR))    LOG_ERROR("MODE", "  - FSR");
 			if(!(ready_mask & modeCONFIG_AUDIO))  LOG_ERROR("MODE", "  - Audio Codec");
-			if(!(ready_mask & modeCONFIG_TEMP_OUT)) LOG_ERROR("MODE", "  - Temp Sensor");
+			if(!(ready_mask & modeCONFIG_TEMP_OUT)) LOG_WARN("MODE", "  - Temp Sensor (non-fatal)");
 			if(!(ready_mask & modeCONFIG_TOF))    LOG_ERROR("MODE", "  - TOF Sensor");
 			if(!(ready_mask & modeCONFIG_IR_TEMP)) LOG_ERROR("MODE", "  - IR Temp");
 
@@ -1394,7 +1394,10 @@ static void v_Mode_Booting(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t* 
 			if(!(ready_mask & modeCONFIG_IR_TEMP)){err |= modeERR_TEMP_IR;}
 			if(!(ready_mask & modeCONFIG_TOF)){err |= modeERR_TOF;}
 			if(!(ready_mask & modeCONFIG_AUDIO)){err |= modeERR_AUDIO;}
-			if(!(ready_mask & modeCONFIG_TEMP_OUT)){err |= modeERR_TEMP_OUT;}
+			if(!(ready_mask & modeCONFIG_TEMP_OUT)){
+				LOG_WARN("MODE", "  Temp sensor init timeout - disabled for this session");
+				ready_mask |= modeCONFIG_TEMP_OUT;  // Non-fatal: mark as handled
+			}
 #if MODE_FSR_USED
 			if(!(ready_mask & modeCONFIG_FSR)){err |= modeERR_FSR;}
 #endif

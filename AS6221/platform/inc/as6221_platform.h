@@ -23,6 +23,7 @@ void v_Temp_InOut_Deinit();
 void v_Temp_InOut_Tout_Handler();
 void v_Temp_InOut_Reset_RetryCnt(void);
 e_COMM_STAT_t e_Temp_InOut_Ready();
+int i_Temp_InOut_Is_Available();
 
 void v_Temp_InOut_Handler();
 
