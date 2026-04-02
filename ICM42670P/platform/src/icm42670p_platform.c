@@ -180,6 +180,7 @@ int i_IMU_Read(uint8_t u8_addr, uint16_t u16_memAddr, uint16_t u16_cnt){
 }
 
 static uint8_t u8_imu_i2c2_retry_cnt;
+static volatile bool b_imu_handler_reset;
 
 void v_IMU_Tout_Handler(){
 	if((e_imu_evt_L == COMM_STAT_BUSY) && _b_Tim_Is_OVR(u32_Tim_1msGet(), u32_toutRef_L, 2000)){
@@ -204,6 +205,7 @@ void v_IMU_Tout_Handler(){
 		} else {
 			e_imu_config = COMM_STAT_ERR;
 			b_imu_available = false;
+			b_imu_handler_reset = true;
 			memset(imu_left, 0, sizeof(imu_left));
 			memset(imu_right, 0, sizeof(imu_right));
 			u8_imu_i2c2_retry_cnt = 0;
@@ -233,6 +235,7 @@ void v_IMU_Tout_Handler(){
 		} else {
 			e_imu_config = COMM_STAT_ERR;
 			b_imu_available = false;
+			b_imu_handler_reset = true;
 			memset(imu_left, 0, sizeof(imu_left));
 			memset(imu_right, 0, sizeof(imu_right));
 			u8_imu_i2c2_retry_cnt = 0;
@@ -243,6 +246,7 @@ void v_IMU_Tout_Handler(){
 
 void v_IMU_Reset_RetryCnt(void){
 	u8_imu_i2c2_retry_cnt = 0;
+	b_imu_handler_reset = true;  // signal handler to reset state machine
 }
 
 
@@ -1880,6 +1884,14 @@ void v_IMU_Handler(){
 	static uint16_t mask;
 	static bool init_L, init_R;
 
+	// Reset state machine after recovery
+	if(b_imu_handler_reset){
+		b_imu_handler_reset = false;
+		mask = 0;
+		timItv = 0;
+		init_L = init_R = false;
+	}
+
 	if(e_imu_config != COMM_STAT_DONE){return;}
 	if(_b_Tim_Is_OVR(u32_Tim_1msGet(), timRef, timItv)){
 		if(mask == 0x00){
@@ -1927,6 +1939,8 @@ void v_IMU_Handler(){
 			}
 		}
 		if(mask == 0x83){
+			// Successful read cycle — reset recovery counter
+			if(u8_imu_i2c2_retry_cnt) u8_imu_i2c2_retry_cnt = 0;
 			// 2s periodic IMU data log for RTT debug
 			static uint32_t imuLogRef;
 			if(_b_Tim_Is_OVR(u32_Tim_1msGet(), imuLogRef, 2000)){
