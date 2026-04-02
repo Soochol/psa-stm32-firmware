@@ -119,42 +119,28 @@ void v_Temp_InOut_Tout_Handler(){
 		LOG_ERROR("AS6221", "TEMP_INDOOR I2C1 timeout (addr=0x%02X)", ADDR_TEMP_INDOOR);
 		LOG_ERROR("AS6221", "  ErrorCode=0x%08lX", p_i2c->ErrorCode);
 
-		// Light recovery: abort DMA + reset state (no RCC reset — let TOF recovery handle that)
+		// Abort DMA and disable — TOF recovery will do the real I2C1 RCC reset
 		HAL_I2C_Master_Abort_IT(p_i2c, ADDR_TEMP_INDOOR);
 		v_I2C1_Reset_CommState();
 		e_temp_in_evt = COMM_STAT_READY;
 		e_temp_out_evt = COMM_STAT_READY;
-		u32_toutRef_In = u32_Tim_1msGet();
-		u32_toutRef_Out = u32_Tim_1msGet();
-		if(u8_temp_i2c1_retry_cnt < 3){
-			u8_temp_i2c1_retry_cnt++;
-			LOG_WARN("AS6221", "Temp retry %u/3 (light)", (unsigned)u8_temp_i2c1_retry_cnt);
-		} else {
-			e_temp_inout_config = COMM_STAT_ERR;
-			b_temp_available = false;
-			LOG_WARN("AS6221", "Temp 3x fail - waiting for TOF bus recovery");
-		}
+		e_temp_inout_config = COMM_STAT_ERR;
+		b_temp_available = false;
+		LOG_WARN("AS6221", "Temp disabled - waiting for TOF bus recovery");
 	}
 
 	if((e_temp_out_evt == COMM_STAT_BUSY) && _b_Tim_Is_OVR(u32_Tim_1msGet(), u32_toutRef_Out, 2000)){
 		LOG_ERROR("AS6221", "TEMP_OUTDOOR I2C1 timeout (addr=0x%02X)", ADDR_TEMP_OUTDOOR);
 		LOG_ERROR("AS6221", "  ErrorCode=0x%08lX", p_i2c->ErrorCode);
 
-		// Light recovery: abort DMA + reset state (no RCC reset — let TOF recovery handle that)
+		// Abort DMA and disable — TOF recovery will do the real I2C1 RCC reset
 		HAL_I2C_Master_Abort_IT(p_i2c, ADDR_TEMP_OUTDOOR);
 		v_I2C1_Reset_CommState();
 		e_temp_in_evt = COMM_STAT_READY;
 		e_temp_out_evt = COMM_STAT_READY;
-		u32_toutRef_In = u32_Tim_1msGet();
-		u32_toutRef_Out = u32_Tim_1msGet();
-		if(u8_temp_i2c1_retry_cnt < 3){
-			u8_temp_i2c1_retry_cnt++;
-			LOG_WARN("AS6221", "Temp retry %u/3 (light)", (unsigned)u8_temp_i2c1_retry_cnt);
-		} else {
-			e_temp_inout_config = COMM_STAT_ERR;
-			b_temp_available = false;
-			LOG_WARN("AS6221", "Temp 3x fail - waiting for TOF bus recovery");
-		}
+		e_temp_inout_config = COMM_STAT_ERR;
+		b_temp_available = false;
+		LOG_WARN("AS6221", "Temp disabled - waiting for TOF bus recovery");
 	}
 }
 
