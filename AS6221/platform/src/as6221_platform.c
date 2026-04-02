@@ -110,6 +110,7 @@ int i_Temp_InOut_Read(uint8_t u8_addr, uint16_t u16_memAddr, uint16_t u16_cnt){
 }
 
 static e_COMM_STAT_t e_temp_inout_config;
+static bool b_temp_available = false;
 
 static uint8_t u8_temp_i2c1_retry_cnt;
 
@@ -133,14 +134,16 @@ void v_Temp_InOut_Tout_Handler(){
 			v_I2C1_Reset_CommState();
 			e_temp_in_evt = COMM_STAT_READY;
 			e_temp_out_evt = COMM_STAT_READY;
+			e_temp_inout_config = COMM_STAT_READY;  // force re-config on next Ready()
+			b_temp_available = false;
 			u32_toutRef_In = u32_Tim_1msGet();
 			u32_toutRef_Out = u32_Tim_1msGet();
 		} else {
 			HAL_I2C_Master_Abort_IT(p_i2c, ADDR_TEMP_INDOOR);
 			e_temp_in_evt = COMM_STAT_READY;
 			e_temp_inout_config = COMM_STAT_ERR;
-			v_Mode_Set_Error(modeERR_TEMP_IN);
-			v_Mode_SetNext(modeERROR);
+			b_temp_available = false;
+			LOG_WARN("AS6221", "TEMP_INDOOR 3x recovery failed - temp sensor disabled");
 		}
 	}
 
@@ -163,14 +166,16 @@ void v_Temp_InOut_Tout_Handler(){
 			v_I2C1_Reset_CommState();
 			e_temp_in_evt = COMM_STAT_READY;
 			e_temp_out_evt = COMM_STAT_READY;
+			e_temp_inout_config = COMM_STAT_READY;  // force re-config on next Ready()
+			b_temp_available = false;
 			u32_toutRef_In = u32_Tim_1msGet();
 			u32_toutRef_Out = u32_Tim_1msGet();
 		} else {
 			HAL_I2C_Master_Abort_IT(p_i2c, ADDR_TEMP_OUTDOOR);
 			e_temp_out_evt = COMM_STAT_READY;
 			e_temp_inout_config = COMM_STAT_ERR;
-			v_Mode_Set_Error(modeERR_TEMP_OUT);
-			v_Mode_SetNext(modeERROR);
+			b_temp_available = false;
+			LOG_WARN("AS6221", "TEMP_OUTDOOR 3x recovery failed - temp sensor disabled");
 		}
 	}
 }
@@ -201,8 +206,13 @@ void v_Temp_InOut_Reset_RetryCnt(void){
 
 void v_Temp_InOut_Deinit(){
 	e_temp_inout_config = COMM_STAT_READY;
+	b_temp_available = false;
 	e_temp_in_evt = COMM_STAT_READY;
 	e_temp_out_evt = COMM_STAT_READY;
+}
+
+int i_Temp_InOut_Is_Available(){
+	return b_temp_available ? 1 : 0;
 }
 
 e_COMM_STAT_t e_Temp_InOut_Ready(){
@@ -210,6 +220,7 @@ e_COMM_STAT_t e_Temp_InOut_Ready(){
 	uint8_t wr[4];
 
 	if(e_temp_inout_config == COMM_STAT_READY){
+		config = 0;  // re-init: force CONFIG register re-write
 		wr[0] = AS6221_CONFIG_POR >> 8;
 		wr[1] = AS6221_CONFIG_POR & 0x00FF;
 		if(!(config & 0x01) && e_temp_in_evt != COMM_STAT_BUSY){
@@ -224,6 +235,7 @@ e_COMM_STAT_t e_Temp_InOut_Ready(){
 		}
 		if(config == 0x03){
 			e_temp_inout_config = COMM_STAT_DONE;
+			b_temp_available = true;
 		}
 	}
 	return e_temp_inout_config;
@@ -233,6 +245,7 @@ e_COMM_STAT_t e_Temp_InOut_Ready(){
 
 
 void v_Temp_InOut_Handler(){
+	if(e_temp_inout_config != COMM_STAT_DONE){return;}  // Stop I2C1 access after error
 	static uint32_t timRef;
 	static uint32_t timItv;
 	static uint16_t mask;
@@ -261,10 +274,12 @@ void v_Temp_InOut_Handler(){
 
 
 float f_Temp_In_Get(){
+	if(!b_temp_available) return 0.0f;
 	return tempInDoor;
 }
 
 float f_Temp_Out_Get(){
+	if(!b_temp_available) return 0.0f;
 	return tempOutDoor;
 }
 

@@ -698,32 +698,39 @@ void v_I2C1_Bus_Recovery_FastMode(void){
     GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
     HAL_GPIO_Init(I2C1_SCL_ACT_GPIO_Port, &GPIO_InitStruct);
 
-    HAL_GPIO_ReadPin(I2C1_SDA_ACT_GPIO_Port, I2C1_SDA_ACT_Pin);
-    HAL_GPIO_ReadPin(I2C1_SCL_ACT_GPIO_Port, I2C1_SCL_ACT_Pin);
-    // 2. SDA가 LOW 상태인지 확인
+    // 2. 항상 SCL 9회 토글 + STOP (slave mid-transaction 해제)
+    for (int i = 0; i < 9; i++)
+    {
+        HAL_GPIO_WritePin(I2C1_SCL_ACT_GPIO_Port, I2C1_SCL_ACT_Pin, GPIO_PIN_SET);
+        delay_us(2);
+        HAL_GPIO_WritePin(I2C1_SCL_ACT_GPIO_Port, I2C1_SCL_ACT_Pin, GPIO_PIN_RESET);
+        delay_us(2);
+    }
+
+    // 3. STOP 조건: SDA LOW → SCL HIGH → SDA HIGH
+    HAL_GPIO_WritePin(I2C1_SDA_ACT_GPIO_Port, I2C1_SDA_ACT_Pin, GPIO_PIN_RESET);
+    delay_us(2);
+    HAL_GPIO_WritePin(I2C1_SCL_ACT_GPIO_Port, I2C1_SCL_ACT_Pin, GPIO_PIN_SET);
+    delay_us(2);
+    HAL_GPIO_WritePin(I2C1_SDA_ACT_GPIO_Port, I2C1_SDA_ACT_Pin, GPIO_PIN_SET);
+    delay_us(2);
+
+    // 4. SDA가 아직 LOW면 추가 30회 토글
     if (HAL_GPIO_ReadPin(I2C1_SDA_ACT_GPIO_Port, I2C1_SDA_ACT_Pin) == GPIO_PIN_RESET)
     {
-        // 3. SCL을 30회 토글하여 slave 해제
         for (int i = 0; i < 30; i++)
         {
             HAL_GPIO_WritePin(I2C1_SCL_ACT_GPIO_Port, I2C1_SCL_ACT_Pin, GPIO_PIN_SET);
             delay_us(2);
-
             HAL_GPIO_WritePin(I2C1_SCL_ACT_GPIO_Port, I2C1_SCL_ACT_Pin, GPIO_PIN_RESET);
             delay_us(2);
         }
-
-        // 4. STOP 조건 생성: SDA ↑ while SCL ↑
-        HAL_GPIO_WritePin(I2C1_SCL_ACT_GPIO_Port, I2C1_SCL_ACT_Pin, GPIO_PIN_SET);
-        delay_us(2);
-        HAL_GPIO_WritePin(I2C1_SDA_ACT_GPIO_Port, I2C1_SDA_ACT_Pin, GPIO_PIN_SET);
-        delay_us(2);
-
+        // STOP 재시도
         HAL_GPIO_WritePin(I2C1_SDA_ACT_GPIO_Port, I2C1_SDA_ACT_Pin, GPIO_PIN_RESET);
         delay_us(2);
         HAL_GPIO_WritePin(I2C1_SCL_ACT_GPIO_Port, I2C1_SCL_ACT_Pin, GPIO_PIN_SET);
         delay_us(2);
-        HAL_GPIO_WritePin(I2C1_SDA_ACT_GPIO_Port, I2C1_SDA_ACT_Pin, GPIO_PIN_SET);  // STOP 조건
+        HAL_GPIO_WritePin(I2C1_SDA_ACT_GPIO_Port, I2C1_SDA_ACT_Pin, GPIO_PIN_SET);
         delay_us(2);
     }
 
@@ -828,6 +835,24 @@ void HAL_I2C_ErrorCallback(I2C_HandleTypeDef *hi2c){
 	i2c_error++;
 	if(hi2c == p_i2c2){
 
+	}
+}
+
+void HAL_I2C_AbortCpltCallback(I2C_HandleTypeDef *hi2c){
+	if(hi2c == p_i2c1){
+		e_comm_i2c1 = COMM_STAT_READY;
+	}
+	else if(hi2c == p_i2c2){
+		e_comm_i2c2 = COMM_STAT_READY;
+	}
+	else if(hi2c == p_i2c3){
+		e_comm_i2c3 = COMM_STAT_READY;
+	}
+	else if(hi2c == p_i2c4){
+		e_comm_i2c4 = COMM_STAT_READY;
+	}
+	else if(hi2c == p_i2c5){
+		e_comm_i2c5 = COMM_STAT_READY;
 	}
 }
 
