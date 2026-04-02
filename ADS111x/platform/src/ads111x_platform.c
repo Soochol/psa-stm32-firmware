@@ -229,6 +229,7 @@ void v_FSR_Data_Handler(){
 		if(i_FSR_Read(ADDR_FSR_RIGHT, ADS111X_REG_CONVERT, 2) == COMM_STAT_OK){
 			mask  = 0;
 			timItv = 100;
+			if(u8_fsr_i2c2_retry_cnt) u8_fsr_i2c2_retry_cnt = 0;
 		}
 		else{
 			timItv = 10;
