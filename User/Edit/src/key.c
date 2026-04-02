@@ -66,8 +66,8 @@ void v_Key_BlowFan_Handler(){
 				uint16_t now = u16_Mode_Get_BlowFan_Now();
 				uint16_t max = u16_Mode_Get_BlowFan_Max();
 
-				if(now < max)	{now++;}
-				else			{now = 0;}
+				if(now == 0)	{now = max;}
+				else			{now--;}
 				v_Mode_Set_BlowFan_Now(now);
 			}
 			else{
