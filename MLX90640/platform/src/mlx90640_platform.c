@@ -114,6 +114,7 @@ int i_Temp_IR_Read_DMA(uint8_t u8_addr, uint16_t u16_memAddr, uint16_t u16_cnt){
 }
 
 static uint8_t u8_ir_i2c4_retry_cnt;
+static volatile bool b_tempIR_handler_reset;
 
 void v_Temp_IR_Tout_Handler(){
 	if(u32_tempIR_ErrCnt > 10 || ((e_tempIR_evt == COMM_STAT_BUSY) && _b_Tim_Is_OVR(u32_Tim_1msGet(), u32_toutRef, 2000))){
@@ -140,6 +141,7 @@ void v_Temp_IR_Tout_Handler(){
 			LOG_WARN("MLX90640", "IR recovery %u/3", (unsigned)u8_ir_i2c4_retry_cnt);
 		} else {
 			e_tempIR_config = COMM_STAT_READY;  // force re-init
+			b_tempIR_handler_reset = true;
 			u8_ir_i2c4_retry_cnt = 0;
 			LOG_WARN("MLX90640", "IR re-init after 3x fail");
 		}
@@ -419,6 +421,16 @@ void v_Temp_IR_Data_Handler(){
 	static int subpage, read;
 	static uint32_t address;
 
+	// Reset state machine after recovery
+	if(b_tempIR_handler_reset){
+		b_tempIR_handler_reset = false;
+		timItv = 0;
+		order = 0;
+		read = 0;
+		subpage = 0;
+		address = 0;
+	}
+
 	if(e_tempIR_config != COMM_STAT_DONE){return;}
 	if(e_tempIR_evt == COMM_STAT_BUSY){return;}
 	if(!_b_Tim_Is_OVR(u32_Tim_1msGet(), timRef, timItv)){return;}
@@ -530,6 +542,7 @@ void v_Temp_IR_Data_Handler(){
 		f_ir_temp_maxTemp = max_temp;
 		timItv = 62;
 		u32_tempIR_ErrCnt = 0;
+		if(u8_ir_i2c4_retry_cnt) u8_ir_i2c4_retry_cnt = 0;
 		break;
 	}
 	default:
