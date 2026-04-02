@@ -92,6 +92,7 @@ int i_I2C5_Write(uint8_t u8_addr, uint16_t u16_reg, uint8_t* pu8_data, uint16_t 
 int i_I2C5_Read(uint8_t u8_addr, uint16_t u16_reg, uint16_t u16_len);
 
 
+void v_I2C1_Bus_Recovery_FastMode(void);
 void v_I2C2_Bus_Recovery_FastMode(void);
 void v_I2C5_Bus_Recovery_FastMode(void);
 

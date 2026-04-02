@@ -1,8 +1,25 @@
 Import("env")
 import os
+import re
 
 # Get the project root directory from PlatformIO environment
 project_dir = env.subst("$PROJECT_DIR")
+
+# Read MODE_IMU_USED from mode.h
+def read_define(header_path, define_name):
+    try:
+        with open(header_path, "r") as f:
+            for line in f:
+                m = re.match(r"^\s*#define\s+" + define_name + r"\s+(\d+)", line)
+                if m:
+                    return int(m.group(1))
+    except FileNotFoundError:
+        pass
+    return 1  # default enabled
+
+mode_imu_used = read_define(
+    os.path.join(project_dir, "User", "Edit", "inc", "mode.h"), "MODE_IMU_USED"
+)
 
 # Add all source directories
 source_dirs = [
@@ -19,8 +36,6 @@ source_dirs = [
     "AS6221/platform/src",
     "ES8388/core/src",
     "ES8388/platform/src",
-    "ICM42670P/core/src",
-    "ICM42670P/platform/src",
     "MINIMP3/platform/src",
     "MINIMP3/flash_audio/src",
     "MLX90640/core/src",
@@ -36,6 +51,12 @@ source_dirs = [
     "User/Lib/src",
     "RTT/src",
 ]
+
+if mode_imu_used:
+    source_dirs += [
+        "ICM42670P/core/src",
+        "ICM42670P/platform/src",
+    ]
 
 # Add source files
 for src_dir in source_dirs:

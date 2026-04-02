@@ -3,9 +3,12 @@
 #include "lib_commbuf.h"
 #include "tim.h"
 //platform
+#include "mode.h"
 #include "as6221_platform.h"
 #include "ads111x_platform.h"
+#if MODE_IMU_USED
 #include "icm42670p_platform.h"
+#endif
 #include "mlx90640_platform.h"
 #include "es8388_platform.h"
 #include "sam_m10q_platform.h"
@@ -676,6 +679,52 @@ void v_I2C2_Bus_Recovery_FastMode(void){
 }
 
 
+void v_I2C1_Bus_Recovery_FastMode(void){
+    GPIO_InitTypeDef GPIO_InitStruct = {0};
+
+    // 1. SCL, SDA를 GPIO Output Open-Drain으로 설정
+    __HAL_RCC_GPIOB_CLK_ENABLE();
+
+    GPIO_InitStruct.Pin = I2C1_SCL_ACT_Pin | I2C1_SDA_ACT_Pin;
+    GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_OD;
+    GPIO_InitStruct.Pull = GPIO_NOPULL;
+    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+    HAL_GPIO_Init(I2C1_SCL_ACT_GPIO_Port, &GPIO_InitStruct);
+
+    HAL_GPIO_ReadPin(I2C1_SDA_ACT_GPIO_Port, I2C1_SDA_ACT_Pin);
+    HAL_GPIO_ReadPin(I2C1_SCL_ACT_GPIO_Port, I2C1_SCL_ACT_Pin);
+    // 2. SDA가 LOW 상태인지 확인
+    if (HAL_GPIO_ReadPin(I2C1_SDA_ACT_GPIO_Port, I2C1_SDA_ACT_Pin) == GPIO_PIN_RESET)
+    {
+        // 3. SCL을 30회 토글하여 slave 해제
+        for (int i = 0; i < 30; i++)
+        {
+            HAL_GPIO_WritePin(I2C1_SCL_ACT_GPIO_Port, I2C1_SCL_ACT_Pin, GPIO_PIN_SET);
+            delay_us(2);
+
+            HAL_GPIO_WritePin(I2C1_SCL_ACT_GPIO_Port, I2C1_SCL_ACT_Pin, GPIO_PIN_RESET);
+            delay_us(2);
+        }
+
+        // 4. STOP 조건 생성: SDA ↑ while SCL ↑
+        HAL_GPIO_WritePin(I2C1_SCL_ACT_GPIO_Port, I2C1_SCL_ACT_Pin, GPIO_PIN_SET);
+        delay_us(2);
+        HAL_GPIO_WritePin(I2C1_SDA_ACT_GPIO_Port, I2C1_SDA_ACT_Pin, GPIO_PIN_SET);
+        delay_us(2);
+
+        HAL_GPIO_WritePin(I2C1_SDA_ACT_GPIO_Port, I2C1_SDA_ACT_Pin, GPIO_PIN_RESET);
+        delay_us(2);
+        HAL_GPIO_WritePin(I2C1_SCL_ACT_GPIO_Port, I2C1_SCL_ACT_Pin, GPIO_PIN_SET);
+        delay_us(2);
+        HAL_GPIO_WritePin(I2C1_SDA_ACT_GPIO_Port, I2C1_SDA_ACT_Pin, GPIO_PIN_SET);  // STOP 조건
+        delay_us(2);
+    }
+
+    // 5. 이후 I2C 핀을 Alternate Function으로 재설정
+    // (HAL_I2C_Init() 호출로 복구)
+}
+
+
 GPIO_PinState i2c5_sda, i2c5_scl;
 void v_I2C5_Bus_Recovery_FastMode(void){
     GPIO_InitTypeDef GPIO_InitStruct = {0};
@@ -793,10 +842,12 @@ void HAL_I2C_MemTxCpltCallback(I2C_HandleTypeDef *hi2c){
 			e_comm_i2c2 = COMM_STAT_READY;
 			v_ADS111X_WrDone(u8_i2c2_addr);
 		}
+#if MODE_IMU_USED
 		else if(u8_i2c2_addr == ADDR_IMU_LEFT || u8_i2c2_addr == ADDR_IMU_RIGHT){
 			e_comm_i2c2 = COMM_STAT_READY;
 			v_IMU_WR_Done(u8_i2c2_addr);
 		}
+#endif
 		else{
 
 		}
@@ -885,9 +936,11 @@ void HAL_I2C_MemRxCpltCallback(I2C_HandleTypeDef *hi2c){
 		if(u8_i2c2_addr == ADDR_FSR_LEFT || u8_i2c2_addr == ADDR_FSR_RIGHT){
 			v_ADS111X_RdDone(u8_i2c2_addr, u8_i2c2_rdArr, u16_i2c2_rdCnt);
 		}
+#if MODE_IMU_USED
 		else if(u8_i2c2_addr == ADDR_IMU_LEFT || u8_i2c2_addr == ADDR_IMU_RIGHT){
 			v_IMU_RD_Done(u8_i2c2_addr, u8_i2c2_rdArr, u16_i2c2_rdCnt);
 		}
+#endif
 		else{
 
 		}

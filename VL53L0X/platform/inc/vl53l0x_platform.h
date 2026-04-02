@@ -278,6 +278,7 @@ void v_TOF2_Init();
 
 void v_TOF1_SHUT_Low();
 void v_TOF_Deinit();
+void v_TOF_Deinit_NoI2C();
 e_COMM_STAT_t e_TOF_Ready();
 void v_TOF_Handler();
 

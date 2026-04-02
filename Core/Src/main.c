@@ -30,18 +30,20 @@
 #include "sd.h"
 #include "adc.h"
 #include "key.h"
+#include "mode.h"
 //	platform	//
 #include "es8388_platform.h"	//CODEC
 #include "minimp3_platform.h"	//MP3
 #include "vl53l0x_platform.h"	//TOF
 #include "as6221_platform.h"	//In, Out - Temperature
 #include "sk6812_platform.h"	//Digital LED
+#if MODE_IMU_USED
 #include "icm42670p_platform.h"	//IMU
+#endif
 #include "ads111x_platform.h"	//FSR
 #include "mlx90640_platform.h"	//IR - Temperature
 #include "sam_m10q_platform.h"	//GPS
 #include "gps_test.h"			//GPS Test
-#include "mode.h"
 #include "comm_esp.h"
 #include "SEGGER_RTT.h"
 /* USER CODE END Includes */
@@ -315,7 +317,9 @@ int main(void)
   //	platform	//
   v_MP3_Init();
   v_Uart_Init();
+#if MODE_IMU_USED
   v_IMU_Init();
+#endif
   // v_GPS_Init();  // ← Moved after 12V enable (GPS needs 12V power)
   v_ADC_Init();
 

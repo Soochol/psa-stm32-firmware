@@ -514,11 +514,13 @@ VL53L0X_DeviceInfo_t tof_info1, tof_info2;
 
 uint32_t tof_err;
 
-#define TOF_STUCK_THRESHOLD  50  // 50 x 100ms = 5s
+#define TOF_STUCK_THRESHOLD      50  // 50 x 100ms = 5s
+#define TOF_NOT_READY_THRESHOLD  50  // 50 x 100ms = 5s
 
 static uint32_t u32_tof_prev_val;   // prev measurement (mm<<8 | frac)
 static uint8_t  u8_tof_stuck_cnt;   // consecutive same-value counter
 static uint8_t  u8_tof_stuck;       // stuck detected flag
+static uint8_t  u8_tof_not_ready_cnt; // consecutive data-not-ready counter
 
 
 int i_TOF_Init(VL53L0X_DEV dev, VL53L0X_Version_t* ver, VL53L0X_DeviceInfo_t* info){
@@ -724,6 +726,23 @@ FixPoint1616_t lmtCurrent1, lmtCurrent2;
 e_COMM_STAT_t e_tof_config;
 
 void v_TOF_Deinit(){
+	if(e_tof_config == COMM_STAT_DONE){
+		VL53L0X_StopMeasurement(p_dev1);  // graceful stop before XSHUT LOW
+		uint32_t stopStatus = 0;
+		for(int i = 0; i < 100; i++){
+			VL53L0X_GetStopCompletedStatus(p_dev1, &stopStatus);
+			if(stopStatus) break;
+			HAL_Delay(2);
+		}
+		VL53L0X_ClearInterruptMask(p_dev1, 0);
+	}
+	e_tof_config = COMM_STAT_READY;
+}
+
+void v_TOF_Deinit_NoI2C(){
+	// Hardware kill only — no I2C writes (for stuck recovery)
+	v_TOF1_SHUT_Low();
+	HAL_Delay(10);
 	e_tof_config = COMM_STAT_READY;
 }
 
@@ -735,7 +754,21 @@ e_COMM_STAT_t e_TOF_Ready(){
 		v_TOF1_SHUT_Low();
 		HAL_Delay(10);
 		v_TOF1_SHUT_High();
-		HAL_Delay(100);
+		HAL_Delay(2);  // tBOOT max = 1.2ms
+
+		// Poll MODEL_ID to confirm firmware boot complete
+		{
+			uint8_t modelId = 0;
+			for(int i = 0; i < 100; i++){
+				VL53L0X_RdByte(p_dev1, 0xC0, &modelId);
+				if(modelId == 0xEE) break;
+				HAL_Delay(1);
+			}
+			if(modelId != 0xEE){
+				LOG_ERROR("TOF", "Boot fail, modelId=0x%02X", modelId);
+				return e_tof_config = COMM_STAT_ERR;
+			}
+		}
 
 		LOG_INFO("TOF", "Init addr=0x%02X", ADDR_TOF1);
 
@@ -781,18 +814,27 @@ void v_TOF_Handler(){
 	status = VL53L0X_GetMeasurementDataReady(p_dev1, &tof_ready1);
 	if(status != VL53L0X_ERROR_NONE){tof_err++;}
 	if(tof_ready1 == 1){
+		u8_tof_not_ready_cnt = 0;
 		status = VL53L0X_GetRangingMeasurementData(p_dev1, &tof1_meas);
 		if(status != VL53L0X_ERROR_NONE){tof_err++;}
 		VL53L0X_ClearInterruptMask(p_dev1, 0);
 
-		// === Stuck detection ===
+		// === Stuck detection (with RangeStatus validation) ===
 		{
 			uint16_t mm   = tof1_meas.RangeMilliMeter;
 			uint8_t  frac = tof1_meas.RangeFractionalPart;
+			uint8_t  rs   = tof1_meas.RangeStatus;
 			uint32_t val  = ((uint32_t)mm << 8) | frac;
 
-			if(val == u32_tof_prev_val){
+			if(rs == 0 && mm == 0){
+				// 0mm with "valid" status = sensor fault
 				if(u8_tof_stuck_cnt < 255) u8_tof_stuck_cnt++;
+			} else if(rs == 0 && val == u32_tof_prev_val){
+				// Same valid reading repeating
+				if(u8_tof_stuck_cnt < 255) u8_tof_stuck_cnt++;
+			} else if(rs != 0){
+				// Measurement error (no target, sigma fail, etc.) — not stuck
+				u8_tof_stuck_cnt = 0;
 			} else {
 				u8_tof_stuck_cnt = 0;
 			}
@@ -802,17 +844,24 @@ void v_TOF_Handler(){
 				u8_tof_stuck = 1;
 			}
 		}
+	} else {
+		// data-not-ready timeout: sensor dead / I2C hung
+		if(u8_tof_not_ready_cnt < 255) u8_tof_not_ready_cnt++;
+		if(u8_tof_not_ready_cnt >= TOF_NOT_READY_THRESHOLD){
+			u8_tof_stuck = 1;
+		}
 	}
 #endif
 
 	// 1s periodic distance log for RTT debug
 	if(_b_Tim_Is_OVR(u32_Tim_1msGet(), logRef, 1000)){
 		logRef = u32_Tim_1msGet();
-		LOG_INFO("TOF", "d=%u st=%u e=%u s=%u",
+		LOG_INFO("TOF", "d=%u rs=%u e=%u sc=%u nr=%u",
 			(unsigned)tof1_meas.RangeMilliMeter,
 			(unsigned)tof1_meas.RangeStatus,
 			(unsigned)tof_err,
-			(unsigned)u8_tof_stuck_cnt);
+			(unsigned)u8_tof_stuck_cnt,
+			(unsigned)u8_tof_not_ready_cnt);
 	}
 }
 
@@ -835,6 +884,8 @@ void v_TOF_Clear_Stuck(void){
 	u8_tof_stuck = 0;
 	u8_tof_stuck_cnt = 0;
 	u32_tof_prev_val = 0;
+	u8_tof_not_ready_cnt = 0;
+	tof_err = 0;
 }
 
 

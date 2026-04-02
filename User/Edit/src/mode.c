@@ -10,7 +10,9 @@
 #include "key.h"
 #include "i2c.h"
 //sesing
+#if MODE_IMU_USED
 #include "icm42670p_platform.h"	//imu
+#endif
 #include "ads111x_platform.h"	//fsr
 #include "as6221_platform.h"	//temp in, out
 #include "mlx90640_platform.h"	//ir temp
@@ -315,6 +317,7 @@ void v_Mode_Set_AI(int i_mode){
 /////////////////////////////////
 //	Tilt - Angle
 /////////////////////////////////
+#if MODE_IMU_USED
 static int i_actAngle, i_relAngle;
 typedef enum {
 	MODE_TILT_IDLE=0,
@@ -381,6 +384,12 @@ static void v_Mode_GyroAI_Handler(){
 		}
 	}
 }
+#else
+int i_Mode_Get_GyroAngle_Act(){ return 0; }
+int i_Mode_Get_GyroAngle_Rel(){ return 0; }
+void v_Mode_Set_GyroAngle_Act(int i_angle){ (void)i_angle; }
+void v_Mode_Set_GyroAngle_Rel(int i_angle){ (void)i_angle; }
+#endif
 
 
 /////////////////////////////////
@@ -1034,6 +1043,7 @@ static void v_Mode_Sensing_toESP(){
 	if(_b_Tim_Is_OVR(u32_Tim_1msGet(), timRef, MODE_SENSING_SEND_ITV)){
 		timRef = u32_Tim_1msGet();
 
+#if MODE_IMU_USED
 		uint8_t imu_evt_left = u8_IMU_Get_EVT_Left();
 		uint8_t imu_evt_right = u8_IMU_Get_EVT_Right();
 		if(imu_evt_left){
@@ -1048,6 +1058,14 @@ static void v_Mode_Sensing_toESP(){
 						f_Temp_Out_Get(), f_Temp_In_Get(), f_IR_Temp_Get(), \
 						u16_TOF_Get_1(), u16_TOF_Get_2(), f_ADC_Get_BatVolt(),\
 						imu_evt_left, imu_evt_right);
+#else
+		static int16_t dummy_imu[6] = {0};
+		v_ESP_Send_Sensing(dummy_imu, dummy_imu, \
+						u16_FSR_Get_Left(), u16_FSR_Get_Right(), \
+						f_Temp_Out_Get(), f_Temp_In_Get(), f_IR_Temp_Get(), \
+						u16_TOF_Get_1(), u16_TOF_Get_2(), f_ADC_Get_BatVolt(),\
+						0, 0);
+#endif
 	}
 }
 
@@ -1057,22 +1075,43 @@ static void v_Mode_Sensing_toESP(){
 /////////////////////////////////
 void v_Mode_Sensing_Handler(){
 	if(i_Mode_Is_Off()){return;}
+#if MODE_IMU_USED
 	v_IMU_Handler();
+#endif
 	v_FSR_Data_Handler();
 	v_Temp_InOut_Handler();
 	v_Temp_IR_Data_Handler();
 	v_TOF_Handler();
 
-	// TOF stuck → XSHUT reset, fail → modeERROR
+	// TOF stuck → XSHUT kill → I2C bus recovery → full re-init
 	if(u8_TOF_Is_Stuck()){
 		static uint8_t tof_reset_cnt;
 		if(tof_reset_cnt < 3){
 			tof_reset_cnt++;
 			LOG_WARN("TOF", "Stuck, reset %u/3",
 				(unsigned)tof_reset_cnt);
-			v_TOF_Deinit();
+
+			// 1. Hardware kill FIRST (no I2C needed)
+			v_TOF_Deinit_NoI2C();
+
+			// 2. I2C bus recovery while sensor is powered down
+			v_I2C1_Bus_Recovery_FastMode();
+
+			// 3. Full I2C peripheral reset via RCC
+			extern I2C_HandleTypeDef hi2c1;
+			__HAL_RCC_I2C1_FORCE_RESET();
+			HAL_Delay(1);
+			__HAL_RCC_I2C1_RELEASE_RESET();
+			HAL_Delay(1);
+			HAL_I2C_DeInit(&hi2c1);
+			hi2c1.State = HAL_I2C_STATE_RESET;
+			hi2c1.ErrorCode = HAL_I2C_ERROR_NONE;
+			HAL_I2C_Init(&hi2c1);
+
+			// 4. e_TOF_Ready: XSHUT HIGH → boot → DataInit → calibration → start
 			if(e_TOF_Ready() == COMM_STAT_DONE){
 				v_TOF_Clear_Stuck();
+				tof_reset_cnt = 0;
 				LOG_INFO("TOF", "Reset OK");
 			} else {
 				LOG_ERROR("TOF", "Reset FAIL");
@@ -1093,8 +1132,9 @@ void v_Mode_Sensing_Handler(){
 	//to esp
 	v_Mode_Sensing_toESP();
 
-
+#if MODE_IMU_USED
 	v_Mode_GyroAI_Handler();
+#endif
 }
 
 
@@ -1102,16 +1142,24 @@ void v_Mode_Sensing_Handler(){
 //	Mode - Booting
 /////////////////////////////////
 typedef enum {
+#if MODE_IMU_USED
 	modeCONFIG_IMU		=0x01,
+#endif
 	modeCONFIG_IR_TEMP	=0x02,
 	modeCONFIG_TOF		=0x04,
 	modeCONFIG_TEMP_OUT	=0x08,
 	modeCONFIG_AUDIO	=0x10,
 #if MODE_FSR_USED
 	modeCONFIG_FSR		=0x20,
+#endif
+#if MODE_IMU_USED && MODE_FSR_USED
 	modeCONFIG_CPLT		=0x3F,
-#else
+#elif MODE_IMU_USED
 	modeCONFIG_CPLT		=0x1F,
+#elif MODE_FSR_USED
+	modeCONFIG_CPLT		=0x3E,
+#else
+	modeCONFIG_CPLT		=0x1E,
 #endif
 } e_modeCONFIG_t;
 
@@ -1127,7 +1175,9 @@ static void v_Mode_Booting(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t* 
 	static uint16_t tilt;
 	static uint32_t tout;
 	static int mp3_wait;
+#if MODE_IMU_USED
 	static uint32_t timTiltRef;
+#endif
 	if(px_work->cr.bit.b1_upd){
 		px_work->cr.bit.b1_upd = 0;
 		if(px_work->cr.bit.b1_on){
@@ -1157,6 +1207,7 @@ static void v_Mode_Booting(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t* 
 		//initialize
 		if(ready_mask != modeCONFIG_CPLT){
 			e_COMM_STAT_t ret = COMM_STAT_OK;
+#if MODE_IMU_USED
 			if(!(ready_mask & modeCONFIG_IMU)){
 				// Probe IMU devices ONCE before initialization
 				static bool b_imu_probed = false;
@@ -1191,7 +1242,9 @@ static void v_Mode_Booting(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t* 
 					}
 				}
 			}
-			else{
+			else
+#endif
+			{
 #if MODE_FSR_USED
 				if(!(ready_mask & modeCONFIG_FSR)){
 					// Probe FSR devices ONCE before initialization
@@ -1254,21 +1307,27 @@ static void v_Mode_Booting(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t* 
 				SEGGER_RTT_printf(0, "[B]TOF skip m=0x%02X\r\n", ready_mask);
 #endif
 			}
-			if(ready_mask == (modeCONFIG_IMU | modeCONFIG_AUDIO | modeCONFIG_TEMP_OUT | modeCONFIG_TOF)){
-				if(!(ready_mask & modeCONFIG_IR_TEMP)){
-					// Probe MLX90640 IR camera ONCE before initialization
-					static bool b_mlx_probed = false;
-					if(!b_mlx_probed){
-						extern I2C_HandleTypeDef hi2c4;
-						i_I2C_ProbeDevice(&hi2c4, 4, ADDR_IR_TEMP, "MLX90640");
-						b_mlx_probed = true;
-					}
+			{
+				uint16_t ir_prereq = modeCONFIG_AUDIO | modeCONFIG_TEMP_OUT | modeCONFIG_TOF;
+#if MODE_IMU_USED
+				ir_prereq |= modeCONFIG_IMU;
+#endif
+				if((ready_mask & ir_prereq) == ir_prereq){
+					if(!(ready_mask & modeCONFIG_IR_TEMP)){
+						// Probe MLX90640 IR camera ONCE before initialization
+						static bool b_mlx_probed = false;
+						if(!b_mlx_probed){
+							extern I2C_HandleTypeDef hi2c4;
+							i_I2C_ProbeDevice(&hi2c4, 4, ADDR_IR_TEMP, "MLX90640");
+							b_mlx_probed = true;
+						}
 
-					e_COMM_STAT_t ret = e_IR_Temp_Ready();
-					if(ret == COMM_STAT_DONE)		{ready_mask |= modeCONFIG_IR_TEMP; SEGGER_RTT_printf(0, "[B]IR OK m=0x%02X\r\n", ready_mask);}
-					else if(ret == COMM_STAT_ERR)	{
-						LOG_ERROR("MODE", "IR Temperature init FAILED on I2C4 - MLX90640 issue");
-						v_Mode_Set_Error(modeERR_TEMP_IR);
+						e_COMM_STAT_t ret = e_IR_Temp_Ready();
+						if(ret == COMM_STAT_DONE)		{ready_mask |= modeCONFIG_IR_TEMP; SEGGER_RTT_printf(0, "[B]IR OK m=0x%02X\r\n", ready_mask);}
+						else if(ret == COMM_STAT_ERR)	{
+							LOG_ERROR("MODE", "IR Temperature init FAILED on I2C4 - MLX90640 issue");
+							v_Mode_Set_Error(modeERR_TEMP_IR);
+						}
 					}
 				}
 			}
@@ -1276,8 +1335,10 @@ static void v_Mode_Booting(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t* 
 		else{
 			if(tilt){
 				tilt = 0;
+#if MODE_IMU_USED
 				v_IMU_Tilt_Center_Enable();
 				timTiltRef = u32_Tim_1msGet();
+#endif
 
 				if(i_Mode_Get_MP3_Play()){
 					i_MP3_Begin(1);
@@ -1296,7 +1357,11 @@ static void v_Mode_Booting(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t* 
 			}
 		}
 
+#if MODE_IMU_USED
 		if(tilt == 0 && mp3_wait == 0 && ready_mask == modeCONFIG_CPLT && !i_IMU_Tilt_Is_Center()){
+#else
+		if(tilt == 0 && mp3_wait == 0 && ready_mask == modeCONFIG_CPLT){
+#endif
 			v_Mode_SetNext(modeHEALING);
 		}
 
@@ -1307,7 +1372,9 @@ static void v_Mode_Booting(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t* 
 			LOG_ERROR("MODE", "Sensor init timeout - ready_mask=0x%04X (expect 0x%04X)",
 			       ready_mask, modeCONFIG_CPLT);
 			LOG_ERROR("MODE", "Missing sensors:");
+#if MODE_IMU_USED
 			if(!(ready_mask & modeCONFIG_IMU))    LOG_ERROR("MODE", "  - IMU");
+#endif
 			if(!(ready_mask & modeCONFIG_FSR))    LOG_ERROR("MODE", "  - FSR");
 			if(!(ready_mask & modeCONFIG_AUDIO))  LOG_ERROR("MODE", "  - Audio Codec");
 			if(!(ready_mask & modeCONFIG_TEMP_OUT)) LOG_ERROR("MODE", "  - Temp Sensor");
@@ -1315,7 +1382,9 @@ static void v_Mode_Booting(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t* 
 			if(!(ready_mask & modeCONFIG_IR_TEMP)) LOG_ERROR("MODE", "  - IR Temp");
 
 			e_modeERR_t err=0;
+#if MODE_IMU_USED
 			if(!(ready_mask & modeCONFIG_IMU)){err |= modeERR_IMU;}
+#endif
 			if(!(ready_mask & modeCONFIG_IR_TEMP)){err |= modeERR_TEMP_IR;}
 			if(!(ready_mask & modeCONFIG_TOF)){err |= modeERR_TOF;}
 			if(!(ready_mask & modeCONFIG_AUDIO)){err |= modeERR_AUDIO;}
@@ -1332,11 +1401,13 @@ static void v_Mode_Booting(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t* 
 			v_Mode_SetNext(modeERROR);
 		}
 
+#if MODE_IMU_USED
 		//tilt calculation
 		v_IMU_Handler();
 		if(_b_Tim_Is_OVR(u32_Tim_1msGet(), timTiltRef, MODE_TILT_CENTER_TIMEOUT)){
 			v_IMU_Tilt_Center_Disable();
 		}
+#endif
 	}
 	else if(px_work->cr.bit.b1_off){
 		if(ready_mask == modeCONFIG_CPLT){
@@ -2348,7 +2419,9 @@ void v_Mode_Init(){
 	v_TOF_Deinit();
 	v_TempIR_Deinit();
 	v_FSR_Deinit();
+#if MODE_IMU_USED
 	v_IMU_Deinit();
+#endif
 	v_Codec_Deinit();
 	v_Temp_InOut_Deinit();
 
@@ -2399,9 +2472,11 @@ void v_Mode_Init(){
 	//spkear
 	//v_Mode_Set_Speaker_Vol(1);
 
+#if MODE_IMU_USED
 	//gyro angle
 	v_Mode_Set_GyroAngle_Act(MODE_GYRO_ANGLE_ACT_INIT);
 	v_Mode_Set_GyroAngle_Rel(MODE_GYRO_ANGLE_REL_INIT);
+#endif
 }
 
 void v_Mode_Handler(){
@@ -2422,7 +2497,9 @@ void v_Mode_Handler(){
 	if(i_Mode_Is_Off()){return;}
 	//tout
 	v_FSR_Tout_Handler();
+#if MODE_IMU_USED
 	v_IMU_Tout_Handler();
+#endif
 	v_Codec_Tout_Handler();
 	v_Temp_InOut_Tout_Handler();
 	v_Temp_IR_Tout_Handler();
@@ -2504,11 +2581,13 @@ __attribute__((unused)) static void v_Mode_SubBD_Print(){
 	static uint32_t timRef;
 	if(_b_Tim_Is_OVR(u32_Tim_1msGet(), timRef, MODE_SUBBD_PRINT_ITV)){
 		timRef = u32_Tim_1msGet();
+#if MODE_IMU_USED
 		int16_t* imu_L = pi16_IMU_Get_Left();
 		int16_t* imu_R = pi16_IMU_Get_Right();
 		(void)imu_L; (void)imu_R;  // Suppress warnings when logs disabled
 		LOG_DEBUG("MODE", "[L] ACC - X : %-7d, Y : %-7d, Z : %-7d / GYRO - X : %-7d, Y : %-7d, Z : %-7d", imu_L[0], imu_L[1], imu_L[2], imu_L[3], imu_L[4], imu_L[5]);
 		LOG_DEBUG("MODE", "[R] ACC - X : %-7d, Y : %-7d, Z : %-7d / GYRO - X : %-7d, Y : %-7d, Z : %-7d", imu_R[0], imu_R[1], imu_R[2], imu_R[3], imu_R[4], imu_R[5]);
+#endif
 		LOG_DEBUG("MODE", "Temp : %.2f", f_Temp_Out_Get());
 	}
 }

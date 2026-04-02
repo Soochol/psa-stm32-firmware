@@ -4,6 +4,7 @@
 #include "lib_def.h"
 
 //Module Enabled
+#define MODE_IMU_USED		0	//IMU
 #define MODE_FSR_USED		1	//FSR
 #define HEAT_PAD_USED		0	//Heat-pad
 
