@@ -15,6 +15,7 @@ void v_FSR_Deinit();
 e_COMM_STAT_t e_FSR_Ready();
 void v_FSR_Data_Handler();
 void v_FSR_Tout_Handler();
+void v_FSR_Reset_RetryCnt(void);
 
 float f_FSR_Get_Left();
 float f_FSR_Get_Right();

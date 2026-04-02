@@ -21,7 +21,7 @@ void v_IMU_RD_Done(uint8_t u8_addr, uint8_t* pu8_arr, uint16_t u16_cnt);
 void v_IMU_WR_Done(uint8_t u8_addr);
 
 void v_IMU_Tout_Handler();
-
+void v_IMU_Reset_RetryCnt(void);
 
 void v_IMU_Tilt_Center_Enable();
 void v_IMU_Tilt_Center_Disable();

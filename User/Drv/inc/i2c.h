@@ -98,6 +98,7 @@ int i_I2C1_Read_Sync(uint8_t u8_addr, uint16_t u16_reg, uint8_t* pu8_data, uint1
 void v_I2C1_Bus_Recovery_FastMode(void);
 void v_I2C1_Reset_CommState(void);
 void v_I2C2_Bus_Recovery_FastMode(void);
+void v_I2C2_Reset_CommState(void);
 void v_I2C5_Bus_Recovery_FastMode(void);
 
 

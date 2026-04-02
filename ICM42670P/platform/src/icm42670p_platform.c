@@ -179,52 +179,70 @@ int i_IMU_Read(uint8_t u8_addr, uint16_t u16_memAddr, uint16_t u16_cnt){
 	return i_I2C2_Read(u8_addr, u16_memAddr, u16_cnt);
 }
 
+static uint8_t u8_imu_i2c2_retry_cnt;
+
 void v_IMU_Tout_Handler(){
 	if((e_imu_evt_L == COMM_STAT_BUSY) && _b_Tim_Is_OVR(u32_Tim_1msGet(), u32_toutRef_L, 2000)){
-		LOG_WARN("ICM42670P", "[IMU_TIMEOUT] IMU_LEFT I2C2 timeout - degrading gracefully");
-		LOG_WARN("ICM42670P", "  ISR=0x%08lX (BUSY=%d, STOPF=%d)",
-		       p_i2c->Instance->ISR,
-		       (p_i2c->Instance->ISR & 0x8000) ? 1 : 0,  // BUSY bit
-		       (p_i2c->Instance->ISR & 0x0020) ? 1 : 0); // STOPF bit
+		LOG_WARN("ICM42670P", "IMU_LEFT I2C2 timeout (addr=0x%02X)", ADDR_IMU_LEFT);
 		LOG_WARN("ICM42670P", "  ErrorCode=0x%08lX", p_i2c->ErrorCode);
-		if(p_i2c->ErrorCode & HAL_I2C_ERROR_BERR)    LOG_WARN("ICM42670P", "    - Bus Error");
-		if(p_i2c->ErrorCode & HAL_I2C_ERROR_ARLO)    LOG_WARN("ICM42670P", "    - Arbitration Lost");
-		if(p_i2c->ErrorCode & HAL_I2C_ERROR_AF)      LOG_WARN("ICM42670P", "    - NACK (device not responding)");
-		if(p_i2c->ErrorCode & HAL_I2C_ERROR_OVR)     LOG_WARN("ICM42670P", "    - Overrun");
-		if(p_i2c->ErrorCode & HAL_I2C_ERROR_TIMEOUT) LOG_WARN("ICM42670P", "    - HAL Timeout");
-		if(p_i2c->ErrorCode & HAL_I2C_ERROR_DMA)     LOG_WARN("ICM42670P", "    - DMA Error");
 
-		// Abort DMA transaction to prevent I2C bus lockup
+		// Full I2C2 recovery
 		HAL_I2C_Master_Abort_IT(p_i2c, ADDR_IMU_LEFT);
-		// Graceful degradation: disable IMU but do NOT enter ERROR mode
+		v_I2C2_Bus_Recovery_FastMode();
+		HAL_I2C_DeInit(p_i2c);
+		p_i2c->State = HAL_I2C_STATE_RESET;
+		p_i2c->ErrorCode = HAL_I2C_ERROR_NONE;
+		HAL_I2C_Init(p_i2c);
+		v_I2C2_Reset_CommState();
 		e_imu_evt_L = COMM_STAT_READY;
-		e_imu_config = COMM_STAT_ERR;
-		b_imu_available = false;
-		memset(imu_left, 0, sizeof(imu_left));
+		e_imu_evt_R = COMM_STAT_READY;
+		u32_toutRef_L = u32_Tim_1msGet();
+		u32_toutRef_R = u32_Tim_1msGet();
+		if(u8_imu_i2c2_retry_cnt < 3){
+			u8_imu_i2c2_retry_cnt++;
+			LOG_WARN("ICM42670P", "IMU recovery %u/3", (unsigned)u8_imu_i2c2_retry_cnt);
+		} else {
+			e_imu_config = COMM_STAT_ERR;
+			b_imu_available = false;
+			memset(imu_left, 0, sizeof(imu_left));
+			memset(imu_right, 0, sizeof(imu_right));
+			u8_imu_i2c2_retry_cnt = 0;
+			LOG_WARN("ICM42670P", "IMU disabled after 3x fail");
+		}
 	}
 
 	if((e_imu_evt_R == COMM_STAT_BUSY) && _b_Tim_Is_OVR(u32_Tim_1msGet(), u32_toutRef_R, 2000)){
-		LOG_WARN("ICM42670P", "[IMU_TIMEOUT] IMU_RIGHT I2C2 timeout - degrading gracefully");
-		LOG_WARN("ICM42670P", "  ISR=0x%08lX (BUSY=%d, STOPF=%d)",
-		       p_i2c->Instance->ISR,
-		       (p_i2c->Instance->ISR & 0x8000) ? 1 : 0,  // BUSY bit
-		       (p_i2c->Instance->ISR & 0x0020) ? 1 : 0); // STOPF bit
+		LOG_WARN("ICM42670P", "IMU_RIGHT I2C2 timeout (addr=0x%02X)", ADDR_IMU_RIGHT);
 		LOG_WARN("ICM42670P", "  ErrorCode=0x%08lX", p_i2c->ErrorCode);
-		if(p_i2c->ErrorCode & HAL_I2C_ERROR_BERR)    LOG_WARN("ICM42670P", "    - Bus Error");
-		if(p_i2c->ErrorCode & HAL_I2C_ERROR_ARLO)    LOG_WARN("ICM42670P", "    - Arbitration Lost");
-		if(p_i2c->ErrorCode & HAL_I2C_ERROR_AF)      LOG_WARN("ICM42670P", "    - NACK (device not responding)");
-		if(p_i2c->ErrorCode & HAL_I2C_ERROR_OVR)     LOG_WARN("ICM42670P", "    - Overrun");
-		if(p_i2c->ErrorCode & HAL_I2C_ERROR_TIMEOUT) LOG_WARN("ICM42670P", "    - HAL Timeout");
-		if(p_i2c->ErrorCode & HAL_I2C_ERROR_DMA)     LOG_WARN("ICM42670P", "    - DMA Error");
 
-		// Abort DMA transaction to prevent I2C bus lockup
+		// Full I2C2 recovery
 		HAL_I2C_Master_Abort_IT(p_i2c, ADDR_IMU_RIGHT);
-		// Graceful degradation: disable IMU but do NOT enter ERROR mode
+		v_I2C2_Bus_Recovery_FastMode();
+		HAL_I2C_DeInit(p_i2c);
+		p_i2c->State = HAL_I2C_STATE_RESET;
+		p_i2c->ErrorCode = HAL_I2C_ERROR_NONE;
+		HAL_I2C_Init(p_i2c);
+		v_I2C2_Reset_CommState();
+		e_imu_evt_L = COMM_STAT_READY;
 		e_imu_evt_R = COMM_STAT_READY;
-		e_imu_config = COMM_STAT_ERR;
-		b_imu_available = false;
-		memset(imu_right, 0, sizeof(imu_right));
+		u32_toutRef_L = u32_Tim_1msGet();
+		u32_toutRef_R = u32_Tim_1msGet();
+		if(u8_imu_i2c2_retry_cnt < 3){
+			u8_imu_i2c2_retry_cnt++;
+			LOG_WARN("ICM42670P", "IMU recovery %u/3", (unsigned)u8_imu_i2c2_retry_cnt);
+		} else {
+			e_imu_config = COMM_STAT_ERR;
+			b_imu_available = false;
+			memset(imu_left, 0, sizeof(imu_left));
+			memset(imu_right, 0, sizeof(imu_right));
+			u8_imu_i2c2_retry_cnt = 0;
+			LOG_WARN("ICM42670P", "IMU disabled after 3x fail");
+		}
 	}
+}
+
+void v_IMU_Reset_RetryCnt(void){
+	u8_imu_i2c2_retry_cnt = 0;
 }
 
 

@@ -278,10 +278,16 @@ static uint8_t u8_i2c2_rdArr[I2C2_RD_SIZE] __attribute__((section(".my_nocache_s
 
 // CRITICAL FIX: volatile to prevent race conditions with ISR
 static volatile e_COMM_STAT_t e_comm_i2c2;
-static uint8_t u8_i2c2_addr;
-static uint16_t u16_i2c2_rdCnt;
+static volatile uint8_t u8_i2c2_addr;
+static volatile uint16_t u16_i2c2_rdCnt;
 static x_I2C_BUF_t i2c2_buf;
 
+void v_I2C2_Reset_CommState(void){
+	e_comm_i2c2 = COMM_STAT_READY;
+	u8_i2c2_addr = 0;
+	u16_i2c2_rdCnt = 0;
+	i2c2_buf.u16_cnt = 0;
+}
 
 int i_I2C2_Write(uint8_t u8_addr, uint16_t u16_reg, uint8_t* pu8_arr, uint16_t u16_len){
 	// CRITICAL: Validate pointer parameters to prevent hard fault
@@ -706,34 +712,38 @@ void v_I2C2_Bus_Recovery_FastMode(void){
     HAL_GPIO_WritePin(I2C2_SCL_SUB_GPIO_Port, I2C2_SCL_SUB_Pin, GPIO_PIN_RESET);
 #endif
 
-    HAL_GPIO_ReadPin(I2C2_SDA_SUB_GPIO_Port, I2C2_SDA_SUB_Pin);
-    HAL_GPIO_ReadPin(I2C2_SCL_SUB_GPIO_Port, I2C2_SCL_SUB_Pin);
-    // 2. SDA가 LOW 상태인지 확인
+    // 2. 항상 SCL 9회 토글 + STOP (slave mid-transaction 해제)
+    for (int i = 0; i < 9; i++)
+    {
+        HAL_GPIO_WritePin(I2C2_SCL_SUB_GPIO_Port, I2C2_SCL_SUB_Pin, GPIO_PIN_SET);
+        delay_us(2);
+        HAL_GPIO_WritePin(I2C2_SCL_SUB_GPIO_Port, I2C2_SCL_SUB_Pin, GPIO_PIN_RESET);
+        delay_us(2);
+    }
+
+    // 3. STOP 조건: SDA LOW → SCL HIGH → SDA HIGH
+    HAL_GPIO_WritePin(I2C2_SDA_SUB_GPIO_Port, I2C2_SDA_SUB_Pin, GPIO_PIN_RESET);
+    delay_us(2);
+    HAL_GPIO_WritePin(I2C2_SCL_SUB_GPIO_Port, I2C2_SCL_SUB_Pin, GPIO_PIN_SET);
+    delay_us(2);
+    HAL_GPIO_WritePin(I2C2_SDA_SUB_GPIO_Port, I2C2_SDA_SUB_Pin, GPIO_PIN_SET);
+    delay_us(2);
+
+    // 4. SDA가 아직 LOW면 추가 30회 토글
     if (HAL_GPIO_ReadPin(I2C2_SDA_SUB_GPIO_Port, I2C2_SDA_SUB_Pin) == GPIO_PIN_RESET)
     {
-        // 3. SCL을 9~18회 토글
         for (int i = 0; i < 30; i++)
         {
             HAL_GPIO_WritePin(I2C2_SCL_SUB_GPIO_Port, I2C2_SCL_SUB_Pin, GPIO_PIN_SET);
-            delay_us(2);  // 약 2us 지연
-
+            delay_us(2);
             HAL_GPIO_WritePin(I2C2_SCL_SUB_GPIO_Port, I2C2_SCL_SUB_Pin, GPIO_PIN_RESET);
             delay_us(2);
         }
-
-        // 4. STOP 조건 생성: SDA ↑ while SCL ↑
-        HAL_GPIO_WritePin(I2C2_SCL_SUB_GPIO_Port, I2C2_SCL_SUB_Pin, GPIO_PIN_SET);
-        delay_us(2);
-        HAL_GPIO_WritePin(I2C2_SDA_SUB_GPIO_Port, I2C2_SDA_SUB_Pin, GPIO_PIN_SET);
-        delay_us(2);
-
-        //add
-        // SDA를 LOW로 만들었다가, SCL이 HIGH일 때 SDA를 HIGH로 올려 STOP 조건 생성
         HAL_GPIO_WritePin(I2C2_SDA_SUB_GPIO_Port, I2C2_SDA_SUB_Pin, GPIO_PIN_RESET);
         delay_us(2);
         HAL_GPIO_WritePin(I2C2_SCL_SUB_GPIO_Port, I2C2_SCL_SUB_Pin, GPIO_PIN_SET);
         delay_us(2);
-        HAL_GPIO_WritePin(I2C2_SDA_SUB_GPIO_Port, I2C2_SDA_SUB_Pin, GPIO_PIN_SET);  // STOP 조건
+        HAL_GPIO_WritePin(I2C2_SDA_SUB_GPIO_Port, I2C2_SDA_SUB_Pin, GPIO_PIN_SET);
         delay_us(2);
     }
 
@@ -895,7 +905,7 @@ void HAL_I2C_ErrorCallback(I2C_HandleTypeDef *hi2c){
 		e_comm_i2c1 = COMM_STAT_READY;
 	}
 	else if(hi2c == p_i2c2){
-
+		e_comm_i2c2 = COMM_STAT_READY;
 	}
 }
 

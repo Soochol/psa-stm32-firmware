@@ -103,6 +103,8 @@ int i_FSR_Read(uint8_t u8_addr, uint16_t u16_memAddr, uint16_t u16_cnt){
 }
 
 
+static uint8_t u8_fsr_i2c2_retry_cnt;
+
 //place in main
 void v_FSR_Tout_Handler(){
 	extern I2C_HandleTypeDef hi2c2;
@@ -110,47 +112,61 @@ void v_FSR_Tout_Handler(){
 
 	//if left active
 	if(i_toutAct_L && _b_Tim_Is_OVR(u32_Tim_1msGet(), u32_toutRef_L, 2000)){
-		//timeout
 		LOG_ERROR("ADS111x", "FSR_LEFT I2C2 timeout (addr=0x%02X)", ADDR_FSR_LEFT);
-		LOG_ERROR("ADS111x", "  ISR=0x%08lX (BUSY=%d, STOPF=%d)",
-		       p_i2c->Instance->ISR,
-		       (p_i2c->Instance->ISR & 0x8000) ? 1 : 0,  // BUSY bit
-		       (p_i2c->Instance->ISR & 0x0020) ? 1 : 0); // STOPF bit
 		LOG_ERROR("ADS111x", "  ErrorCode=0x%08lX", p_i2c->ErrorCode);
-		if(p_i2c->ErrorCode & HAL_I2C_ERROR_BERR)    LOG_ERROR("ADS111x", "    - Bus Error");
-		if(p_i2c->ErrorCode & HAL_I2C_ERROR_ARLO)    LOG_ERROR("ADS111x", "    - Arbitration Lost");
-		if(p_i2c->ErrorCode & HAL_I2C_ERROR_AF)      LOG_ERROR("ADS111x", "    - NACK (device not responding)");
-		if(p_i2c->ErrorCode & HAL_I2C_ERROR_OVR)     LOG_ERROR("ADS111x", "    - Overrun");
-		if(p_i2c->ErrorCode & HAL_I2C_ERROR_TIMEOUT) LOG_ERROR("ADS111x", "    - HAL Timeout");
-		if(p_i2c->ErrorCode & HAL_I2C_ERROR_DMA)     LOG_ERROR("ADS111x", "    - DMA Error");
 
+		// Full I2C2 recovery
+		HAL_I2C_Master_Abort_IT(p_i2c, ADDR_FSR_LEFT);
+		v_I2C2_Bus_Recovery_FastMode();
+		HAL_I2C_DeInit(p_i2c);
+		p_i2c->State = HAL_I2C_STATE_RESET;
+		p_i2c->ErrorCode = HAL_I2C_ERROR_NONE;
+		HAL_I2C_Init(p_i2c);
+		v_I2C2_Reset_CommState();
 		i_toutAct_L = 0;
-		e_fsr_config = COMM_STAT_ERR;
-		v_Mode_Set_Error(modeERR_FSR);
-		v_Mode_SetNext(modeERROR);
+		i_toutAct_R = 0;
+		u32_toutRef_L = u32_Tim_1msGet();
+		u32_toutRef_R = u32_Tim_1msGet();
+		if(u8_fsr_i2c2_retry_cnt < 3){
+			u8_fsr_i2c2_retry_cnt++;
+			LOG_WARN("ADS111x", "FSR recovery %u/3", (unsigned)u8_fsr_i2c2_retry_cnt);
+		} else {
+			e_fsr_config = COMM_STAT_READY;  // force re-config
+			u8_fsr_i2c2_retry_cnt = 0;
+			LOG_WARN("ADS111x", "FSR re-init after 3x fail");
+		}
 	}
 
 	//if right active
 	if(i_toutAct_R && _b_Tim_Is_OVR(u32_Tim_1msGet(), u32_toutRef_R, 2000)){
-		//timeout
 		LOG_ERROR("ADS111x", "FSR_RIGHT I2C2 timeout (addr=0x%02X)", ADDR_FSR_RIGHT);
-		LOG_ERROR("ADS111x", "  ISR=0x%08lX (BUSY=%d, STOPF=%d)",
-		       p_i2c->Instance->ISR,
-		       (p_i2c->Instance->ISR & 0x8000) ? 1 : 0,  // BUSY bit
-		       (p_i2c->Instance->ISR & 0x0020) ? 1 : 0); // STOPF bit
 		LOG_ERROR("ADS111x", "  ErrorCode=0x%08lX", p_i2c->ErrorCode);
-		if(p_i2c->ErrorCode & HAL_I2C_ERROR_BERR)    LOG_ERROR("ADS111x", "    - Bus Error");
-		if(p_i2c->ErrorCode & HAL_I2C_ERROR_ARLO)    LOG_ERROR("ADS111x", "    - Arbitration Lost");
-		if(p_i2c->ErrorCode & HAL_I2C_ERROR_AF)      LOG_ERROR("ADS111x", "    - NACK (device not responding)");
-		if(p_i2c->ErrorCode & HAL_I2C_ERROR_OVR)     LOG_ERROR("ADS111x", "    - Overrun");
-		if(p_i2c->ErrorCode & HAL_I2C_ERROR_TIMEOUT) LOG_ERROR("ADS111x", "    - HAL Timeout");
-		if(p_i2c->ErrorCode & HAL_I2C_ERROR_DMA)     LOG_ERROR("ADS111x", "    - DMA Error");
 
+		// Full I2C2 recovery
+		HAL_I2C_Master_Abort_IT(p_i2c, ADDR_FSR_RIGHT);
+		v_I2C2_Bus_Recovery_FastMode();
+		HAL_I2C_DeInit(p_i2c);
+		p_i2c->State = HAL_I2C_STATE_RESET;
+		p_i2c->ErrorCode = HAL_I2C_ERROR_NONE;
+		HAL_I2C_Init(p_i2c);
+		v_I2C2_Reset_CommState();
+		i_toutAct_L = 0;
 		i_toutAct_R = 0;
-		e_fsr_config = COMM_STAT_ERR;
-		v_Mode_Set_Error(modeERR_FSR);
-		v_Mode_SetNext(modeERROR);
+		u32_toutRef_L = u32_Tim_1msGet();
+		u32_toutRef_R = u32_Tim_1msGet();
+		if(u8_fsr_i2c2_retry_cnt < 3){
+			u8_fsr_i2c2_retry_cnt++;
+			LOG_WARN("ADS111x", "FSR recovery %u/3", (unsigned)u8_fsr_i2c2_retry_cnt);
+		} else {
+			e_fsr_config = COMM_STAT_READY;  // force re-config
+			u8_fsr_i2c2_retry_cnt = 0;
+			LOG_WARN("ADS111x", "FSR re-init after 3x fail");
+		}
 	}
+}
+
+void v_FSR_Reset_RetryCnt(void){
+	u8_fsr_i2c2_retry_cnt = 0;
 }
 
 
