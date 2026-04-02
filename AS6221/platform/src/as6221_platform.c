@@ -122,6 +122,7 @@ void v_Temp_InOut_Tout_Handler(){
 		// Abort DMA + SCL bus recovery (no RCC reset to preserve DMA state)
 		HAL_I2C_Master_Abort_IT(p_i2c, ADDR_TEMP_INDOOR);
 		v_I2C1_Bus_Recovery_FastMode();
+		HAL_I2C_Init(p_i2c);  // restore GPIO to I2C AF mode
 		v_I2C1_Reset_CommState();
 		e_temp_in_evt = COMM_STAT_READY;
 		e_temp_out_evt = COMM_STAT_READY;
@@ -142,9 +143,10 @@ void v_Temp_InOut_Tout_Handler(){
 		LOG_ERROR("AS6221", "TEMP_OUTDOOR I2C1 timeout (addr=0x%02X)", ADDR_TEMP_OUTDOOR);
 		LOG_ERROR("AS6221", "  ErrorCode=0x%08lX", p_i2c->ErrorCode);
 
-		// Abort DMA + SCL bus recovery (no RCC reset to preserve DMA state)
+		// Abort DMA + SCL bus recovery + restore GPIO AF
 		HAL_I2C_Master_Abort_IT(p_i2c, ADDR_TEMP_OUTDOOR);
 		v_I2C1_Bus_Recovery_FastMode();
+		HAL_I2C_Init(p_i2c);  // restore GPIO to I2C AF mode
 		v_I2C1_Reset_CommState();
 		e_temp_in_evt = COMM_STAT_READY;
 		e_temp_out_evt = COMM_STAT_READY;

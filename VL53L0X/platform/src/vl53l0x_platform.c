@@ -284,7 +284,7 @@ void v_TOF1_SHUT_Low(){
 #define VL53L0X_FN_MEM	1
 
 //	Function	//
-#define TOF_I2C_TIMEOUT_MS	50
+#define TOF_I2C_TIMEOUT_MS	100
 
 static int _I2CWrite(VL53L0X_DEV Dev, uint8_t index, uint8_t *pdata, uint32_t count) {
 	int status = i_I2C1_Write_Sync(Dev->I2cDevAddr, index, pdata, count, TOF_I2C_TIMEOUT_MS);

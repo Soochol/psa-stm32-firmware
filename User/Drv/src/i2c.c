@@ -142,8 +142,8 @@ static uint8_t u8_i2c1_rdArr[I2C1_RD_SIZE] __attribute__((section(".my_nocache_s
 
 // CRITICAL FIX: volatile to prevent race conditions with ISR
 static volatile e_COMM_STAT_t e_comm_i2c1;
-static uint8_t u8_i2c1_addr;
-static uint16_t u16_i2c1_rdCnt;
+static volatile uint8_t u8_i2c1_addr;
+static volatile uint16_t u16_i2c1_rdCnt;
 static x_I2C_BUF_t i2c1_buf;
 
 
@@ -175,7 +175,11 @@ int i_I2C1_Write_Sync(uint8_t u8_addr, uint16_t u16_reg, uint8_t* pu8_data, uint
 	e_comm_i2c1 = COMM_STAT_OK;
 	// Wait for completion
 	while(!b_i2c1_sync_done){
-		if(_b_Tim_Is_OVR(u32_Tim_1msGet(), start, u32_timeout_ms)) return -1;
+		if(_b_Tim_Is_OVR(u32_Tim_1msGet(), start, u32_timeout_ms)){
+			HAL_I2C_Master_Abort_IT(p_i2c1, u8_addr);
+			e_comm_i2c1 = COMM_STAT_READY;
+			return -1;
+		}
 	}
 	return 0;
 }
@@ -198,7 +202,11 @@ int i_I2C1_Read_Sync(uint8_t u8_addr, uint16_t u16_reg, uint8_t* pu8_data, uint1
 	e_comm_i2c1 = COMM_STAT_OK;
 	// Wait for completion
 	while(!b_i2c1_sync_done){
-		if(_b_Tim_Is_OVR(u32_Tim_1msGet(), start, u32_timeout_ms)) return -1;
+		if(_b_Tim_Is_OVR(u32_Tim_1msGet(), start, u32_timeout_ms)){
+			HAL_I2C_Master_Abort_IT(p_i2c1, u8_addr);
+			e_comm_i2c1 = COMM_STAT_READY;
+			return -1;
+		}
 	}
 	memcpy(pu8_data, u8_i2c1_rdArr, u16_len);
 	return 0;
