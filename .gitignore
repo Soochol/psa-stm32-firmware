@@ -38,6 +38,7 @@ Thumbs.db
 .idea/
 *.iml
 .worktrees/
+.omc/
 
 # MP3 source files (binary, regenerate with mp3_to_c.py)
 세팅_음성파일(KOR)/
