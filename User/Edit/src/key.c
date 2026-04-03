@@ -13,7 +13,7 @@ void v_Key_Power_Handler();
 
 void v_Key_Handler(){
 	v_Key_BlowFan_Handler();
-	v_Key_ForceToggle_Handler();
+	// v_Key_ForceToggle_Handler();  // FD/FU 전환 스위치 비활성화 - SW2 입력 무시
 	v_Key_Power_Handler();
 }
 
