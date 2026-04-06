@@ -1058,14 +1058,17 @@ static void v_Mode_Sensing_toESP(){
 						u16_FSR_Get_Left(), u16_FSR_Get_Right(), \
 						f_Temp_Out_Get(), f_Temp_In_Get(), f_IR_Temp_Get(), \
 						u16_TOF_Get_1(), u16_TOF_Get_2(), f_ADC_Get_BatVolt(),\
-						imu_evt_left, imu_evt_right);
+						imu_evt_left, imu_evt_right, \
+						x_IMU_Get_Angle_Left(), x_IMU_Get_Angle_Right());
 #else
 		static int16_t dummy_imu[6] = {0};
+		static _x_XYZ_t dummy_angle = {0};
 		v_ESP_Send_Sensing(dummy_imu, dummy_imu, \
 						u16_FSR_Get_Left(), u16_FSR_Get_Right(), \
 						f_Temp_Out_Get(), f_Temp_In_Get(), f_IR_Temp_Get(), \
 						u16_TOF_Get_1(), u16_TOF_Get_2(), f_ADC_Get_BatVolt(),\
-						0, 0);
+						0, 0, \
+						dummy_angle, dummy_angle);
 #endif
 	}
 }

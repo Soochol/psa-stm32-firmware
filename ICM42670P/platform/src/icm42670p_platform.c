@@ -1959,7 +1959,7 @@ void v_IMU_Handler(){
 			if(imu_evt_right){
 				LOG_INFO("IMU", "EVT R=0x%02X", imu_evt_right);
 			}
-			timItv = 100;
+			timItv = 10;
 			mask = 0x00;
 		}
 	}
@@ -2021,13 +2021,13 @@ _x_XYZ_t x_IMU_Get_Angle_Right(){
 //////////////////////
 //		TILT		//
 //////////////////////
-static const float kP	= 6.0f;		//proportional gain
+static const float kP	= 1.0f;		//proportional gain (100Hz tuning)
 static const float kI	= 0.05f;	//integral gain
 //static const float kD	= 0.0f;		//derivative gain
 
 const static float f_gyro_sensitivity = 2000.0f / 32768.0f;
 const static float f_accel_sensitivity = 2.0f / 32768.0f;
-const static float f_1degree = M_PI / 180.f;
+
 
 //tilt 	now 	x, y, z
 //tilt	center	x, y, z
@@ -2049,11 +2049,11 @@ static void v_IMU_Tilt_Compute_Orientation(x_QUAT_t* p_orientation, _x_XYZ_t* p_
 		acc.y = pi16_imu[1] * f_accel_sensitivity;
 		acc.z = pi16_imu[2] * f_accel_sensitivity;
 
-		gyro.x = pi16_imu[3] * f_gyro_sensitivity * f_1degree;
-		gyro.y = pi16_imu[4] * f_gyro_sensitivity * f_1degree;
-		gyro.z = pi16_imu[5] * f_gyro_sensitivity * f_1degree;
+		gyro.x = pi16_imu[3] * f_gyro_sensitivity;
+		gyro.y = pi16_imu[4] * f_gyro_sensitivity;
+		gyro.z = pi16_imu[5] * f_gyro_sensitivity;
 
-		v_Quaternion_Mahony_Compute(p_intgral_error, p_orientation, acc, gyro, 0.1, kP, kI);
+		v_Quaternion_Mahony_Compute(p_intgral_error, p_orientation, acc, gyro, 0.01, kP, kI);
 	}
 }
 

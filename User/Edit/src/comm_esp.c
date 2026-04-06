@@ -580,8 +580,9 @@ void v_ESP_Send_Sensing(int16_t* pi16_imu_left, int16_t* pi16_imu_right,\
 						uint16_t u16_fsr_left, uint16_t u16_fsr_right,\
 						float f_tempOut, float f_tempIn, float f_tempIR,\
 						uint16_t u16_tof1, uint16_t u16_tof2, float f_bat,\
-						uint8_t u8_imu_left_evt, uint8_t u8_imu_right_evt){
-	uint8_t data[64] = {0,};
+						uint8_t u8_imu_left_evt, uint8_t u8_imu_right_evt,\
+						_x_XYZ_t angle_left, _x_XYZ_t angle_right){
+	uint8_t data[ESP_SENSING_DATA_BUF_SIZE] = {0,};
 	uint16_t cnt=0;
 	uint16_t idx;
 	float temp;
@@ -684,6 +685,20 @@ void v_ESP_Send_Sensing(int16_t* pi16_imu_left, int16_t* pi16_imu_right,\
 		// GPS unavailable or no fix - send zeros
 		for (int i = 0; i < 10; i++) {
 			data[cnt++] = 0;
+		}
+	}
+
+	// ===== ANGLES (12 bytes, big-endian, int16 scale ×100) =====
+	// Order: L.x, L.y, L.z, R.x, R.y, R.z
+	_x_XYZ_t angles[2] = { angle_left, angle_right };
+	for(int imu = 0; imu < 2; imu++){
+		float axis[3] = { angles[imu].x, angles[imu].y, angles[imu].z };
+		for(int i = 0; i < 3; i++){
+			float v = axis[i];
+			if(isnan(v) || isinf(v)) v = 0.0f;  // NaN guard
+			int16_t scaled = (int16_t)(v * 100.0f);
+			data[cnt++] = (uint8_t)(scaled >> 8);   // MSB (big-endian)
+			data[cnt++] = (uint8_t)(scaled & 0xFF); // LSB
 		}
 	}
 

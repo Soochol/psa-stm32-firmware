@@ -89,7 +89,7 @@ x_QUAT_t x_Quaternion_Mahony_Compute(_x_XYZ_t* intgral_error, x_QUAT_t prev, _x_
 void v_Quaternion_Mahony_Compute(_x_XYZ_t* intgral_error, x_QUAT_t* prev, _x_XYZ_t acc, _x_XYZ_t gyro, float dt, float kP, float kI){
 	// 1) Normalize accelerometer measurement
 	float acc_norm = sqrt(acc.x * acc.x + acc.y * acc.y + acc.z * acc.z);
-	if(acc_norm < 1e-6f){;}
+	if(acc_norm < 1e-6f){ return; }
 
 	_x_XYZ_t acc_n = {
 		.x = acc.x / acc_norm,

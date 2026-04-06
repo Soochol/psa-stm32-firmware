@@ -2,6 +2,7 @@
 #define __JH_COMM_ESP_H
 
 #include "uart.h"
+#include "quaternion_mahony.h"
 
 /*******************************************/
 //	ESP COMMUNICATION CONSTANTS
@@ -9,8 +10,8 @@
 // Buffer sizes
 #define ESP_RX_DATA_BUF_SIZE		32		// Receive data buffer size
 #define ESP_RESP_DATA_BUF_SIZE		32		// Response data buffer size
-#define ESP_SENSING_DATA_BUF_SIZE	64		// Sensing data buffer size
-#define ESP_TX_FMT_BUF_SIZE			64		// Transmission format buffer size
+#define ESP_SENSING_DATA_BUF_SIZE	96		// Sensing data buffer size
+#define ESP_TX_FMT_BUF_SIZE			96		// Transmission format buffer size
 #define ESP_TX_TO_RX_BUF_SIZE		64		// Transmit to RX buffer size
 #define ESP_DATA_LEN_MAX			32		// Maximum data length for validation
 
@@ -45,7 +46,8 @@ void v_ESP_Send_Sensing(int16_t* pi16_imu_left, int16_t* pi16_imu_right,\
 						uint16_t u16_fsr_left, uint16_t u16_fsr_right,\
 						float f_tempOut, float f_tempIn, float f_tempIR,\
 						uint16_t u16_tof1, uint16_t u16_tof2, float f_bat,\
-						uint8_t u8_imu_left_evt, uint8_t u8_imu_right_evt);
+						uint8_t u8_imu_left_evt, uint8_t u8_imu_right_evt,\
+						_x_XYZ_t angle_left, _x_XYZ_t angle_right);
 
 void v_ESP_Tout_Handler();
 void v_ESP_Send_Error(uint16_t u16_error);
