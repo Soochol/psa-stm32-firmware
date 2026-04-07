@@ -8,6 +8,12 @@
 //#include "quaternion_mahony.h"
 #include "mode.h"
 #include "lib_log.h"
+#include "sk6812_platform.h"  // for calibration LED progress bar
+
+// IMU calibration LED progress bar color (dim yellow = "wait")
+#define IMU_CALIB_LED_R   128
+#define IMU_CALIB_LED_G    64
+#define IMU_CALIB_LED_B     0
 
 extern I2C_HandleTypeDef hi2c2;
 static I2C_HandleTypeDef* p_i2c = &hi2c2;
@@ -2070,6 +2076,38 @@ const static float f_accel_sensitivity = 2.0f / 32768.0f;
 
 
 
+// Update LED progress bar based on combined L/R calibration state.
+// State-based and idempotent: safe to call from both L and R cycles.
+// Manages lock symmetry — even if calibration fails to complete, the next
+// transition (e.g. b_imu_available going false on deinit) auto-unlocks.
+static void v_IMU_Calib_LED_Update(void){
+	bool calib_active = b_imu_available && (!gyro_calib_L.done || !gyro_calib_R.done);
+
+	if(calib_active && !b_RGB_TopBot_Is_Locked()){
+		v_RGB_TopBot_Lock();
+	} else if(!calib_active && b_RGB_TopBot_Is_Locked()){
+		v_RGB_TopBot_Unlock();
+		return;  // hand TOP/BOT back to mode handler on next cycle
+	}
+	if(!calib_active) return;
+
+	// min(L,R) so the bar advances only when both IMUs progressed (monotonic)
+	uint16_t cnt_l = gyro_calib_L.done ? GYRO_CALIB_SAMPLES : gyro_calib_L.count;
+	uint16_t cnt_r = gyro_calib_R.done ? GYRO_CALIB_SAMPLES : gyro_calib_R.count;
+	uint16_t cnt = (cnt_l < cnt_r) ? cnt_l : cnt_r;
+
+	int level = (int)((cnt * 5) / GYRO_CALIB_SAMPLES);
+	if(level > 5) level = 5;
+
+	for(int i = 0; i < 5; i++){
+		if(i < level){
+			v_RGB_Set_TopBot_Pair(i, IMU_CALIB_LED_R, IMU_CALIB_LED_G, IMU_CALIB_LED_B);
+		} else {
+			v_RGB_Set_TopBot_Pair(i, 0, 0, 0);
+		}
+	}
+}
+
 static void v_IMU_Tilt_Compute_Orientation(x_QUAT_t* p_orientation, _x_XYZ_t* p_intgral_error, int16_t* pi16_imu, x_GyroCalib_t* p_calib){
 	_x_XYZ_t acc, gyro;
 	int cnt=0;
@@ -2090,6 +2128,7 @@ static void v_IMU_Tilt_Compute_Orientation(x_QUAT_t* p_orientation, _x_XYZ_t* p_
 		p_calib->acc_sum[1] += pi16_imu[1];
 		p_calib->acc_sum[2] += pi16_imu[2];
 		p_calib->count++;
+		v_IMU_Calib_LED_Update();   // state-based, idempotent
 		if(p_calib->count >= GYRO_CALIB_SAMPLES){
 			// 1) Gyro bias = float average × sensitivity → stored in dps.
 			//    Avoids ±0.5 LSB (=±0.0305 dps @2000dps FS) integer rounding
@@ -2143,6 +2182,8 @@ static void v_IMU_Tilt_Compute_Orientation(x_QUAT_t* p_orientation, _x_XYZ_t* p_
 			LOG_INFO("IMU", "Gyro bias mdps=(%d,%d,%d) seed roll=%d.%d pitch=%d.%d deg",
 				bx_mdps, by_mdps, bz_mdps,
 				roll_int, roll_frac, pitch_int, pitch_frac);
+			// When the second IMU finishes here, both .done are true → unlock
+			v_IMU_Calib_LED_Update();
 		}
 		return;  // Skip Mahony update during calibration
 	}

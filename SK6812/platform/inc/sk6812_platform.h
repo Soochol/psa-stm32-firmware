@@ -40,6 +40,14 @@ void v_RGB_Disable_Duty();
 
 bool b_RGB_Set_Color(uint8_t u8_idx, uint8_t u8_R, uint8_t u8_G, uint8_t u8_B);
 
+// TOP/BOT LED ownership lock — used by IMU calibration progress bar
+// When locked, mode handlers' writes to RGB_TOP_1..RGB_BOT_5 are silently denied.
+// Bypass helper below allows the lock holder to write through.
+void v_RGB_TopBot_Lock(void);
+void v_RGB_TopBot_Unlock(void);
+bool b_RGB_TopBot_Is_Locked(void);
+void v_RGB_Set_TopBot_Pair(uint8_t pair_idx, uint8_t u8_R, uint8_t u8_G, uint8_t u8_B);
+
 void v_RGB_PWM_Test();
 void v_RGB_Done_Handler();
 void v_RGB_Dimming();

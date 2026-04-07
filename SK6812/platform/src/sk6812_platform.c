@@ -40,6 +40,14 @@ uint16_t u16_pwmArrOff[RGB_TOTAL_CNT * 24 + 2];
 
 bool b_rgbAct;
 
+// LED TOP/BOT lock — when set, mode handlers are silently denied LED writes
+// to RGB_TOP_1..RGB_BOT_5. Used by IMU calibration progress bar (single owner).
+static bool b_rgb_topbot_locked = false;
+
+void v_RGB_TopBot_Lock(void)      { b_rgb_topbot_locked = true; }
+void v_RGB_TopBot_Unlock(void)    { b_rgb_topbot_locked = false; }
+bool b_RGB_TopBot_Is_Locked(void) { return b_rgb_topbot_locked; }
+
 
 void v_RGB_PWM_Out();
 
@@ -183,6 +191,8 @@ void v_RGB_PWM_Out(){
  */
 bool b_RGB_Set_Color(uint8_t u8_idx, uint8_t u8_R, uint8_t u8_G, uint8_t u8_B){
 	if(u8_idx >= RGB_TOTAL_CNT){return false;}
+	// Block writes to TOP/BOT range when locked (idx 0..RGB_BOT_5)
+	if(b_rgb_topbot_locked && u8_idx <= RGB_BOT_5){return false;}
 	/*
 	u16_rgbArr[u8_idx][0] = u8_G | 0x0100;
 	u16_rgbArr[u8_idx][1] = u8_R;
@@ -196,6 +206,7 @@ bool b_RGB_Set_Color(uint8_t u8_idx, uint8_t u8_R, uint8_t u8_G, uint8_t u8_B){
 
 
 void v_RGB_Set_Top(uint8_t u8_R, uint8_t u8_G, uint8_t u8_B){
+	if(b_rgb_topbot_locked) return;  // calibration owns TOP/BOT
 	uint8_t R = u8_R, G = u8_G, B = u8_B;
 #if MODE_TEST_SUB_BD
 	b_RGB_Set_Color(RGB_TOP_1, R, G, B);
@@ -214,6 +225,7 @@ void v_RGB_Set_Top(uint8_t u8_R, uint8_t u8_G, uint8_t u8_B){
 }
 
 void v_RGB_Set_Bot(uint8_t u8_R, uint8_t u8_G, uint8_t u8_B){
+	if(b_rgb_topbot_locked) return;  // calibration owns TOP/BOT
 	uint8_t R = u8_R, G = u8_G, B = u8_B;
 #if MODE_TEST_SUB_BD
 	b_RGB_Set_Color(RGB_BOT_1, R, G, B);
@@ -228,6 +240,22 @@ void v_RGB_Set_Bot(uint8_t u8_R, uint8_t u8_G, uint8_t u8_B){
 	b_RGB_Set_Color(RGB_BOT_4, R, G, B);
 	b_RGB_Set_Color(RGB_BOT_5, R, G, B);
 #endif
+	b_rgbAct = true;
+}
+
+// Bypass set: writes one TOP/BOT pair regardless of lock state.
+// ONLY the current lock holder may call this (e.g., IMU calibration progress bar).
+// Uses gamma_lut for visual consistency with the main set path.
+void v_RGB_Set_TopBot_Pair(uint8_t pair_idx, uint8_t u8_R, uint8_t u8_G, uint8_t u8_B){
+	if(pair_idx >= 5) return;
+	uint8_t top = RGB_TOP_1 + pair_idx;
+	uint8_t bot = RGB_BOT_1 + pair_idx;
+	u16_rgbArr[top][0] = gamma_lut[u8_G] | 0x0100;
+	u16_rgbArr[top][1] = gamma_lut[u8_R];
+	u16_rgbArr[top][2] = gamma_lut[u8_B];
+	u16_rgbArr[bot][0] = gamma_lut[u8_G] | 0x0100;
+	u16_rgbArr[bot][1] = gamma_lut[u8_R];
+	u16_rgbArr[bot][2] = gamma_lut[u8_B];
 	b_rgbAct = true;
 }
 
