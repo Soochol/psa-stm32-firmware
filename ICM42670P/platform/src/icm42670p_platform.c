@@ -1901,7 +1901,12 @@ static _x_XYZ_t angle_offset_left, angle_offset_right;
 static x_IMU_TILT_AVG_t angle_avg_left, angle_avg_right;
 
 
-static x_QUAT_t init_left, init_right;
+// Reference attitude for "center-relative" tilt display.
+// MUST be initialized to identity {1,0,0,0}; a zero quaternion would
+// collapse `init × orientation` to zero and lock every tilt angle at 90°.
+// Auto-centered at the end of Phase 1 calibration in v_IMU_Handler.
+static x_QUAT_t init_left  = {1.0f, 0.0f, 0.0f, 0.0f},
+                init_right = {1.0f, 0.0f, 0.0f, 0.0f};
 
 
 // Reset Mahony filter state + gyro bias calibration. Defined here so all
@@ -1911,6 +1916,8 @@ static void v_IMU_State_Reset(void){
 	memset(&gyro_calib_R, 0, sizeof(gyro_calib_R));
 	orientation_left  = (x_QUAT_t){1.0f, 0.0f, 0.0f, 0.0f};
 	orientation_right = (x_QUAT_t){1.0f, 0.0f, 0.0f, 0.0f};
+	init_left  = (x_QUAT_t){1.0f, 0.0f, 0.0f, 0.0f};
+	init_right = (x_QUAT_t){1.0f, 0.0f, 0.0f, 0.0f};
 	memset(&integral_error_left,  0, sizeof(integral_error_left));
 	memset(&integral_error_right, 0, sizeof(integral_error_right));
 }
@@ -1947,7 +1954,13 @@ void v_IMU_Handler(){
 
 				v_IMU_Decode_REG(imu_left, u8_arr_left);
 				//tilt compute
+				bool was_calib_L = gyro_calib_L.done;
 				v_IMU_Tilt_Compute_Orientation(&orientation_left, &integral_error_left, imu_left, &gyro_calib_L);
+				// Auto-center on Phase 1 completion: anchor boot attitude as origin
+				// so tilt starts from (0,0,0) regardless of how the device was placed.
+				if(!was_calib_L && gyro_calib_L.done){
+					init_left = Quaternion_Inverse(orientation_left);
+				}
 				x_QUAT_t inv = Quaternion_Multiply(init_left, orientation_left);
 				v_IMU_Tilt_Compute_Angle(&angle_left, &inv);
 				if(i_tilt_center){
@@ -1965,7 +1978,13 @@ void v_IMU_Handler(){
 
 				v_IMU_Decode_REG(imu_right, u8_arr_right);
 				//tilt compute
+				bool was_calib_R = gyro_calib_R.done;
 				v_IMU_Tilt_Compute_Orientation(&orientation_right, &integral_error_right, imu_right, &gyro_calib_R);
+				// Auto-center on Phase 1 completion: anchor boot attitude as origin
+				// so tilt starts from (0,0,0) regardless of how the device was placed.
+				if(!was_calib_R && gyro_calib_R.done){
+					init_right = Quaternion_Inverse(orientation_right);
+				}
 				x_QUAT_t inv = Quaternion_Multiply(init_right, orientation_right);
 				v_IMU_Tilt_Compute_Angle(&angle_right, &inv);
 
@@ -2202,8 +2221,13 @@ static void v_IMU_Tilt_Compute_Orientation(x_QUAT_t* p_orientation, _x_XYZ_t* p_
 }
 
 static void v_IMU_Tilt_Compute_Angle(_x_XYZ_t* p_angle, x_QUAT_t* p_orientation){
-	p_angle->x = f_Quaternion_TiltAngleX_Compute(*p_orientation) * 1.0f;
-	p_angle->y = f_Quaternion_TiltAngleY_Compute(*p_orientation) * -1.0f;
+	// f_Quaternion_TiltAngleX/Y return acos(R[2,0]) / acos(R[2,1]): the angle
+	// between the body X/Y axis and the gravity vector. For an upright sensor
+	// these axes are perpendicular to gravity → 90°. Subtract 90° so the
+	// display reads "tilt from level" where 0° == upright.
+	// TiltAngleZ already returns 0° at upright (acos(1) = 0).
+	p_angle->x = f_Quaternion_TiltAngleX_Compute(*p_orientation) - 90.0f;
+	p_angle->y = (f_Quaternion_TiltAngleY_Compute(*p_orientation) - 90.0f) * -1.0f;
 	p_angle->z = f_Quaternion_TiltAngleZ_Compute(*p_orientation) * 1.0f;
 }
 
