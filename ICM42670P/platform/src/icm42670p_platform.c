@@ -2125,10 +2125,17 @@ static void v_IMU_Tilt_Compute_Orientation(x_QUAT_t* p_orientation, _x_XYZ_t* p_
 			p_intgral_error->z = 0.0f;
 
 			p_calib->done = true;
-			LOG_INFO("IMU", "Gyro bias raw=(%d,%d,%d) seed roll=%.1f pitch=%.1f deg",
+			// Format roll/pitch as int.tenths (newlib-nano printf does not
+			// reliably support %f via SEGGER_RTT). Show 0.1° resolution.
+			int roll_d10  = (int)(roll  * (1800.0f / 3.14159265f));
+			int pitch_d10 = (int)(pitch * (1800.0f / 3.14159265f));
+			int roll_int  = roll_d10  / 10;
+			int roll_frac = roll_d10  % 10;  if(roll_frac  < 0) roll_frac  = -roll_frac;
+			int pitch_int = pitch_d10 / 10;
+			int pitch_frac = pitch_d10 % 10; if(pitch_frac < 0) pitch_frac = -pitch_frac;
+			LOG_INFO("IMU", "Gyro bias raw=(%d,%d,%d) seed roll=%d.%d pitch=%d.%d deg",
 				p_calib->bias[0], p_calib->bias[1], p_calib->bias[2],
-				roll  * (180.0f / 3.14159265f),
-				pitch * (180.0f / 3.14159265f));
+				roll_int, roll_frac, pitch_int, pitch_frac);
 		}
 		return;  // Skip Mahony update during calibration
 	}
