@@ -2061,7 +2061,7 @@ _x_XYZ_t x_IMU_Get_Angle_Right(){
 //		TILT		//
 //////////////////////
 static const float kP	= 1.0f;		//proportional gain (100Hz tuning)
-static const float kI	= 0.15f;	//integral gain — 3× faster online gyro-bias learning
+static const float kI	= 0.25f;	//integral gain — left IMU still showed ~3°/237s residual at 0.15
 //static const float kD	= 0.0f;		//derivative gain
 
 const static float f_gyro_sensitivity = 2000.0f / 32768.0f;
