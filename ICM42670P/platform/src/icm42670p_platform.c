@@ -64,7 +64,7 @@ typedef struct {
 // - Removes MEMS DC offset that otherwise causes integration drift
 // - Uses averaged accelerometer to seed Mahony quaternion at correct attitude,
 //   eliminating the ~1 minute filter convergence period after boot.
-#define GYRO_CALIB_SAMPLES	500		// 100Hz × 5s — longer average reduces residual bias σ by √5
+#define GYRO_CALIB_SAMPLES	100		// 100Hz × 1s — short boot wait; float bias + Ki=0.15 absorb residual
 typedef struct {
 	int32_t  sum[3];	// gyro raw accumulator (int32 prevents overflow up to ~65k samples)
 	int32_t  acc_sum[3];	// accel raw accumulator for initial attitude estimation
