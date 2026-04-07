@@ -69,7 +69,7 @@ typedef struct {
 	int32_t  sum[3];	// gyro raw accumulator (int32 prevents overflow up to ~65k samples)
 	int32_t  acc_sum[3];	// accel raw accumulator for initial attitude estimation
 	uint16_t count;		// samples collected
-	int16_t  bias[3];	// averaged gyro bias in raw int16 LSB
+	float    bias[3];	// averaged gyro bias in dps (sub-LSB precision; was int16 LSB)
 	bool     done;		// true once calibration finished
 } x_GyroCalib_t;
 
@@ -2091,10 +2091,13 @@ static void v_IMU_Tilt_Compute_Orientation(x_QUAT_t* p_orientation, _x_XYZ_t* p_
 		p_calib->acc_sum[2] += pi16_imu[2];
 		p_calib->count++;
 		if(p_calib->count >= GYRO_CALIB_SAMPLES){
-			// 1) Gyro bias = average of accumulated samples
-			p_calib->bias[0] = (int16_t)(p_calib->sum[0] / GYRO_CALIB_SAMPLES);
-			p_calib->bias[1] = (int16_t)(p_calib->sum[1] / GYRO_CALIB_SAMPLES);
-			p_calib->bias[2] = (int16_t)(p_calib->sum[2] / GYRO_CALIB_SAMPLES);
+			// 1) Gyro bias = float average × sensitivity → stored in dps.
+			//    Avoids ±0.5 LSB (=±0.0305 dps @2000dps FS) integer rounding
+			//    error that caused ~5°/380s tilt drift on body Y axis.
+			const float inv_n = 1.0f / (float)GYRO_CALIB_SAMPLES;
+			p_calib->bias[0] = ((float)p_calib->sum[0] * inv_n) * f_gyro_sensitivity;
+			p_calib->bias[1] = ((float)p_calib->sum[1] * inv_n) * f_gyro_sensitivity;
+			p_calib->bias[2] = ((float)p_calib->sum[2] * inv_n) * f_gyro_sensitivity;
 
 			// 2) Initial attitude from averaged gravity vector
 			//    Avoids ~1 minute Mahony filter convergence after boot.
@@ -2133,8 +2136,12 @@ static void v_IMU_Tilt_Compute_Orientation(x_QUAT_t* p_orientation, _x_XYZ_t* p_
 			int roll_frac = roll_d10  % 10;  if(roll_frac  < 0) roll_frac  = -roll_frac;
 			int pitch_int = pitch_d10 / 10;
 			int pitch_frac = pitch_d10 % 10; if(pitch_frac < 0) pitch_frac = -pitch_frac;
-			LOG_INFO("IMU", "Gyro bias raw=(%d,%d,%d) seed roll=%d.%d pitch=%d.%d deg",
-				p_calib->bias[0], p_calib->bias[1], p_calib->bias[2],
+			// bias is in dps (float); print as integer mdps for newlib-nano printf.
+			int bx_mdps = (int)(p_calib->bias[0] * 1000.0f);
+			int by_mdps = (int)(p_calib->bias[1] * 1000.0f);
+			int bz_mdps = (int)(p_calib->bias[2] * 1000.0f);
+			LOG_INFO("IMU", "Gyro bias mdps=(%d,%d,%d) seed roll=%d.%d pitch=%d.%d deg",
+				bx_mdps, by_mdps, bz_mdps,
 				roll_int, roll_frac, pitch_int, pitch_frac);
 		}
 		return;  // Skip Mahony update during calibration
@@ -2145,9 +2152,10 @@ static void v_IMU_Tilt_Compute_Orientation(x_QUAT_t* p_orientation, _x_XYZ_t* p_
 	acc.y = pi16_imu[1] * f_accel_sensitivity;
 	acc.z = pi16_imu[2] * f_accel_sensitivity;
 
-	gyro.x = (pi16_imu[3] - p_calib->bias[0]) * f_gyro_sensitivity;
-	gyro.y = (pi16_imu[4] - p_calib->bias[1]) * f_gyro_sensitivity;
-	gyro.z = (pi16_imu[5] - p_calib->bias[2]) * f_gyro_sensitivity;
+	// bias is now stored in dps (float). Convert raw → dps first, then subtract.
+	gyro.x = (float)pi16_imu[3] * f_gyro_sensitivity - p_calib->bias[0];
+	gyro.y = (float)pi16_imu[4] * f_gyro_sensitivity - p_calib->bias[1];
+	gyro.z = (float)pi16_imu[5] * f_gyro_sensitivity - p_calib->bias[2];
 
 	v_Quaternion_Mahony_Compute(p_intgral_error, p_orientation, acc, gyro, 0.01, kP, kI);
 }
