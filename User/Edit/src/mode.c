@@ -352,11 +352,12 @@ static void v_Mode_GyroAI_Handler(){
 	if(e_mode_ai != MODE_AI_STM){return;}
 	if(!i_IMU_Is_Available()){return;}  // IMU degraded - skip tilt control
 	if(e_Mode_Get_CurrID() >= modeHEALING){
-		_x_XYZ_t L = x_IMU_Get_Angle_Left();
+		// Drift-free, response time ~67ms (vs Mahony ~700ms+)
+		// Same frame as old Mahony output: 0~180°, upright = 90°
 #if GYRO_AI_AXIS_X
-		float actL = L.x;
+		float actL = f_IMU_Get_AccelTilt_X_Left();
 #else
-		float actL = -L.y;
+		float actL = -f_IMU_Get_AccelTilt_Y_Left();
 #endif
 
 		int actAngle = MODE_GYRO_ANGLE_BASELINE - i_actAngle;					//90 - 10
@@ -1054,12 +1055,16 @@ static void v_Mode_Sensing_toESP(){
 			v_IMU_Clear_EVT_Right();
 		}
 		//add imu event left and right
+		// Drift-free accel-only tilt for ESP (same boot-anchored frame as Mahony,
+		// but no gyro integration → no drift). Z=0 (not used by ESP).
+		_x_XYZ_t accel_left  = { f_IMU_Get_AccelTilt_X_Left(),  f_IMU_Get_AccelTilt_Y_Left(),  0.0f };
+		_x_XYZ_t accel_right = { f_IMU_Get_AccelTilt_X_Right(), f_IMU_Get_AccelTilt_Y_Right(), 0.0f };
 		v_ESP_Send_Sensing(pi16_IMU_Get_Left(), pi16_IMU_Get_Right(), \
 						u16_FSR_Get_Left(), u16_FSR_Get_Right(), \
 						f_Temp_Out_Get(), f_Temp_In_Get(), f_IR_Temp_Get(), \
 						u16_TOF_Get_1(), u16_TOF_Get_2(), f_ADC_Get_BatVolt(),\
 						imu_evt_left, imu_evt_right, \
-						x_IMU_Get_Angle_Left(), x_IMU_Get_Angle_Right());
+						accel_left, accel_right);
 #else
 		static int16_t dummy_imu[6] = {0};
 		static _x_XYZ_t dummy_angle = {0};

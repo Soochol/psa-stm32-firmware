@@ -60,6 +60,13 @@ _x_XYZ_t x_IMU_Get_Offset_Right();
 _x_XYZ_t x_IMU_Get_Angle_Left();
 _x_XYZ_t x_IMU_Get_Angle_Right();
 
+// Drift-free accel-only tilt (independent of Mahony, no gyro integration → no drift)
+// Same frame as f_Quaternion_TiltAngleX/Y/Z_Compute: 0~180°, upright (perpendicular to gravity) = 90°
+float f_IMU_Get_AccelTilt_X_Left(void);
+float f_IMU_Get_AccelTilt_Y_Left(void);
+float f_IMU_Get_AccelTilt_X_Right(void);
+float f_IMU_Get_AccelTilt_Y_Right(void);
+
 
 #ifdef __cplusplus
 }
