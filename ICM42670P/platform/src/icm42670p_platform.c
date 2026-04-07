@@ -2,6 +2,7 @@
 #include "icm42670p_platform.h"
 #include "string.h"
 #include "stdio.h"
+#include "math.h"
 #include "tim.h"
 #include "i2c.h"
 //#include "quaternion_mahony.h"
@@ -59,12 +60,26 @@ typedef struct {
 	int16_t i16_avg[6];
 } x_IMU_RAW_AVG_t;
 
-static void v_IMU_Tilt_Compute_Orientation(x_QUAT_t* p_orientation, _x_XYZ_t* p_intgral_error, int16_t* pi16_imu);
+// Gyro bias calibration + initial orientation seed (per IMU)
+// - Removes MEMS DC offset that otherwise causes integration drift
+// - Uses averaged accelerometer to seed Mahony quaternion at correct attitude,
+//   eliminating the ~1 minute filter convergence period after boot.
+#define GYRO_CALIB_SAMPLES	100		// 100Hz × 1s = 100 samples
+typedef struct {
+	int32_t  sum[3];	// gyro raw accumulator (int32 prevents overflow up to ~65k samples)
+	int32_t  acc_sum[3];	// accel raw accumulator for initial attitude estimation
+	uint16_t count;		// samples collected
+	int16_t  bias[3];	// averaged gyro bias in raw int16 LSB
+	bool     done;		// true once calibration finished
+} x_GyroCalib_t;
+
+static void v_IMU_Tilt_Compute_Orientation(x_QUAT_t* p_orientation, _x_XYZ_t* p_intgral_error, int16_t* pi16_imu, x_GyroCalib_t* p_calib);
 static void v_IMU_Tilt_Compute_Angle(_x_XYZ_t* p_angle, x_QUAT_t* p_orientation);
 static void v_IMU_Tilt_Compute_Offset(_x_XYZ_t* p_offset, _x_XYZ_t* p_center, _x_XYZ_t* p_now);
 static void v_IMU_Tilt_Compute_AVG(x_IMU_TILT_AVG_t* p_avg, _x_XYZ_t* p_angle);
 
 static void v_IMU_Int_Handler();
+static void v_IMU_State_Reset(void);  // defined after static state below; resets Mahony + bias calib
 
 
 
@@ -1795,6 +1810,10 @@ void v_IMU_Deinit(){
 	e_imu_config = COMM_STAT_READY;
 	b_imu_available = false;
 	v_IMU_Tilt_Center_Disable();
+
+	// Reset Mahony filter state + bias calibration so re-init restarts cleanly.
+	// Helper is defined after the static state declarations below.
+	v_IMU_State_Reset();
 }
 
 int i_IMU_Is_Available(){
@@ -1868,6 +1887,8 @@ uint16_t imu_handler_tout;
 
 static x_QUAT_t orientation_left = {1.0f, 0.0f, 0.0f, 0.0f}, orientation_right = {1.0f, 0.0f, 0.0f, 0.0f};
 static _x_XYZ_t	integral_error_left, integral_error_right;
+static x_GyroCalib_t gyro_calib_L = {0};
+static x_GyroCalib_t gyro_calib_R = {0};
 static _x_XYZ_t angle_left, angle_right;
 static _x_XYZ_t angle_center_left, angle_center_right;
 static _x_XYZ_t angle_offset_left, angle_offset_right;
@@ -1875,6 +1896,18 @@ static x_IMU_TILT_AVG_t angle_avg_left, angle_avg_right;
 
 
 static x_QUAT_t init_left, init_right;
+
+
+// Reset Mahony filter state + gyro bias calibration. Defined here so all
+// static state above is in scope. Called from v_IMU_Deinit().
+static void v_IMU_State_Reset(void){
+	memset(&gyro_calib_L, 0, sizeof(gyro_calib_L));
+	memset(&gyro_calib_R, 0, sizeof(gyro_calib_R));
+	orientation_left  = (x_QUAT_t){1.0f, 0.0f, 0.0f, 0.0f};
+	orientation_right = (x_QUAT_t){1.0f, 0.0f, 0.0f, 0.0f};
+	memset(&integral_error_left,  0, sizeof(integral_error_left));
+	memset(&integral_error_right, 0, sizeof(integral_error_right));
+}
 
 
 void v_IMU_Handler(){
@@ -1908,7 +1941,7 @@ void v_IMU_Handler(){
 
 				v_IMU_Decode_REG(imu_left, u8_arr_left);
 				//tilt compute
-				v_IMU_Tilt_Compute_Orientation(&orientation_left, &integral_error_left, imu_left);
+				v_IMU_Tilt_Compute_Orientation(&orientation_left, &integral_error_left, imu_left, &gyro_calib_L);
 				x_QUAT_t inv = Quaternion_Multiply(init_left, orientation_left);
 				v_IMU_Tilt_Compute_Angle(&angle_left, &inv);
 				if(i_tilt_center){
@@ -1926,7 +1959,7 @@ void v_IMU_Handler(){
 
 				v_IMU_Decode_REG(imu_right, u8_arr_right);
 				//tilt compute
-				v_IMU_Tilt_Compute_Orientation(&orientation_right, &integral_error_right, imu_right);
+				v_IMU_Tilt_Compute_Orientation(&orientation_right, &integral_error_right, imu_right, &gyro_calib_R);
 				x_QUAT_t inv = Quaternion_Multiply(init_right, orientation_right);
 				v_IMU_Tilt_Compute_Angle(&angle_right, &inv);
 
@@ -2037,24 +2070,79 @@ const static float f_accel_sensitivity = 2.0f / 32768.0f;
 
 
 
-static void v_IMU_Tilt_Compute_Orientation(x_QUAT_t* p_orientation, _x_XYZ_t* p_intgral_error, int16_t* pi16_imu){
+static void v_IMU_Tilt_Compute_Orientation(x_QUAT_t* p_orientation, _x_XYZ_t* p_intgral_error, int16_t* pi16_imu, x_GyroCalib_t* p_calib){
 	_x_XYZ_t acc, gyro;
 	int cnt=0;
 
 	for(int i=0; i<6; i++){
 		if(pi16_imu[i] == 0){cnt++;}
 	}
-	if(cnt != 6){
-		acc.x = pi16_imu[0] * f_accel_sensitivity;
-		acc.y = pi16_imu[1] * f_accel_sensitivity;
-		acc.z = pi16_imu[2] * f_accel_sensitivity;
+	if(cnt == 6){return;}  // all-zero data, skip
 
-		gyro.x = pi16_imu[3] * f_gyro_sensitivity;
-		gyro.y = pi16_imu[4] * f_gyro_sensitivity;
-		gyro.z = pi16_imu[5] * f_gyro_sensitivity;
+	// ─── Phase 1: Gyro bias calibration + initial attitude seed ───
+	// Device must be stationary during boot for accurate measurement.
+	if(!p_calib->done){
+		// Accumulate gyro (for bias) and accel (for initial attitude)
+		p_calib->sum[0] += pi16_imu[3];
+		p_calib->sum[1] += pi16_imu[4];
+		p_calib->sum[2] += pi16_imu[5];
+		p_calib->acc_sum[0] += pi16_imu[0];
+		p_calib->acc_sum[1] += pi16_imu[1];
+		p_calib->acc_sum[2] += pi16_imu[2];
+		p_calib->count++;
+		if(p_calib->count >= GYRO_CALIB_SAMPLES){
+			// 1) Gyro bias = average of accumulated samples
+			p_calib->bias[0] = (int16_t)(p_calib->sum[0] / GYRO_CALIB_SAMPLES);
+			p_calib->bias[1] = (int16_t)(p_calib->sum[1] / GYRO_CALIB_SAMPLES);
+			p_calib->bias[2] = (int16_t)(p_calib->sum[2] / GYRO_CALIB_SAMPLES);
 
-		v_Quaternion_Mahony_Compute(p_intgral_error, p_orientation, acc, gyro, 0.01, kP, kI);
+			// 2) Initial attitude from averaged gravity vector
+			//    Avoids ~1 minute Mahony filter convergence after boot.
+			float ax = (float)(p_calib->acc_sum[0] / (int32_t)GYRO_CALIB_SAMPLES) * f_accel_sensitivity;
+			float ay = (float)(p_calib->acc_sum[1] / (int32_t)GYRO_CALIB_SAMPLES) * f_accel_sensitivity;
+			float az = (float)(p_calib->acc_sum[2] / (int32_t)GYRO_CALIB_SAMPLES) * f_accel_sensitivity;
+
+			// roll  = rotation around X axis (atan2 of Y/Z gravity components)
+			// pitch = rotation around Y axis (atan2 of -X/sqrt(Y²+Z²))
+			// yaw   = unknown without magnetometer, set to 0
+			float roll  = atan2f(ay, az);
+			float pitch = atan2f(-ax, sqrtf(ay * ay + az * az));
+
+			// Euler (roll, pitch, yaw=0) → quaternion (Tait-Bryan, ZYX order)
+			float cr = cosf(roll * 0.5f);
+			float sr = sinf(roll * 0.5f);
+			float cp = cosf(pitch * 0.5f);
+			float sp = sinf(pitch * 0.5f);
+			p_orientation->w =  cr * cp;
+			p_orientation->x =  sr * cp;
+			p_orientation->y =  cr * sp;
+			p_orientation->z = -sr * sp;
+
+			// Reset Mahony integral feedback so the seeded quaternion is the
+			// authoritative starting point (no leftover error from Phase 1).
+			p_intgral_error->x = 0.0f;
+			p_intgral_error->y = 0.0f;
+			p_intgral_error->z = 0.0f;
+
+			p_calib->done = true;
+			LOG_INFO("IMU", "Gyro bias raw=(%d,%d,%d) seed roll=%.1f pitch=%.1f deg",
+				p_calib->bias[0], p_calib->bias[1], p_calib->bias[2],
+				roll  * (180.0f / 3.14159265f),
+				pitch * (180.0f / 3.14159265f));
+		}
+		return;  // Skip Mahony update during calibration
 	}
+
+	// ─── Phase 2: Normal operation (bias subtracted from raw gyro) ───
+	acc.x = pi16_imu[0] * f_accel_sensitivity;
+	acc.y = pi16_imu[1] * f_accel_sensitivity;
+	acc.z = pi16_imu[2] * f_accel_sensitivity;
+
+	gyro.x = (pi16_imu[3] - p_calib->bias[0]) * f_gyro_sensitivity;
+	gyro.y = (pi16_imu[4] - p_calib->bias[1]) * f_gyro_sensitivity;
+	gyro.z = (pi16_imu[5] - p_calib->bias[2]) * f_gyro_sensitivity;
+
+	v_Quaternion_Mahony_Compute(p_intgral_error, p_orientation, acc, gyro, 0.01, kP, kI);
 }
 
 static void v_IMU_Tilt_Compute_Angle(_x_XYZ_t* p_angle, x_QUAT_t* p_orientation){
@@ -2161,7 +2249,7 @@ __attribute__((unused)) static void v_IMU_Int_Handler(){
 		mask = 2;
 		v_IMU_Decode_REG(imu_left, u8_arr_left);
 		//tilt compute
-		v_IMU_Tilt_Compute_Orientation(&orientation_left, &integral_error_left, imu_left);
+		v_IMU_Tilt_Compute_Orientation(&orientation_left, &integral_error_left, imu_left, &gyro_calib_L);
 		v_IMU_Tilt_Compute_Angle(&angle_left, &orientation_left);
 		v_IMU_Tilt_Compute_Offset(&angle_offset_left, &angle_center_left, &angle_left);
 
@@ -2180,7 +2268,7 @@ __attribute__((unused)) static void v_IMU_Int_Handler(){
 		mask = 3;
 		v_IMU_Decode_REG(imu_right, u8_arr_right);
 		//tilt compute
-		v_IMU_Tilt_Compute_Orientation(&orientation_right, &integral_error_right, imu_right);
+		v_IMU_Tilt_Compute_Orientation(&orientation_right, &integral_error_right, imu_right, &gyro_calib_R);
 		v_IMU_Tilt_Compute_Angle(&angle_right, &orientation_right);
 		v_IMU_Tilt_Compute_Offset(&angle_offset_right, &angle_center_right, &angle_right);
 
