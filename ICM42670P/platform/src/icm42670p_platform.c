@@ -2061,7 +2061,7 @@ _x_XYZ_t x_IMU_Get_Angle_Right(){
 //		TILT		//
 //////////////////////
 static const float kP	= 1.0f;		//proportional gain (100Hz tuning)
-static const float kI	= 0.30f;	//integral gain — push closer to saturation before adding ZUPT
+static const float kI	= 0.25f;	//integral gain — sweet spot; ZUPT will absorb the rest
 //static const float kD	= 0.0f;		//derivative gain
 
 const static float f_gyro_sensitivity = 2000.0f / 32768.0f;
