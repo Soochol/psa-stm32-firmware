@@ -8,13 +8,6 @@
 //#include "quaternion_mahony.h"
 #include "mode.h"
 #include "lib_log.h"
-#include "sk6812_platform.h"  // for calibration LED progress bar
-
-// IMU calibration LED progress bar color (dim yellow = "wait")
-#define IMU_CALIB_LED_R   128
-#define IMU_CALIB_LED_G    64
-#define IMU_CALIB_LED_B     0
-
 extern I2C_HandleTypeDef hi2c2;
 static I2C_HandleTypeDef* p_i2c = &hi2c2;
 
@@ -45,47 +38,6 @@ typedef enum {
 #define IMU_RIGHT_ACTIVE	1
 #define IMU_FIFO_ACTIVE		0
 #define IMU_RETRY_ID		0
-
-//////////////////////
-//		TILT		//
-//////////////////////
-#define IMU_TILT_SAMPLING_CNT	10
-typedef struct {
-	float f_buf[3][IMU_TILT_SAMPLING_CNT];
-	uint16_t u16_in, u16_cnt;
-	float f_last[3];
-	float f_sum[3];
-	float f_avg[3];
-} x_IMU_TILT_AVG_t;
-
-typedef struct {
-	int16_t i16_buf[6][IMU_TILT_SAMPLING_CNT];
-	uint16_t u16_in, u16_cnt;
-	int16_t i16_last[6];
-	int32_t i32_sum[6];
-	int16_t i16_avg[6];
-} x_IMU_RAW_AVG_t;
-
-// Gyro bias calibration + initial orientation seed (per IMU)
-// - Removes MEMS DC offset that otherwise causes integration drift
-// - Uses averaged accelerometer to seed Mahony quaternion at correct attitude,
-//   eliminating the ~1 minute filter convergence period after boot.
-#define GYRO_CALIB_SAMPLES	100		// 100Hz × 1s — short boot wait; float bias + Ki=0.15 absorb residual
-typedef struct {
-	int32_t  sum[3];	// gyro raw accumulator (int32 prevents overflow up to ~65k samples)
-	int32_t  acc_sum[3];	// accel raw accumulator for initial attitude estimation
-	uint16_t count;		// samples collected
-	float    bias[3];	// averaged gyro bias in dps (sub-LSB precision; was int16 LSB)
-	bool     done;		// true once calibration finished
-} x_GyroCalib_t;
-
-static void v_IMU_Tilt_Compute_Orientation(x_QUAT_t* p_orientation, _x_XYZ_t* p_intgral_error, int16_t* pi16_imu, x_GyroCalib_t* p_calib);
-static void v_IMU_Tilt_Compute_Angle(_x_XYZ_t* p_angle, x_QUAT_t* p_orientation);
-static void v_IMU_Tilt_Compute_Offset(_x_XYZ_t* p_offset, _x_XYZ_t* p_center, _x_XYZ_t* p_now);
-static void v_IMU_Tilt_Compute_AVG(x_IMU_TILT_AVG_t* p_avg, _x_XYZ_t* p_angle);
-
-static void v_IMU_Int_Handler();
-static void v_IMU_State_Reset(void);  // defined after static state below; resets Mahony + bias calib
 
 
 
@@ -1783,43 +1735,31 @@ int i_IMU_Tilt_Is_Center(){
 }
 
 
-float tilt_centerAngleX_L, tilt_centerAngleY_L, tilt_centerAngleZ_L;
-float tilt_centerAngleX_R, tilt_centerAngleY_R, tilt_centerAngleZ_R;
+// Drift-free accel-only tilt (the sole attitude source for trigger and ESP).
+// Self-anchored after a short LPF warmup so getters return ~0 once ready.
+// Z axis omitted: never consumed (mode.c uses X, ESP uses X+Y).
+typedef struct {
+	float tilt_x_deg;	// acos(ax/|a|) — raw absolute tilt
+	float tilt_y_deg;	// acos(ay/|a|)
+	float ref_x;		// anchor captured after a brief LPF warmup
+	float ref_y;
+	bool  initialized;
+	bool  ref_set;		// true once ref_x/y are captured
+	uint16_t warmup_cnt;	// LPF stabilization counter; ref captured after N samples
+} x_AccelTilt_t;
 
-float f_IMU_Get_Tilt_X_Center_L(){
-	return tilt_centerAngleX_L;
-}
+static x_AccelTilt_t accel_tilt_L = {0};
+static x_AccelTilt_t accel_tilt_R = {0};
 
-float f_IMU_Get_Tilt_Y_Center_L(){
-	return tilt_centerAngleY_L;
-}
-
-float f_IMU_Get_Tilt_Z_Center_L(){
-	return tilt_centerAngleZ_L;
-}
-
-float f_IMU_Get_Tilt_X_Center_R(){
-	return tilt_centerAngleX_R;
-}
-
-float f_IMU_Get_Tilt_Y_Center_R(){
-	return tilt_centerAngleY_R;
-}
-
-float f_IMU_Get_Tilt_Z_Center_R(){
-	return tilt_centerAngleZ_R;
-}
-
-#define IMU_TILT_SAMPLE_CNT	10
 
 void v_IMU_Deinit(){
 	e_imu_config = COMM_STAT_READY;
 	b_imu_available = false;
 	v_IMU_Tilt_Center_Disable();
 
-	// Reset Mahony filter state + bias calibration so re-init restarts cleanly.
-	// Helper is defined after the static state declarations below.
-	v_IMU_State_Reset();
+	// Clear accel-tilt state so re-init re-captures a fresh boot anchor.
+	memset(&accel_tilt_L, 0, sizeof(accel_tilt_L));
+	memset(&accel_tilt_R, 0, sizeof(accel_tilt_R));
 }
 
 int i_IMU_Is_Available(){
@@ -1891,60 +1831,11 @@ typedef enum {
 } e_IMU_DATA_STAT_t;
 uint16_t imu_handler_tout;
 
-static x_QUAT_t orientation_left = {1.0f, 0.0f, 0.0f, 0.0f}, orientation_right = {1.0f, 0.0f, 0.0f, 0.0f};
-static _x_XYZ_t	integral_error_left, integral_error_right;
-static x_GyroCalib_t gyro_calib_L = {0};
-static x_GyroCalib_t gyro_calib_R = {0};
-static _x_XYZ_t angle_left, angle_right;
-static _x_XYZ_t angle_center_left, angle_center_right;
-static _x_XYZ_t angle_offset_left, angle_offset_right;
-static x_IMU_TILT_AVG_t angle_avg_left, angle_avg_right;
-
-// Drift-free accel-only tilt (used by trigger path; independent of Mahony).
-// Frame matches Mahony: anchored at boot calibration completion so output is
-// (current_tilt - boot_tilt). At rest just after calibration the getters return ~0.
-// Z axis omitted: never consumed (mode.c uses X, ESP uses X+Y).
-typedef struct {
-	float tilt_x_deg;	// acos(ax/|a|) — raw absolute tilt
-	float tilt_y_deg;	// acos(ay/|a|)
-	float ref_x;		// boot anchor (captured when gyro calibration completes)
-	float ref_y;
-	bool  initialized;
-	bool  ref_set;		// true once ref_x/y are captured
-} x_AccelTilt_t;
-
-static x_AccelTilt_t accel_tilt_L = {0};
-static x_AccelTilt_t accel_tilt_R = {0};
-
-// Forward declaration: definition is below v_IMU_Tilt_Compute_Orientation
+// Forward declaration: definition is further down in this file.
 static void v_IMU_AccelTilt_Update(int16_t* pi16_imu, x_AccelTilt_t* p_tilt);
 
 
-// Reference attitude for "center-relative" tilt display.
-// MUST be initialized to identity {1,0,0,0}; a zero quaternion would
-// collapse `init × orientation` to zero and lock every tilt angle at 90°.
-// Auto-centered at the end of Phase 1 calibration in v_IMU_Handler.
-static x_QUAT_t init_left  = {1.0f, 0.0f, 0.0f, 0.0f},
-                init_right = {1.0f, 0.0f, 0.0f, 0.0f};
-
-
-// Reset Mahony filter state + gyro bias calibration. Defined here so all
-// static state above is in scope. Called from v_IMU_Deinit().
-static void v_IMU_State_Reset(void){
-	memset(&gyro_calib_L, 0, sizeof(gyro_calib_L));
-	memset(&gyro_calib_R, 0, sizeof(gyro_calib_R));
-	orientation_left  = (x_QUAT_t){1.0f, 0.0f, 0.0f, 0.0f};
-	orientation_right = (x_QUAT_t){1.0f, 0.0f, 0.0f, 0.0f};
-	init_left  = (x_QUAT_t){1.0f, 0.0f, 0.0f, 0.0f};
-	init_right = (x_QUAT_t){1.0f, 0.0f, 0.0f, 0.0f};
-	memset(&integral_error_left,  0, sizeof(integral_error_left));
-	memset(&integral_error_right, 0, sizeof(integral_error_right));
-}
-
-
 void v_IMU_Handler(){
-	//v_IMU_Int_Handler();
-
 	static uint32_t timRef, timItv;
 	static uint16_t mask;
 	static bool init_L, init_R;
@@ -1972,23 +1863,13 @@ void v_IMU_Handler(){
 				mask |= 0x01;
 
 				v_IMU_Decode_REG(imu_left, u8_arr_left);
-				//tilt compute
-				bool was_calib_L = gyro_calib_L.done;
-				v_IMU_Tilt_Compute_Orientation(&orientation_left, &integral_error_left, imu_left, &gyro_calib_L);
 				v_IMU_AccelTilt_Update(imu_left, &accel_tilt_L);	// drift-free tilt for trigger path
-				// Auto-center on Phase 1 completion: anchor boot attitude as origin
-				// so tilt starts from (0,0,0) regardless of how the device was placed.
-				if(!was_calib_L && gyro_calib_L.done){
-					init_left = Quaternion_Inverse(orientation_left);
-					// Anchor accel tilt to the same boot attitude → same frame as Mahony
+				// i_tilt_center re-anchors accel-tilt to current attitude. mode.c opens a
+				// 2s window (Enable→Disable) so the latest ref captured at Disable freezes
+				// as the new origin (matches the previous Mahony center behavior).
+				if(i_tilt_center){
 					accel_tilt_L.ref_x = accel_tilt_L.tilt_x_deg;
 					accel_tilt_L.ref_y = accel_tilt_L.tilt_y_deg;
-					accel_tilt_L.ref_set = true;
-				}
-				x_QUAT_t inv = Quaternion_Multiply(init_left, orientation_left);
-				v_IMU_Tilt_Compute_Angle(&angle_left, &inv);
-				if(i_tilt_center){
-					init_left = Quaternion_Inverse(orientation_left);
 				}
 			}
 			else{
@@ -2001,24 +1882,11 @@ void v_IMU_Handler(){
 				mask |= 0x02;
 
 				v_IMU_Decode_REG(imu_right, u8_arr_right);
-				//tilt compute
-				bool was_calib_R = gyro_calib_R.done;
-				v_IMU_Tilt_Compute_Orientation(&orientation_right, &integral_error_right, imu_right, &gyro_calib_R);
 				v_IMU_AccelTilt_Update(imu_right, &accel_tilt_R);	// drift-free tilt for trigger path
-				// Auto-center on Phase 1 completion: anchor boot attitude as origin
-				// so tilt starts from (0,0,0) regardless of how the device was placed.
-				if(!was_calib_R && gyro_calib_R.done){
-					init_right = Quaternion_Inverse(orientation_right);
-					// Anchor accel tilt to the same boot attitude → same frame as Mahony
+				// i_tilt_center re-anchors accel-tilt to current attitude (see LEFT note).
+				if(i_tilt_center){
 					accel_tilt_R.ref_x = accel_tilt_R.tilt_x_deg;
 					accel_tilt_R.ref_y = accel_tilt_R.tilt_y_deg;
-					accel_tilt_R.ref_set = true;
-				}
-				x_QUAT_t inv = Quaternion_Multiply(init_right, orientation_right);
-				v_IMU_Tilt_Compute_Angle(&angle_right, &inv);
-
-				if(i_tilt_center){
-					init_right = Quaternion_Inverse(orientation_right);
 				}
 			}
 			else{
@@ -2028,33 +1896,6 @@ void v_IMU_Handler(){
 		if(mask == 0x83){
 			// Successful read cycle — reset recovery counter
 			if(u8_imu_i2c2_retry_cnt) u8_imu_i2c2_retry_cnt = 0;
-			// 2s periodic IMU data log for RTT debug
-			static uint32_t imuLogRef;
-			if(_b_Tim_Is_OVR(u32_Tim_1msGet(), imuLogRef, 2000)){
-				imuLogRef = u32_Tim_1msGet();
-				LOG_INFO("IMU", "L ax=%d ay=%d az=%d",
-					imu_left[0], imu_left[1], imu_left[2]);
-				LOG_INFO("IMU", "R ax=%d ay=%d az=%d",
-					imu_right[0], imu_right[1], imu_right[2]);
-				LOG_INFO("IMU", "tilt L=(%d,%d) R=(%d,%d)",
-					(int)angle_left.x, (int)angle_left.y,
-					(int)angle_right.x, (int)angle_right.y);
-			}
-			// VERIFICATION ONLY — remove before production
-			// 1Hz triple-stream: mahony / raw accel tilt / getter (= raw - ref).
-			// Lets you verify (a) new build is flashed, (b) ref capture worked,
-			// (c) drift = 0 (getter stays at 0), (d) frame matches mahony.
-			static uint32_t accelTiltLogRef;
-			if(_b_Tim_Is_OVR(u32_Tim_1msGet(), accelTiltLogRef, 1000)){
-				accelTiltLogRef = u32_Tim_1msGet();
-				LOG_INFO("ACCELTILT", "L mah=%d raw=%d get=%d ref=%d set=%d  R mah=%d raw=%d get=%d ref=%d set=%d",
-					(int)angle_left.x,  (int)accel_tilt_L.tilt_x_deg,
-					(int)f_IMU_Get_AccelTilt_X_Left(),
-					(int)accel_tilt_L.ref_x, (int)accel_tilt_L.ref_set,
-					(int)angle_right.x, (int)accel_tilt_R.tilt_x_deg,
-					(int)f_IMU_Get_AccelTilt_X_Right(),
-					(int)accel_tilt_R.ref_x, (int)accel_tilt_R.ref_set);
-			}
 			if(imu_evt_left){
 				LOG_INFO("IMU", "EVT L=0x%02X", imu_evt_left);
 			}
@@ -2099,27 +1940,6 @@ void v_IMU_Clear_EVT_Right(){
 	imu_evt_right = 0;
 }
 
-// angle_offset_left, angle_offset_right;
-_x_XYZ_t x_IMU_Get_Offset_Left(){
-	if(!b_imu_available){ _x_XYZ_t zero = {0}; return zero; }
-	return angle_offset_left;
-}
-
-_x_XYZ_t x_IMU_Get_Offset_Right(){
-	if(!b_imu_available){ _x_XYZ_t zero = {0}; return zero; }
-	return angle_offset_right;
-}
-
-_x_XYZ_t x_IMU_Get_Angle_Left(){
-	if(!b_imu_available){ _x_XYZ_t zero = {0}; return zero; }
-	return angle_left;
-}
-
-_x_XYZ_t x_IMU_Get_Angle_Right(){
-	if(!b_imu_available){ _x_XYZ_t zero = {0}; return zero; }
-	return angle_right;
-}
-
 // Drift-free accel-only tilt anchored at boot calibration (same frame as Mahony output).
 // At rest right after calibration: returns ~0. Tilt forward/back: returns delta from anchor.
 // Returns 0.0f if IMU not available or before ref is captured (calibration not yet complete).
@@ -2140,56 +1960,7 @@ float f_IMU_Get_AccelTilt_Y_Right(void){
 	return accel_tilt_R.tilt_y_deg - accel_tilt_R.ref_y;
 }
 
-//////////////////////
-//		TILT		//
-//////////////////////
-static const float kP	= 1.0f;		//proportional gain (100Hz tuning)
-static const float kI	= 0.25f;	//integral gain — sweet spot; ZUPT will absorb the rest
-//static const float kD	= 0.0f;		//derivative gain
-
-const static float f_gyro_sensitivity = 2000.0f / 32768.0f;
 const static float f_accel_sensitivity = 2.0f / 32768.0f;
-
-
-//tilt 	now 	x, y, z
-//tilt	center	x, y, z
-//orientation
-//integral error
-//static _x_XYZ_t
-
-
-
-// Update LED progress bar based on combined L/R calibration state.
-// State-based and idempotent: safe to call from both L and R cycles.
-// Manages lock symmetry — even if calibration fails to complete, the next
-// transition (e.g. b_imu_available going false on deinit) auto-unlocks.
-static void v_IMU_Calib_LED_Update(void){
-	bool calib_active = b_imu_available && (!gyro_calib_L.done || !gyro_calib_R.done);
-
-	if(calib_active && !b_RGB_TopBot_Is_Locked()){
-		v_RGB_TopBot_Lock();
-	} else if(!calib_active && b_RGB_TopBot_Is_Locked()){
-		v_RGB_TopBot_Unlock();
-		return;  // hand TOP/BOT back to mode handler on next cycle
-	}
-	if(!calib_active) return;
-
-	// min(L,R) so the bar advances only when both IMUs progressed (monotonic)
-	uint16_t cnt_l = gyro_calib_L.done ? GYRO_CALIB_SAMPLES : gyro_calib_L.count;
-	uint16_t cnt_r = gyro_calib_R.done ? GYRO_CALIB_SAMPLES : gyro_calib_R.count;
-	uint16_t cnt = (cnt_l < cnt_r) ? cnt_l : cnt_r;
-
-	int level = (int)((cnt * 5) / GYRO_CALIB_SAMPLES);
-	if(level > 5) level = 5;
-
-	for(int i = 0; i < 5; i++){
-		if(i < level){
-			v_RGB_Set_TopBot_Pair(i, IMU_CALIB_LED_R, IMU_CALIB_LED_G, IMU_CALIB_LED_B);
-		} else {
-			v_RGB_Set_TopBot_Pair(i, 0, 0, 0);
-		}
-	}
-}
 
 // Adaptive LPF: fast tracking when static, freeze when in motion
 #define ACCEL_TILT_STATIC_THRESH	0.05f	// |a-1g| < 50mg → fully static
@@ -2198,16 +1969,17 @@ static void v_IMU_Calib_LED_Update(void){
 #define ACCEL_TILT_ALPHA_MILD		0.02f	// ~500ms (gentle smoothing)
 #define ACCEL_TILT_ALPHA_DYNAMIC	0.001f	// ~10s (effectively frozen)
 #define ACCEL_TILT_DEGENERATE_MAG_G	0.001f	// |a| < 1mg → ignore (sensor error)
+#define ACCEL_TILT_WARMUP_SAMPLES	30		// 100Hz × 0.3s ≈ 4 LPF τ — anchor at steady-state
 
 // Match quaternion_mahony.c precision (long PI). Same value, single source of truth.
 static const float kAccelTiltRadToDeg = 180.0f / 3.14159265358979323846f;
 
 // Compute drift-free tilt from accelerometer only.
-// Uses acos(component / magnitude) to match the frame of f_Quaternion_TiltAngleX/Y_Compute:
+// Uses acos(component / magnitude) — body-axis vs gravity angle:
 //   - 0° = body axis aligned with gravity
 //   - 90° = body axis perpendicular to gravity (upright for X/Y axes)
 //   - 180° = body axis anti-aligned with gravity
-// No gyro integration → drift = 0 by construction. Independent of Mahony / calibration.
+// No gyro integration → drift = 0 by construction. Single attitude source.
 // Adaptive LPF freezes during dynamic acceleration to prevent walking-vibration false triggers.
 // Z axis intentionally omitted: never consumed by callers (mode.c uses X, ESP uses X+Y).
 static void v_IMU_AccelTilt_Update(int16_t* pi16_imu, x_AccelTilt_t* p_tilt){
@@ -2245,145 +2017,20 @@ static void v_IMU_AccelTilt_Update(int16_t* pi16_imu, x_AccelTilt_t* p_tilt){
 		p_tilt->tilt_x_deg = p_tilt->tilt_x_deg * (1.0f - alpha) + tilt_x_now * alpha;
 		p_tilt->tilt_y_deg = p_tilt->tilt_y_deg * (1.0f - alpha) + tilt_y_now * alpha;
 	}
-}
 
-static void v_IMU_Tilt_Compute_Orientation(x_QUAT_t* p_orientation, _x_XYZ_t* p_intgral_error, int16_t* pi16_imu, x_GyroCalib_t* p_calib){
-	_x_XYZ_t acc, gyro;
-	int cnt=0;
-
-	for(int i=0; i<6; i++){
-		if(pi16_imu[i] == 0){cnt++;}
-	}
-	if(cnt == 6){return;}  // all-zero data, skip
-
-	// ─── Phase 1: Gyro bias calibration + initial attitude seed ───
-	// Device must be stationary during boot for accurate measurement.
-	if(!p_calib->done){
-		// Accumulate gyro (for bias) and accel (for initial attitude)
-		p_calib->sum[0] += pi16_imu[3];
-		p_calib->sum[1] += pi16_imu[4];
-		p_calib->sum[2] += pi16_imu[5];
-		p_calib->acc_sum[0] += pi16_imu[0];
-		p_calib->acc_sum[1] += pi16_imu[1];
-		p_calib->acc_sum[2] += pi16_imu[2];
-		p_calib->count++;
-		v_IMU_Calib_LED_Update();   // state-based, idempotent
-		if(p_calib->count >= GYRO_CALIB_SAMPLES){
-			// 1) Gyro bias = float average × sensitivity → stored in dps.
-			//    Avoids ±0.5 LSB (=±0.0305 dps @2000dps FS) integer rounding
-			//    error that caused ~5°/380s tilt drift on body Y axis.
-			const float inv_n = 1.0f / (float)GYRO_CALIB_SAMPLES;
-			p_calib->bias[0] = ((float)p_calib->sum[0] * inv_n) * f_gyro_sensitivity;
-			p_calib->bias[1] = ((float)p_calib->sum[1] * inv_n) * f_gyro_sensitivity;
-			p_calib->bias[2] = ((float)p_calib->sum[2] * inv_n) * f_gyro_sensitivity;
-
-			// 2) Initial attitude from averaged gravity vector
-			//    Avoids ~1 minute Mahony filter convergence after boot.
-			float ax = (float)(p_calib->acc_sum[0] / (int32_t)GYRO_CALIB_SAMPLES) * f_accel_sensitivity;
-			float ay = (float)(p_calib->acc_sum[1] / (int32_t)GYRO_CALIB_SAMPLES) * f_accel_sensitivity;
-			float az = (float)(p_calib->acc_sum[2] / (int32_t)GYRO_CALIB_SAMPLES) * f_accel_sensitivity;
-
-			// roll  = rotation around X axis (atan2 of Y/Z gravity components)
-			// pitch = rotation around Y axis (atan2 of -X/sqrt(Y²+Z²))
-			// yaw   = unknown without magnetometer, set to 0
-			float roll  = atan2f(ay, az);
-			float pitch = atan2f(-ax, sqrtf(ay * ay + az * az));
-
-			// Euler (roll, pitch, yaw=0) → quaternion (Tait-Bryan, ZYX order)
-			float cr = cosf(roll * 0.5f);
-			float sr = sinf(roll * 0.5f);
-			float cp = cosf(pitch * 0.5f);
-			float sp = sinf(pitch * 0.5f);
-			p_orientation->w =  cr * cp;
-			p_orientation->x =  sr * cp;
-			p_orientation->y =  cr * sp;
-			p_orientation->z = -sr * sp;
-
-			// Reset Mahony integral feedback so the seeded quaternion is the
-			// authoritative starting point (no leftover error from Phase 1).
-			p_intgral_error->x = 0.0f;
-			p_intgral_error->y = 0.0f;
-			p_intgral_error->z = 0.0f;
-
-			p_calib->done = true;
-			// Format roll/pitch as int.tenths (newlib-nano printf does not
-			// reliably support %f via SEGGER_RTT). Show 0.1° resolution.
-			int roll_d10  = (int)(roll  * (1800.0f / 3.14159265f));
-			int pitch_d10 = (int)(pitch * (1800.0f / 3.14159265f));
-			int roll_int  = roll_d10  / 10;
-			int roll_frac = roll_d10  % 10;  if(roll_frac  < 0) roll_frac  = -roll_frac;
-			int pitch_int = pitch_d10 / 10;
-			int pitch_frac = pitch_d10 % 10; if(pitch_frac < 0) pitch_frac = -pitch_frac;
-			// bias is in dps (float); print as integer mdps for newlib-nano printf.
-			int bx_mdps = (int)(p_calib->bias[0] * 1000.0f);
-			int by_mdps = (int)(p_calib->bias[1] * 1000.0f);
-			int bz_mdps = (int)(p_calib->bias[2] * 1000.0f);
-			LOG_INFO("IMU", "Gyro bias mdps=(%d,%d,%d) seed roll=%d.%d pitch=%d.%d deg",
-				bx_mdps, by_mdps, bz_mdps,
-				roll_int, roll_frac, pitch_int, pitch_frac);
-			// When the second IMU finishes here, both .done are true → unlock
-			v_IMU_Calib_LED_Update();
+	// Self-anchor: capture ref after a brief LPF warmup so the origin reflects
+	// the steady-state tilt instead of the first (noisy) sample.
+	if(!p_tilt->ref_set){
+		if(p_tilt->warmup_cnt < ACCEL_TILT_WARMUP_SAMPLES){
+			p_tilt->warmup_cnt++;
+		} else {
+			p_tilt->ref_x = p_tilt->tilt_x_deg;
+			p_tilt->ref_y = p_tilt->tilt_y_deg;
+			p_tilt->ref_set = true;
 		}
-		return;  // Skip Mahony update during calibration
 	}
-
-	// ─── Phase 2: Normal operation (bias subtracted from raw gyro) ───
-	acc.x = pi16_imu[0] * f_accel_sensitivity;
-	acc.y = pi16_imu[1] * f_accel_sensitivity;
-	acc.z = pi16_imu[2] * f_accel_sensitivity;
-
-	// bias is now stored in dps (float). Convert raw → dps first, then subtract.
-	gyro.x = (float)pi16_imu[3] * f_gyro_sensitivity - p_calib->bias[0];
-	gyro.y = (float)pi16_imu[4] * f_gyro_sensitivity - p_calib->bias[1];
-	gyro.z = (float)pi16_imu[5] * f_gyro_sensitivity - p_calib->bias[2];
-
-	v_Quaternion_Mahony_Compute(p_intgral_error, p_orientation, acc, gyro, 0.01, kP, kI);
 }
 
-static void v_IMU_Tilt_Compute_Angle(_x_XYZ_t* p_angle, x_QUAT_t* p_orientation){
-	// f_Quaternion_TiltAngleX/Y return acos(R[2,0]) / acos(R[2,1]): the angle
-	// between the body X/Y axis and the gravity vector. For an upright sensor
-	// these axes are perpendicular to gravity → 90°. Subtract 90° so the
-	// display reads "tilt from level" where 0° == upright.
-	// TiltAngleZ already returns 0° at upright (acos(1) = 0).
-	p_angle->x = f_Quaternion_TiltAngleX_Compute(*p_orientation) - 90.0f;
-	p_angle->y = (f_Quaternion_TiltAngleY_Compute(*p_orientation) - 90.0f) * -1.0f;
-	p_angle->z = f_Quaternion_TiltAngleZ_Compute(*p_orientation) * 1.0f;
-}
-
-static void v_IMU_Tilt_Compute_Offset(_x_XYZ_t* p_offset, _x_XYZ_t* p_center, _x_XYZ_t* p_now){
-#if 0
-	p_offset->x = p_now->x - p_center->x;
-	p_offset->y = p_now->y - p_center->y;
-	p_offset->z = p_now->z - p_center->z;
-#endif
-	p_offset->x = p_now->x - p_center->x;
-	p_offset->y = p_now->y - p_center->y;
-	p_offset->z = p_now->z - p_center->z;
-}
-
-static void v_IMU_Tilt_Compute_AVG(x_IMU_TILT_AVG_t* p_avg, _x_XYZ_t* p_angle){
-	float angle[3] = {
-		p_angle->x,
-		p_angle->y,
-		p_angle->z,
-	};
-
-	if(p_avg->u16_cnt < IMU_TILT_SAMPLING_CNT){p_avg->u16_cnt++;}
-	for(int i=0; i<3; i++){
-		//last
-		p_avg->f_last[i] = p_avg->f_buf[i][p_avg->u16_in];
-		//update buffer
-		p_avg->f_buf[i][p_avg->u16_in] = angle[i];
-		//sum
-		p_avg->f_sum[i] += angle[i];
-		p_avg->f_sum[i] -= p_avg->f_last[i];
-		//avg
-		p_avg->f_avg[i] = p_avg->f_sum[i] / p_avg->u16_cnt;
-	}
-	if(p_avg->u16_in < (IMU_TILT_SAMPLING_CNT - 1))	{p_avg->u16_in++;}
-	else											{p_avg->u16_in = 0;}
-}
 
 
 
@@ -2425,65 +2072,6 @@ e_COMM_STAT_t e_IMU_Read_Data(int* pi_int, uint8_t u8_addr, uint8_t* pu8_data, u
 	return COMM_STAT_OK;
 }
 
-uint32_t imu_int_cnt_L, imu_int_cnt_R;
-__attribute__((unused)) static void v_IMU_Int_Handler(){
-
-	static int int_L, int_R;
-	static int mask;
-
-	if(e_imu_config != COMM_STAT_DONE){return;}
-	//active low
-	//Left
-	if(!CHK_BIT(DI_IMUL_INT_GPIO_Port->IDR, DI_IMUL_INT_Pin)){
-		//read event + data
-		int_L = 1;
-		mask = 1;
-	}
-	//Right
-	if(!CHK_BIT(DI_IMUR_INT_GPIO_Port->IDR, DI_IMUR_INT_Pin)){
-		//read event + data
-		int_R = 1;
-	}
-
-	if(mask == 1 && e_imu_evt_L != COMM_STAT_BUSY && e_IMU_Read_Data(&int_L, ADDR_IMU_LEFT, u8_arr_left, &imu_evt_left) == COMM_STAT_DONE){
-		mask = 2;
-		v_IMU_Decode_REG(imu_left, u8_arr_left);
-		//tilt compute
-		v_IMU_Tilt_Compute_Orientation(&orientation_left, &integral_error_left, imu_left, &gyro_calib_L);
-		v_IMU_Tilt_Compute_Angle(&angle_left, &orientation_left);
-		v_IMU_Tilt_Compute_Offset(&angle_offset_left, &angle_center_left, &angle_left);
-
-		//v_IMU_Tilt_Compute_L();
-		if(i_tilt_center){
-			//v_IMU_Tilt_Cetner_Handler_L(&i_tilt_init_L);
-			v_IMU_Tilt_Compute_AVG(&angle_avg_left, &angle_left);
-			angle_center_left.x = angle_avg_left.f_avg[0];
-			angle_center_left.y = angle_avg_left.f_avg[1];
-			angle_center_left.z = angle_avg_left.f_avg[2];
-		}
-
-		imu_int_cnt_L++;
-	}
-	if(mask == 2 && e_imu_evt_R != COMM_STAT_BUSY && e_IMU_Read_Data(&int_R, ADDR_IMU_RIGHT, u8_arr_right, &imu_evt_right) == COMM_STAT_DONE){
-		mask = 3;
-		v_IMU_Decode_REG(imu_right, u8_arr_right);
-		//tilt compute
-		v_IMU_Tilt_Compute_Orientation(&orientation_right, &integral_error_right, imu_right, &gyro_calib_R);
-		v_IMU_Tilt_Compute_Angle(&angle_right, &orientation_right);
-		v_IMU_Tilt_Compute_Offset(&angle_offset_right, &angle_center_right, &angle_right);
-
-		//v_IMU_Tilt_Compute_R();
-		if(i_tilt_center){
-			//v_IMU_Tilt_Cetner_Handler_R(&i_tilt_init_R);
-			v_IMU_Tilt_Compute_AVG(&angle_avg_right, &angle_right);
-			angle_center_right.x = angle_avg_right.f_avg[0];
-			angle_center_right.y = angle_avg_right.f_avg[1];
-			angle_center_right.z = angle_avg_right.f_avg[2];
-		}
-
-		imu_int_cnt_R++;
-	}
-}
 
 
 

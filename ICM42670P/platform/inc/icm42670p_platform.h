@@ -26,15 +26,6 @@ void v_IMU_Reset_RetryCnt(void);
 void v_IMU_Tilt_Center_Enable();
 void v_IMU_Tilt_Center_Disable();
 int i_IMU_Tilt_Is_Center();
-int i_IMU_Is_Offset_Rdy();
-
-float f_IMU_Get_Tilt_X_Center_L();
-float f_IMU_Get_Tilt_Y_Center_L();
-float f_IMU_Get_Tilt_Z_Center_L();
-
-float f_IMU_Get_Tilt_X_Center_R();
-float f_IMU_Get_Tilt_Y_Center_R();
-float f_IMU_Get_Tilt_Z_Center_R();
 
 
 void v_IMU_Init();
@@ -54,14 +45,8 @@ uint8_t u8_IMU_Get_EVT_Right();
 void v_IMU_Clear_EVT_Left();
 void v_IMU_Clear_EVT_Right();
 
-_x_XYZ_t x_IMU_Get_Offset_Left();
-_x_XYZ_t x_IMU_Get_Offset_Right();
-
-_x_XYZ_t x_IMU_Get_Angle_Left();
-_x_XYZ_t x_IMU_Get_Angle_Right();
-
-// Drift-free accel-only tilt (independent of Mahony, no gyro integration → no drift)
-// Same frame as f_Quaternion_TiltAngleX/Y/Z_Compute: 0~180°, upright (perpendicular to gravity) = 90°
+// Drift-free accel-only tilt — the sole attitude source for trigger and ESP.
+// Self-anchored at boot via a brief LPF warmup, so getters return ~0 once ready.
 float f_IMU_Get_AccelTilt_X_Left(void);
 float f_IMU_Get_AccelTilt_Y_Left(void);
 float f_IMU_Get_AccelTilt_X_Right(void);
