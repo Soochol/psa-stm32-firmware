@@ -27,9 +27,6 @@
 
 #define MODE_LOG_ENABLED	0
 
-// Forward declaration
-e_modeERR_t e_Mode_Get_Error(void);
-
 typedef struct {
 	uint32_t u32_tim_ref;
 	uint32_t u32_timToutRef;

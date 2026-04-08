@@ -3,6 +3,7 @@
 #include "i2c.h"
 #include "tim.h"
 #include "mode.h"
+#include "comm_esp.h"   // for v_ESP_Send_Error
 #include "stdio.h"
 #include "string.h"
 #include "lib_log.h"
