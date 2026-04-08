@@ -326,41 +326,31 @@ int main(void)
   v_RGB_Init();
   v_Mode_Init();
 
+  // Pre-paint boot splash into the LED frame buffer BEFORE enabling 12V.
+  // The next TIM7 ISR will ship this frame to the SK6812 chain so the LEDs
+  // come up green directly when the rail powers on — eliminating the brief
+  // OFF flash between SK6812 power-up artifact and v_Mode_Booting_Led's
+  // first paint that the user observed previously.
+  v_RGB_Set_Top(MODE_BOOT_LED_R, MODE_BOOT_LED_G, MODE_BOOT_LED_B);
+  v_RGB_Set_Bot(MODE_BOOT_LED_R, MODE_BOOT_LED_G, MODE_BOOT_LED_B);
+  v_RGB_PWM_Out();    // encode buffer → u16_pwmArrOn
+
   SEGGER_RTT_printf(0, "[RTT] Sensors init done\r\n");
   //power enable
   v_IO_Enable_12V();
-  uint32_t t_12v_on = HAL_GetTick();
-  (void)t_12v_on;  // Used only in LOG_INFO (suppress warning when logs disabled)
-  LOG_INFO("POWER", "12V enabled at t=%u ms", t_12v_on);
+  LOG_INFO("POWER", "12V enabled at t=%u ms", HAL_GetTick());
 
 #if IWDG_USED
   HAL_IWDG_Refresh(&hiwdg1);
 #endif
 
-  // GPS initialization after 12V power is stable
-#if 1  // GPS ENABLED - SAM-M10Q on I2C3
-  // Wait for GPS module to boot (SAM-M10Q needs ~1-2 seconds)
-  // Split 2000ms delay into 500ms chunks with IWDG refresh to prevent watchdog reset
-  for(int gps_wait = 0; gps_wait < 4; gps_wait++){
-    HAL_Delay(500);
-#if IWDG_USED
-    HAL_IWDG_Refresh(&hiwdg1);
-#endif
-  }
-
-  LOG_INFO("POWER", "GPS boot delay done t=%u ms", HAL_GetTick());
-
-  // Initialize GPS after 12V power is stable
-  SEGGER_RTT_printf(0, "[RTT] GPS init start\r\n");
-  v_GPS_Init();
-  LOG_INFO("POWER", "GPS init done t=%u ms", HAL_GetTick());
-
-#if IWDG_USED
-  HAL_IWDG_Refresh(&hiwdg1);  // Refresh after GPS init
-#endif
-#endif // GPS initialization
-
-  HAL_Delay(100);
+  // GPS init: kicked off from v_Mode_Booting() b1_upd block (NOT from main.c)
+  // because in modeOFF cold-boot path, v_Mode_Off() actively deinits I2C3 pins
+  // (~MODE_POWEROFF_DELAY after entering OFF). If GPS state machine were armed
+  // here unconditionally, its 2-second WAIT_BOOT would race against I2C3 pin
+  // deinit and the first i_GPS_Read would hit HAL_BUSY. Instead, we only kick
+  // GPS init when mode == BOOTING (warm boot or OFF→WAKE_UP→BOOTING transition),
+  // which is the only time GPS is actually needed.
 
 #if MP3_USE_FLASH
   v_Mode_Set_MP3_Play(1);  // Flash 내장 MP3: SD 카드 불필요

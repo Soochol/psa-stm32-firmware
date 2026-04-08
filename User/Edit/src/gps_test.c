@@ -144,10 +144,41 @@ void v_GPS_Test_Full_Diagnostic(void) {
     LOG_INFO("GPS_TEST", "=== GPS Driver Status ===");
     LOG_INFO("GPS_TEST", "Fix Type:     %d", u8_GPS_GetFixType());
     LOG_INFO("GPS_TEST", "Satellites:   %d", u8_GPS_GetNumSatellites());
-    LOG_INFO("GPS_TEST", "Latitude:     %.6f°", f_GPS_GetLatitude());
-    LOG_INFO("GPS_TEST", "Longitude:    %.6f°", f_GPS_GetLongitude());
-    LOG_INFO("GPS_TEST", "Altitude:     %.1f m", f_GPS_GetAltitude());
-    LOG_INFO("GPS_TEST", "Speed:        %.2f m/s", f_GPS_GetSpeed());
+    // Lat/Lon/Alt/Speed: SEGGER_RTT_printf doesn't support %f, so use raw int32
+    // PVT fields with sign-aware integer-split formatting (matches the
+    // working pattern used for Accuracy/PDOP/Heading below).
+    {
+        _x_GPS_PVT_t* pvt = px_GPS_GetPVT();
+        if(pvt) {
+            int lat_neg = (pvt->lat < 0);
+            uint32_t lat_abs = lat_neg ? (uint32_t)(-pvt->lat) : (uint32_t)pvt->lat;
+            LOG_INFO("GPS_TEST", "Latitude:    %s%lu.%07lu deg",
+                          lat_neg ? "-" : " ",
+                          (unsigned long)(lat_abs / 10000000),
+                          (unsigned long)(lat_abs % 10000000));
+
+            int lon_neg = (pvt->lon < 0);
+            uint32_t lon_abs = lon_neg ? (uint32_t)(-pvt->lon) : (uint32_t)pvt->lon;
+            LOG_INFO("GPS_TEST", "Longitude:   %s%lu.%07lu deg",
+                          lon_neg ? "-" : " ",
+                          (unsigned long)(lon_abs / 10000000),
+                          (unsigned long)(lon_abs % 10000000));
+
+            int alt_neg = (pvt->hMSL < 0);
+            uint32_t alt_abs = alt_neg ? (uint32_t)(-pvt->hMSL) : (uint32_t)pvt->hMSL;
+            LOG_INFO("GPS_TEST", "Altitude:    %s%lu.%03lu m (MSL)",
+                          alt_neg ? "-" : " ",
+                          (unsigned long)(alt_abs / 1000),
+                          (unsigned long)(alt_abs % 1000));
+
+            int spd_neg = (pvt->gSpeed < 0);
+            uint32_t spd_abs = spd_neg ? (uint32_t)(-pvt->gSpeed) : (uint32_t)pvt->gSpeed;
+            LOG_INFO("GPS_TEST", "Speed:       %s%lu.%03lu m/s",
+                          spd_neg ? "-" : " ",
+                          (unsigned long)(spd_abs / 1000),
+                          (unsigned long)(spd_abs % 1000));
+        }
+    }
     LOG_INFO("GPS_TEST", "=========================");
 
     LOG_INFO("GPS_TEST", "Diagnostic complete!");
@@ -178,16 +209,47 @@ void v_GPS_Test_Monitor(void) {
         if(b_GPS_HasFix()) {
             LOG_INFO("GPS_TEST", "Status: FIX ACQUIRED");
             LOG_INFO("GPS_TEST", "-------------------------------------------");
-            LOG_INFO("GPS_TEST", "Latitude:    %11.7f°", f_GPS_GetLatitude());
-            LOG_INFO("GPS_TEST", "Longitude:   %11.7f°", f_GPS_GetLongitude());
-            LOG_INFO("GPS_TEST", "Altitude:    %8.2f m (MSL)", f_GPS_GetAltitude());
-            LOG_INFO("GPS_TEST", "Speed:       %7.2f m/s", f_GPS_GetSpeed());
-            LOG_INFO("GPS_TEST", "Satellites:  %2d", u8_GPS_GetNumSatellites());
-            LOG_INFO("GPS_TEST", "Fix Type:    %d (3=3D Fix)", u8_GPS_GetFixType());
 
-            // Get raw PVT data for additional info
+            // Use raw PVT int32 fields with sign-aware integer-split formatting.
+            // SEGGER_RTT_printf doesn't support %f, so f_GPS_GetLatitude() etc
+            // would print empty values via the LOG_INFO path.
             _x_GPS_PVT_t* pvt = px_GPS_GetPVT();
             if(pvt) {
+                // Latitude (1e-7 deg)
+                int lat_neg = (pvt->lat < 0);
+                uint32_t lat_abs = lat_neg ? (uint32_t)(-pvt->lat) : (uint32_t)pvt->lat;
+                LOG_INFO("GPS_TEST", "Latitude:    %s%lu.%07lu deg",
+                              lat_neg ? "-" : " ",
+                              (unsigned long)(lat_abs / 10000000),
+                              (unsigned long)(lat_abs % 10000000));
+
+                // Longitude (1e-7 deg)
+                int lon_neg = (pvt->lon < 0);
+                uint32_t lon_abs = lon_neg ? (uint32_t)(-pvt->lon) : (uint32_t)pvt->lon;
+                LOG_INFO("GPS_TEST", "Longitude:   %s%lu.%07lu deg",
+                              lon_neg ? "-" : " ",
+                              (unsigned long)(lon_abs / 10000000),
+                              (unsigned long)(lon_abs % 10000000));
+
+                // Altitude (mm above MSL)
+                int alt_neg = (pvt->hMSL < 0);
+                uint32_t alt_abs = alt_neg ? (uint32_t)(-pvt->hMSL) : (uint32_t)pvt->hMSL;
+                LOG_INFO("GPS_TEST", "Altitude:    %s%lu.%03lu m (MSL)",
+                              alt_neg ? "-" : " ",
+                              (unsigned long)(alt_abs / 1000),
+                              (unsigned long)(alt_abs % 1000));
+
+                // Speed (mm/s)
+                int spd_neg = (pvt->gSpeed < 0);
+                uint32_t spd_abs = spd_neg ? (uint32_t)(-pvt->gSpeed) : (uint32_t)pvt->gSpeed;
+                LOG_INFO("GPS_TEST", "Speed:       %s%lu.%03lu m/s",
+                              spd_neg ? "-" : " ",
+                              (unsigned long)(spd_abs / 1000),
+                              (unsigned long)(spd_abs % 1000));
+
+                LOG_INFO("GPS_TEST", "Satellites:  %2d", u8_GPS_GetNumSatellites());
+                LOG_INFO("GPS_TEST", "Fix Type:    %d (3=3D Fix)", u8_GPS_GetFixType());
+
                 LOG_INFO("GPS_TEST", "Accuracy:    H=%lu.%03lum, V=%lu.%03lum",
                               (unsigned long)(pvt->hAcc / 1000),
                               (unsigned long)(pvt->hAcc % 1000),
@@ -201,12 +263,12 @@ void v_GPS_Test_Monitor(void) {
                 LOG_INFO("GPS_TEST", "GPS TOW:     %lu ms",
                               (unsigned long)pvt->iTOW);
 
-                // Heading (if moving)
+                // Heading (1e-5 deg)
                 int32_t head_deg = pvt->headMot / 100000;
                 int32_t head_frac = pvt->headMot % 100000;
                 if(head_frac < 0) head_frac = -head_frac;
                 (void)head_deg; (void)head_frac;  // Suppress warnings when logs disabled
-                LOG_INFO("GPS_TEST", "Heading:     %ld.%05ld°",
+                LOG_INFO("GPS_TEST", "Heading:     %ld.%05ld deg",
                               head_deg, head_frac);
             }
         } else {
