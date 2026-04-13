@@ -1739,8 +1739,8 @@ int i_IMU_Tilt_Is_Center(){
 // Self-anchored after a short LPF warmup so getters return ~0 once ready.
 // Z axis omitted: never consumed (mode.c uses X, ESP uses X+Y).
 typedef struct {
-	float tilt_x_deg;	// acos(ax/|a|) — raw absolute tilt
-	float tilt_y_deg;	// acos(ay/|a|)
+	float tilt_x_deg;	// atan2(-az, -ax) — signed tilt in X-Z plane
+	float tilt_y_deg;	// atan2( az,  ay) — signed tilt in Y-Z plane
 	float ref_x;		// anchor captured after a brief LPF warmup
 	float ref_y;
 	bool  initialized;
@@ -1975,13 +1975,11 @@ const static float f_accel_sensitivity = 2.0f / 32768.0f;
 static const float kAccelTiltRadToDeg = 180.0f / 3.14159265358979323846f;
 
 // Compute drift-free tilt from accelerometer only.
-// Uses acos(component / magnitude) — body-axis vs gravity angle:
-//   - 0° = body axis aligned with gravity
-//   - 90° = body axis perpendicular to gravity (upright for X/Y axes)
-//   - 180° = body axis anti-aligned with gravity
+// Uses atan2(perpendicular, primary) — signed tilt angle in each body-axis plane:
+//   - 0° at boot reference orientation (after centering)
+//   - positive/negative = tilt direction, full ±180° range, no reversal at 90°
 // No gyro integration → drift = 0 by construction. Single attitude source.
 // Adaptive LPF freezes during dynamic acceleration to prevent walking-vibration false triggers.
-// Z axis intentionally omitted: never consumed by callers (mode.c uses X, ESP uses X+Y).
 static void v_IMU_AccelTilt_Update(int16_t* pi16_imu, x_AccelTilt_t* p_tilt){
 	float ax = (float)pi16_imu[0] * f_accel_sensitivity;
 	float ay = (float)pi16_imu[1] * f_accel_sensitivity;
@@ -1990,17 +1988,16 @@ static void v_IMU_AccelTilt_Update(int16_t* pi16_imu, x_AccelTilt_t* p_tilt){
 	float amag = sqrtf(ax*ax + ay*ay + az*az);
 	if(amag < ACCEL_TILT_DEGENERATE_MAG_G) return;
 
-	// Reciprocal caching: 1 division + 2 multiplies instead of 2 divisions
+	// Reciprocal caching: 1 division + 3 multiplies instead of 3 divisions
 	float inv_mag = 1.0f / amag;
 	float ax_n = ax * inv_mag;
 	float ay_n = ay * inv_mag;
+	float az_n = az * inv_mag;
 
-	// Clamp to [-1, 1] for acos numerical safety (sqrtf round-off can yield 1+ε)
-	if(ax_n >  1.0f) ax_n =  1.0f; else if(ax_n < -1.0f) ax_n = -1.0f;
-	if(ay_n >  1.0f) ay_n =  1.0f; else if(ay_n < -1.0f) ay_n = -1.0f;
-
-	float tilt_x_now = acosf(ax_n) * kAccelTiltRadToDeg;
-	float tilt_y_now = acosf(ay_n) * kAccelTiltRadToDeg;
+	// atan2 gives signed tilt (-180..+180°) — direction-aware, no cone-angle reversal.
+	// X-tilt: negate both args to rotate 180° away from ±180° branch cut at standing pose.
+	float tilt_x_now = atan2f(-az_n, -ax_n) * kAccelTiltRadToDeg;
+	float tilt_y_now = atan2f( az_n,  ay_n) * kAccelTiltRadToDeg;
 
 	// Adaptive LPF: dynamic-acceleration aware
 	float dev = fabsf(amag - 1.0f);

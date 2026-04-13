@@ -351,7 +351,7 @@ static void v_Mode_GyroAI_Handler(){
 	if(!i_IMU_Is_Available()){return;}  // IMU degraded - skip tilt control
 	if(e_Mode_Get_CurrID() >= modeHEALING){
 		// Drift-free, response time ~67ms (vs Mahony ~700ms+)
-		// Same frame as old Mahony output: 0~180°, upright = 90°
+		// Centered atan2 output: upright = 0°, forward bend = negative
 #if GYRO_AI_AXIS_X
 		float actL = f_IMU_Get_AccelTilt_X_Left();
 #else

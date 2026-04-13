@@ -372,7 +372,7 @@ void v_Mode_BlowFan_Disable();
 /////////////////////////////////
 //	GYRO/TILT
 /////////////////////////////////
-#define MODE_GYRO_ANGLE_BASELINE		90		// Gyro angle baseline for tilt calculation
+#define MODE_GYRO_ANGLE_BASELINE		0		// Centered atan2 output: upright = 0°
 
 /////////////////////////////////
 //	MP3 TRACK NUMBERS
