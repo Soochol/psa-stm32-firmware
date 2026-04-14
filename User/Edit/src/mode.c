@@ -971,7 +971,7 @@ typedef enum {
  *   ALERT state latched from a prior sample stays enforced even while
  *   the heater PID thinks it is driving.
  */
-static int i_Mode_Battery(){
+static void v_Mode_Battery(){
 	static int playing;
 	static e_modeBAT_LV_t bat_prev = modeBAT_LV_INIT;
 	static e_modeBAT_LV_t bat_curr = modeBAT_LV_INIT;	//prevent default-0 == ALERT on boot-low-battery
@@ -1118,12 +1118,10 @@ static int i_Mode_Battery(){
 		warn_sent = 0;
 		sound_alert = 1;
 	}
-
-	return playing;
 }
 
 static void v_Mode_Bat_Handler(){
-	i_Mode_Battery();
+	v_Mode_Battery();
 }
 
 
