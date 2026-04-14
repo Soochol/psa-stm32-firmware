@@ -974,7 +974,7 @@ typedef enum {
 static int i_Mode_Battery(){
 	static int playing;
 	static e_modeBAT_LV_t bat_prev = modeBAT_LV_INIT;
-	static e_modeBAT_LV_t bat_curr;
+	static e_modeBAT_LV_t bat_curr = modeBAT_LV_INIT;	//prevent default-0 == ALERT on boot-low-battery
 	static uint32_t timRef, timItv;
 	static uint32_t timLedRef;
 	static uint32_t ledToggle;
@@ -1030,16 +1030,14 @@ static int i_Mode_Battery(){
 			// so wall-clock time to ALERT stretches if heater runs heavily.
 			// Intentional — avoids load-sag false positives.
 			if(bat_measured == modeBAT_LV_ALERT){
+				bat_alert_tick++;
 				if(bat_alert_tick >= MODE_BAT_ALERT_DEBOUNCE_CNT){
 					bat_curr = modeBAT_LV_ALERT;
 					bat_alert_latched = 1;	//lock device until power cycle
 				}
-				else{
-					bat_alert_tick++;
+				else if(bat_curr != modeBAT_LV_ALERT){
 					//while debouncing, hold at LV_1 so user sees "low" hint
-					if(bat_curr != modeBAT_LV_ALERT){
-						bat_curr = modeBAT_LV_1;
-					}
+					bat_curr = modeBAT_LV_1;
 				}
 			}
 			else{
