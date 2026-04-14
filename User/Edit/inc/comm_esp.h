@@ -34,6 +34,10 @@ typedef enum {
 	ESP_EVT_MODE_ERROR,
 } e_ESP_EVT_MODE_t;
 
+typedef enum {
+	ESP_WARN_BATTERY_LOW=0,
+} e_ESP_WARN_t;
+
 void v_ESP_Recive(uint8_t u8_rx);
 
 void v_ESP_Handler();
@@ -51,6 +55,7 @@ void v_ESP_Send_Sensing(int16_t* pi16_imu_left, int16_t* pi16_imu_right,\
 
 void v_ESP_Tout_Handler();
 void v_ESP_Send_Error(uint16_t u16_error);
+void v_ESP_Send_Warning(uint8_t u8_warn_type);
 
 void v_ESP_CmdTest();
 

@@ -315,6 +315,8 @@ void v_Mode_BlowFan_Disable();
 //#define MODE_BAT_VOL_LV3			//unit : volt	//> LV2
 #define MODE_BAT_OFFSET		0.3f	//unit : volt
 #define MODE_BAT_TIME_REFRESH	100	//unit : ms
+#define MODE_BAT_ALERT_DEBOUNCE_MS	5000	//sustained low duration before ALERT (filters heater sag)
+#define MODE_BAT_ALERT_DEBOUNCE_CNT	(MODE_BAT_ALERT_DEBOUNCE_MS / MODE_BAT_TIME_REFRESH)
 
 // Battery voltage compensation for fan speed
 #define MODE_BAT_COMP_COOLFAN		0.12f	//unit : volt

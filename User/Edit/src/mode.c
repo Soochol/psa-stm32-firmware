@@ -495,6 +495,20 @@ void v_Mode_CoolFan_Disable(){
 	x_modeCoolfan.u16_on = 0;
 }
 
+static int i_coolfan_suspend;
+
+static void v_Mode_CoolFan_Enable_Suspend(){
+	i_coolfan_suspend = 1;
+}
+
+static void v_Mode_CoolFan_Disable_Suspend(){
+	i_coolfan_suspend = 0;
+}
+
+static int i_Mode_Is_CoolFan_Suspend(){
+	return i_coolfan_suspend;
+}
+
 static void v_Mode_CoolFan_PWM(x_modeSTEP_t x_step){
 	static uint16_t now_prev;
 	static uint16_t max_prev;
@@ -504,6 +518,16 @@ static void v_Mode_CoolFan_PWM(x_modeSTEP_t x_step){
 	uint16_t max = x_step.u16_max;
 	uint16_t pwm;
 	static uint16_t led_lv;
+
+	if(i_Mode_Is_CoolFan_Suspend()){
+		v_RGB_Set_Cool(0);
+		v_TIM2_Ch4_Out(0);
+		now_prev = 0;
+		max_prev = 0;
+		pwm_prev = 0;
+		led_lv = 0;
+		return;
+	}
 
 	if(x_step.u16_on){
 		if(now_prev != now || max_prev != max){
@@ -694,6 +718,20 @@ void v_Mode_BlowFan_Disable(){
 	x_modeBlowFan.u16_on = 0;
 }
 
+static int i_blowfan_suspend;
+
+static void v_Mode_BlowFan_Enable_Suspend(){
+	i_blowfan_suspend = 1;
+}
+
+static void v_Mode_BlowFan_Disable_Suspend(){
+	i_blowfan_suspend = 0;
+}
+
+static int i_Mode_Is_BlowFan_Suspend(){
+	return i_blowfan_suspend;
+}
+
 static void v_Mode_BlowFan_PWM(x_modeSTEP_t x_step){
 	static uint16_t now_prev;
 	static uint16_t max_prev;
@@ -703,6 +741,16 @@ static void v_Mode_BlowFan_PWM(x_modeSTEP_t x_step){
 	uint16_t max = x_step.u16_max;
 	uint16_t pwm;
 	static uint16_t led_lv;
+
+	if(i_Mode_Is_BlowFan_Suspend()){
+		v_RGB_Set_Heat(0);
+		v_TIM2_Ch2_Out(0);
+		now_prev = 0;
+		max_prev = 0;
+		pwm_prev = 0;
+		led_lv = 0;
+		return;
+	}
 
 	if(x_step.u16_on){
 		// LOW: Removed unused commented code
@@ -911,21 +959,19 @@ typedef enum {
 	modeBAT_LV_INIT,
 	modeBAT_LV_LOW,
 } e_modeBAT_LV_t;
-static int battery_alarm;
-
-
-static void v_Mode_Bat_Alarm_Enable(){
-	battery_alarm = 1;
-}
 
 /*
  * brief	: battery measure and led configure
  * date
  * - create	: 25.07.04
- * - modify	: 25.07.07
+ * - modify	: 26.04.14
  * note
+ * - Voltage measurement gated by heater-off to avoid current-sag bias.
+ * - LED/actuator-suspend/ESP-warning actions run unconditionally so
+ *   ALERT state latched from a prior sample stays enforced even while
+ *   the heater PID thinks it is driving.
  */
-static int i_Mode_Battery(int* pi_sound){
+static int i_Mode_Battery(){
 	static int playing;
 	static e_modeBAT_LV_t bat_prev = modeBAT_LV_INIT;
 	static e_modeBAT_LV_t bat_curr;
@@ -933,6 +979,8 @@ static int i_Mode_Battery(int* pi_sound){
 	static uint32_t timLedRef;
 	static uint32_t ledToggle;
 	static int sound_alert = 1;
+	static int warn_sent;
+	static uint32_t bat_alert_tick;	//consecutive low-voltage samples for debounce
 
 	if(!i_Mode_Is_Heater()){
 		if(_b_Tim_Is_OVR(u32_Tim_1msGet(), timRef, timItv)){
@@ -960,21 +1008,45 @@ static int i_Mode_Battery(int* pi_sound){
 				}
 			}
 
+			// Instant classification (pre-debounce)
+			e_modeBAT_LV_t bat_measured;
 			if(bat <= batRef[modeBAT_LV_ALERT]){
-				bat_curr = modeBAT_LV_ALERT;
+				bat_measured = modeBAT_LV_ALERT;
 			}
 			else if(bat <= batRef[modeBAT_LV_1]){
-				bat_curr = modeBAT_LV_1;
+				bat_measured = modeBAT_LV_1;
 			}
 			else if(bat <= batRef[modeBAT_LV_2]){
-				bat_curr = modeBAT_LV_2;	// 	2 lv
+				bat_measured = modeBAT_LV_2;
 			}
 			else{
-				bat_curr = modeBAT_LV_3;
+				bat_measured = modeBAT_LV_3;
+			}
+
+			// Asymmetric debounce: ALERT entry requires sustained low;
+			// exit is instant (safety — leave restricted state quickly).
+			// Note: tick advances only when heater is OFF (measurement window),
+			// so wall-clock time to ALERT stretches if heater runs heavily.
+			// Intentional — avoids load-sag false positives.
+			if(bat_measured == modeBAT_LV_ALERT){
+				if(bat_alert_tick >= MODE_BAT_ALERT_DEBOUNCE_CNT){
+					bat_curr = modeBAT_LV_ALERT;
+				}
+				else{
+					bat_alert_tick++;
+					//while debouncing, hold at LV_1 so user sees "low" hint
+					if(bat_curr != modeBAT_LV_ALERT){
+						bat_curr = modeBAT_LV_1;
+					}
+				}
+			}
+			else{
+				bat_alert_tick = 0;
+				bat_curr = bat_measured;
 			}
 		}
 
-		//sound
+		//sound (MP3 alert only meaningful when heater is quiet)
 		if(i_Mode_Get_MP3_Play()){
 			if(bat_curr == modeBAT_LV_ALERT && sound_alert){
 				if(i_MP3_Get_Stat() != MP3_BUSY){
@@ -993,6 +1065,7 @@ static int i_Mode_Battery(int* pi_sound){
 #endif
 		}
 	}
+
 	//led
 	if(bat_curr != bat_prev){
 		bat_prev = bat_curr;
@@ -1009,7 +1082,7 @@ static int i_Mode_Battery(int* pi_sound){
 		default:
 			ledToggle = 0;
 			timLedRef = u32_Tim_1msGet();
-			v_RGB_Set_Bat(1);
+			v_RGB_Set_Bat_Alert(1);
 			break;
 		}
 	}
@@ -1018,20 +1091,31 @@ static int i_Mode_Battery(int* pi_sound){
 		if(_b_Tim_Is_OVR(u32_Tim_1msGet(), timLedRef, MODE_LED_BLINK_ITV)){
 			timLedRef = u32_Tim_1msGet();
 			ledToggle++;
-			if(ledToggle & 1)	{v_RGB_Set_Bat(0);}
-			else				{v_RGB_Set_Bat(1);}
+			if(ledToggle & 1)	{v_RGB_Set_Bat_Alert(0);}
+			else				{v_RGB_Set_Bat_Alert(1);}
 		}
 		v_Mode_Heater_Enable_Suspend();
+		v_Mode_CoolFan_Enable_Suspend();
+		v_Mode_BlowFan_Enable_Suspend();
+
+		if(!warn_sent){
+			v_ESP_Send_Warning(ESP_WARN_BATTERY_LOW);
+			warn_sent = 1;
+		}
 	}
 	else{
 		v_Mode_Heater_Disable_Suspend();
+		v_Mode_CoolFan_Disable_Suspend();
+		v_Mode_BlowFan_Disable_Suspend();
+		warn_sent = 0;
+		sound_alert = 1;
 	}
 
 	return playing;
 }
 
 static void v_Mode_Bat_Handler(){
-	i_Mode_Battery(&battery_alarm);
+	i_Mode_Battery();
 }
 
 
@@ -2479,7 +2563,6 @@ void v_Mode_Init(){
 #endif
 
 	v_IO_Enable_Fan();			//always	//25.07.10
-	v_Mode_Bat_Alarm_Enable();	//once play
 
 
 	//value temporary

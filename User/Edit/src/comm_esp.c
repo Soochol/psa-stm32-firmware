@@ -67,6 +67,7 @@ typedef enum {
 	ESP_CMD_EVT_INIT_START=0x80,
     ESP_CMD_EVT_INIT_RESULT=0x81,
     ESP_CMD_EVT_MODE=0x82,
+    ESP_CMD_EVT_WARN=0x83,
 	//ERROR
 	ESP_CMD_ERR=0x90,
 } e_ESP_CMD_t;
@@ -173,7 +174,7 @@ bool b_ESP_CmdCompare(uint8_t u8_cmd){
 	||(u8_cmd >= ESP_CMD_INIT_TEMP_SLEEP && u8_cmd <= ESP_CMD_INIT_PWM_BLOWFAN)\
 	||(u8_cmd >= ESP_CMD_REQ_TEMP_SLEEP && u8_cmd <= ESP_CMD_REQ_PWM_BLOWFAN)\
 	||(u8_cmd >= ESP_CMD_CTRL_RST && u8_cmd <= ESP_CMD_CTRL_COOLFAN_ON)\
-	||(u8_cmd >= ESP_CMD_EVT_INIT_START && u8_cmd <= ESP_CMD_EVT_MODE)\
+	||(u8_cmd >= ESP_CMD_EVT_INIT_START && u8_cmd <= ESP_CMD_EVT_WARN)\
 	||(u8_cmd == ESP_CMD_ERR)){
 		return true;
 	}
@@ -732,6 +733,10 @@ void v_ESP_Send_Error(uint16_t u16_error){
 	error[0] = u16_error >> 8;
 	error[1] = u16_error;	//fixed ->
 	v_ESP_Transmit(ESP_DIR_REQ, ESP_CMD_ERR, error, 2);
+}
+
+void v_ESP_Send_Warning(uint8_t u8_warn_type){
+	v_ESP_Transmit(ESP_DIR_REQ, ESP_CMD_EVT_WARN, &u8_warn_type, 1);
 }
 
 

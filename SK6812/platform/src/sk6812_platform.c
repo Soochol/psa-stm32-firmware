@@ -334,6 +334,22 @@ void v_RGB_Set_Bat(uint16_t u16_lv){
 	b_rgbAct = true;
 }
 
+// Orange single-LED blink for sustained low-battery ALERT.
+// Distinct color from normal battery indicator (lime-yellow) so users
+// notice even if they miss the blink cadence.
+void v_RGB_Set_Bat_Alert(uint8_t u8_on){
+	uint8_t R=0xFF, G=0x80, B=0x00;
+	if(u8_on){
+		b_RGB_Set_Color(RGB_BAT_1, R, G, B);
+	}
+	else{
+		b_RGB_Set_Color(RGB_BAT_1, 0, 0, 0);
+	}
+	b_RGB_Set_Color(RGB_BAT_2, 0, 0, 0);
+	b_RGB_Set_Color(RGB_BAT_3, 0, 0, 0);
+	b_rgbAct = true;
+}
+
 void v_RGB_Refresh_Enable(){
 	b_rgbAct = true;
 }

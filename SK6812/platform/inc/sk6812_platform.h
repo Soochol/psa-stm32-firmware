@@ -59,6 +59,7 @@ void v_RGB_Set_Bot(uint8_t u8_R, uint8_t u8_G, uint8_t u8_B);
 void v_RGB_Set_Cool(uint16_t u16_lv);
 void v_RGB_Set_Heat(uint16_t u16_lv);
 void v_RGB_Set_Bat(uint16_t u16_lv);
+void v_RGB_Set_Bat_Alert(uint8_t u8_on);
 
 void v_RGB_Refresh_Enable();
 void v_RGB_Clear();
