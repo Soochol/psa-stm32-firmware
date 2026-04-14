@@ -981,6 +981,7 @@ static int i_Mode_Battery(){
 	static int sound_alert = 1;
 	static int warn_sent;
 	static uint32_t bat_alert_tick;	//consecutive low-voltage samples for debounce
+	static int bat_alert_latched;	//once ALERT confirmed, stays until power cycle (battery swap)
 
 	if(!i_Mode_Is_Heater()){
 		if(_b_Tim_Is_OVR(u32_Tim_1msGet(), timRef, timItv)){
@@ -1031,6 +1032,7 @@ static int i_Mode_Battery(){
 			if(bat_measured == modeBAT_LV_ALERT){
 				if(bat_alert_tick >= MODE_BAT_ALERT_DEBOUNCE_CNT){
 					bat_curr = modeBAT_LV_ALERT;
+					bat_alert_latched = 1;	//lock device until power cycle
 				}
 				else{
 					bat_alert_tick++;
@@ -1064,6 +1066,14 @@ static int i_Mode_Battery(){
 			}
 #endif
 		}
+	}
+
+	// Latch enforcement: once ALERT confirmed, force bat_curr to stay ALERT
+	// regardless of subsequent voltage readings. Clears only on MCU reset
+	// (i.e., battery swap / power cycle). This matches the product intent
+	// "ALERT means the battery must be replaced — no auto-recovery."
+	if(bat_alert_latched){
+		bat_curr = modeBAT_LV_ALERT;
 	}
 
 	//led
