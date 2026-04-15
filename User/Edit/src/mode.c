@@ -808,22 +808,21 @@ static void v_Mode_BlowFan_Handler(){
 //	HEATER - PID
 /////////////////////////////////
 static PIDController x_currPID;
-static int i_heater_on;
 uint16_t pidPWM;
 static int i_heater_suspend;
 static uint32_t u32_heater_toutRef;
 
+// Heater "on" = PID updated within the last 1 s (time-based hysteresis).
+// Time-driven so cooling modes that never call v_Mode_Heater_Off don't leave
+// the gate stuck — battery measurement then runs correctly in FORCE_DOWN etc.
 static int i_Mode_Is_Heater(){
-	return i_heater_on;
+	return !_b_Tim_Is_OVR(u32_Tim_1msGet(), u32_heater_toutRef, 1000);
 }
 
 static void v_Mode_Heater_Off(){
 	v_TIM2_Ch1_Out(0);
 	PIDController_Init(&x_currPID);
 	pidPWM = 0;
-	if(_b_Tim_Is_OVR(u32_Tim_1msGet(), u32_heater_toutRef, 1000)){
-		i_heater_on = 0;
-	}
 }
 
 static void v_Mode_Heater_Enable_Suspend(){
@@ -863,7 +862,6 @@ static float f_Mode_Heater_PID_Handler(float f_tempTarget){
 		v_Mode_Heater_Off();
 	}
 	else{
-		i_heater_on = 1;
 		u32_heater_toutRef = u32_Tim_1msGet();
 		if(_b_Tim_Is_OVR(u32_Tim_1msGet(), timRef, MODE_HEATER_PID_UPDATE_ITV)){
 			timRef = u32_Tim_1msGet();
