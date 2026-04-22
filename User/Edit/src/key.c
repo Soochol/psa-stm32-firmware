@@ -13,7 +13,7 @@ void v_Key_Power_Handler();
 
 void v_Key_Handler(){
 	v_Key_BlowFan_Handler();
-	// v_Key_ForceToggle_Handler();  // FD/FU 전환 스위치 비활성화 - SW2 입력 무시
+	v_Key_ForceToggle_Handler();  // SW2: volume-cycle trigger (consumed in mode.c)
 	v_Key_Power_Handler();
 }
 
@@ -31,14 +31,7 @@ void v_Key_ForceToggle_Handler(){
 		if(act.reg.bit.b1_upd){
 			if(act.reg.bit.b1_short){
 				HAL_GPIO_WritePin(DO_EXT_IO2_GPIO_Port, DO_EXT_IO2_Pin, GPIO_PIN_RESET);
-				e_modeID_t id = e_Mode_Get_CurrID();
-				v_Mode_Enable_ToggleSW();
-				if(id == modeFORCE_UP || id == modeFORCE_ON){
-					v_Mode_SetNext(modeFORCE_DOWN);
-				}
-				else{
-					v_Mode_SetNext(modeFORCE_UP);
-				}
+				v_Mode_Enable_ToggleSW();   // consumed by v_Mode_Volume_Cycle_Handler
 			}
 			else{
 				HAL_GPIO_WritePin(DO_EXT_IO2_GPIO_Port, DO_EXT_IO2_Pin, GPIO_PIN_SET);

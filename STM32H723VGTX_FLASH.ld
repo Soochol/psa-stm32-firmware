@@ -41,11 +41,17 @@ _Min_Heap_Size = 0x400;      /* required amount of heap  */
 _Min_Stack_Size = 0x6000; /* required amount of stack */
 
 /* Specify the memory areas */
+/* FLASH is reduced to 896K (sectors 0..6). The last 128K sector (sector 7,
+ * 0x080E0000..0x080FFFFF) is reserved for non-volatile user config (see
+ * User/Edit/src/flash_cfg.c). Keeping it out of the linker region makes the
+ * build fail loudly if code ever grows past 896K, instead of silently
+ * corrupting saved settings. */
 MEMORY
 {
   ITCMRAM (xrw)    		: ORIGIN = 0x00000000,   LENGTH = 64K
   DTCMRAM (xrw)    		: ORIGIN = 0x20000000,   LENGTH = 128K
-  FLASH    (rx)    		: ORIGIN = 0x08000000,   LENGTH = 1024K
+  FLASH    (rx)    		: ORIGIN = 0x08000000,   LENGTH = 896K
+  FLASH_CFG (r)         : ORIGIN = 0x080E0000,   LENGTH = 128K
   RAM_D1  (xrw)    		: ORIGIN = 0x24000000,   LENGTH = 320K
   RAM_D2  (xrw)    		: ORIGIN = 0x30000000,   LENGTH = 16K
   RAM_NOCACHE_D2 (xrw)	: ORIGIN = 0x30004000,   LENGTH = 16K

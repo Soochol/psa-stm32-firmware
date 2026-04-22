@@ -1858,6 +1858,9 @@ static void MPU_Config_Noncache2(){
   HAL_MPU_Enable(MPU_PRIVILEGED_DEFAULT);  // 다시 활성화
 }
 
+// BKUP register 0 — warm-boot marker (0xA5A5) only.
+// Volume level persistence moved to internal flash (see flash_cfg.c) because
+// RTC backup is wiped when VBAT loses power (no coin cell on this board).
 void v_RTC_Write_BKUP(uint32_t u32_wr){
 	HAL_RTCEx_BKUPWrite(&hrtc, 0, u32_wr);
 }

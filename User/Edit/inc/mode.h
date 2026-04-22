@@ -110,6 +110,10 @@
 #else
 #define MODE_SOUND_VOLUME_INIT	5
 #endif
+// SW2-driven volume cycle (Lv1/2/3 → 5/6/7 via u8_vol_table in mode.c)
+#define MODE_VOL_LV_MIN			1
+#define MODE_VOL_LV_MAX			3
+#define MODE_VOL_LV_INIT		1
 //GYRO Angle
 #define MODE_GYRO_ANGLE_ACT_INIT	10
 #define MODE_GYRO_ANGLE_ACT_MAX		30
@@ -253,6 +257,8 @@ void v_Mode_Set_GyroAngle_Rel(int i_angle);
 int i_Mode_Get_Speaker_Vol();
 void v_Mode_Set_Speaker_Vol(int i_vol);
 void v_Mode_Set_Speaker_Mute(int i_mute);
+int i_Mode_Get_Volume_Level(void);
+int i_Mode_Is_Battery_Alert_Latched(void);
 
 void v_Mode_Set_MP3_Play(int i_on);
 

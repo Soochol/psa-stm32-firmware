@@ -21,6 +21,7 @@
 #include "es8388_platform.h"	//audio
 #include "sk6812_platform.h"	//led
 #include "sam_m10q_platform.h"	//gps (v_GPS_Init / e_GPS_Ready)
+#include "flash_cfg.h"			//non-volatile volume storage
 //tilt
 //#include "quaternion_mahony.h"
 #include "lib_log.h"
@@ -443,6 +444,74 @@ static void v_Mode_Speaker_Vol_Handler(){
 	}
 }
 
+/////////////////////////////////
+//	SW2 Volume Cycle (Lv1/2/3 → 5/6/7)
+/////////////////////////////////
+// Lookup tables: index [1..MODE_VOL_LV_MAX], [0] is unused sentinel.
+// Preferred over an arithmetic macro because future retuning (e.g.
+// Lv3=9) can be done by editing a single number without breaking callers.
+static const uint8_t u8_vol_table[MODE_VOL_LV_MAX + 1] = {
+	0,     // [0] sentinel
+	6,     // Lv1
+	7,     // Lv2
+	8      // Lv3
+};
+static uint8_t u8_vol_level = MODE_VOL_LV_INIT;
+
+int i_Mode_Get_Volume_Level(void){
+	return (int)u8_vol_level;
+}
+
+static int i_Mode_Volume_Cycle_Allowed(e_modeID_t md){
+	return (md == modeWAITING    || md == modeFORCE_UP ||
+	        md == modeFORCE_DOWN || md == modeFORCE_ON ||
+	        md == modeHEALING    || md == modeSLEEP);
+}
+
+static void v_Mode_Volume_Cycle_Handler(void){
+	e_modeID_t md = e_Mode_Get_CurrID();
+	if(!i_Mode_Volume_Cycle_Allowed(md))	{return;}
+	if(i_Mode_Is_Battery_Alert_Latched())	{return;}
+	if(!i_Mode_Get_ToggleSw())				{return;}
+
+	v_Mode_Clear_ToggleSW();
+	u8_vol_level = (u8_vol_level % MODE_VOL_LV_MAX) + 1;   // 1→2→3→1
+	v_Mode_Set_Speaker_Vol(u8_vol_table[u8_vol_level]);
+	v_Flash_Cfg_Save_VolLevel(u8_vol_level);   // survives full power loss
+	LOG_INFO("VOL", "Lv%u vol=%u", (unsigned)u8_vol_level,
+			(unsigned)u8_vol_table[u8_vol_level]);
+}
+
+// Owns the Cool 3-LED group (formerly CoolFan indicator, repurposed for
+// volume display). Lv1/2/3 → 1/2/3 LEDs lit (meter style, driver default
+// sky-blue color). WAITING silently holds the strip OFF. Other modes
+// (BOOTING/ERROR/OFF) are ignored so they can retain whatever was last
+// written. A prev-lv + prev-mode diff avoids per-tick SK6812 rebuilds.
+static void v_Mode_Volume_LED_Handler(void){
+	static uint16_t   u16_prev_lv = 0xFFFF;   // impossible sentinel → first tick writes
+	static e_modeID_t e_prev_md   = modeBOOTING;
+
+	e_modeID_t md = e_Mode_Get_CurrID();
+	uint16_t   lv;
+
+	if(md == modeWAITING){
+		lv = 0;                     // all 3 LEDs OFF
+	}
+	else if(i_Mode_Volume_Cycle_Allowed(md)){
+		lv = (u8_vol_level >= MODE_VOL_LV_MIN &&
+		      u8_vol_level <= MODE_VOL_LV_MAX) ? u8_vol_level : MODE_VOL_LV_INIT;
+	}
+	else{
+		return;   // BOOTING/ERROR/OFF/WAKE_UP/TEST — leave LED to their owners
+	}
+
+	if(lv != u16_prev_lv || md != e_prev_md){
+		v_RGB_Set_Cool(lv);
+		u16_prev_lv = lv;
+		e_prev_md   = md;
+	}
+}
+
 int i_mp3_play;
 void v_Mode_Set_MP3_Play(int i_on){
 	i_mp3_play = i_on;
@@ -520,7 +589,7 @@ static void v_Mode_CoolFan_PWM(x_modeSTEP_t x_step){
 	static uint16_t led_lv;
 
 	if(i_Mode_Is_CoolFan_Suspend()){
-		v_RGB_Set_Cool(0);
+		// Cool 3-LED is owned by v_Mode_Volume_LED_Handler; CoolFan no longer draws.
 		v_TIM2_Ch4_Out(0);
 		now_prev = 0;
 		max_prev = 0;
@@ -564,10 +633,10 @@ static void v_Mode_CoolFan_PWM(x_modeSTEP_t x_step){
 		else{
 			led_lv = 0;
 		}
-		v_RGB_Set_Cool(led_lv);
+		// Cool 3-LED is owned by v_Mode_Volume_LED_Handler now.
+		(void)led_lv;
 	}
 	else{
-		v_RGB_Set_Cool(0);
 		pwm = 0;
 	}
 	v_TIM2_Ch4_Out(pwm);
@@ -661,11 +730,11 @@ static void v_Mode_HeatPad_PWM(x_modeSTEP_t x_step){
 		else{
 			led_lv = 0;
 		}
-		v_RGB_Set_Heat(led_lv);
+		// Heat 3-LED is owned by BlowFan only (HeatPad is no longer used).
+		(void)led_lv;
 	}
 	else{
 		v_IO_Disable_HeatPad();  // LOW: Fixed typo (HeadPad -> HeatPad)
-		v_RGB_Set_Heat(0);
 		pwm = 0;
 	}
 	v_TIM2_Ch3_Out(pwm);
@@ -969,6 +1038,15 @@ typedef enum {
  *   ALERT state latched from a prior sample stays enforced even while
  *   the heater PID thinks it is driving.
  */
+// File-scope mirror of v_Mode_Battery()'s bat_alert_latched. Kept in sync
+// inside v_Mode_Battery() so other handlers (e.g., SW2 volume cycle) can
+// check the ALERT lockout without breaking v_Mode_Battery's encapsulation.
+static int i_bat_alert_latched_mirror;
+
+int i_Mode_Is_Battery_Alert_Latched(void){
+	return i_bat_alert_latched_mirror;
+}
+
 static void v_Mode_Battery(){
 	static int playing;
 	static e_modeBAT_LV_t bat_prev = modeBAT_LV_INIT;
@@ -1032,6 +1110,7 @@ static void v_Mode_Battery(){
 				if(bat_alert_tick >= MODE_BAT_ALERT_DEBOUNCE_CNT){
 					bat_curr = modeBAT_LV_ALERT;
 					bat_alert_latched = 1;	//lock device until power cycle
+					i_bat_alert_latched_mirror = 1;	//expose to external handlers
 				}
 				else if(bat_curr != modeBAT_LV_ALERT){
 					//while debouncing, hold at LV_1 so user sees "low" hint
@@ -1694,14 +1773,9 @@ static void v_Mode_ForceUp(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t* 
 			//timeout
 			px_pub->u32_timToutRef = u32_Tim_1msGet();
 			tout = u32_Mode_Get_ForceUp_Tout() * MODE_TOUT_TO_MS_MULT;
-			//sound
-			if(i_Mode_Get_MP3_Play() && i_Mode_Get_ToggleSw()){
-				px_pub->i_sound = 1;
-				v_Mode_Clear_ToggleSW();
-			}
-			else{
-				px_pub->i_sound = 0;
-			}
+			// No entry beep: SW2 is volume-only, so every FU entry is an auto
+			// tilt transition (HEALING→FU / FD→FU). Users don't want sound there.
+			px_pub->i_sound = 0;
 			//led
 			px_pub->u32_timLedItv = 0;
 			ledToggle = 0;
@@ -1880,14 +1954,8 @@ static void v_Mode_ForceDown(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t
 			//delay
 			coolDelayRef = u32_Tim_1msGet();
 			coolDelay = u32_Mode_Get_ForceDownDelay() * MODE_DELAY_TO_MS_MULT;
-			//sound
-			if(i_Mode_Get_MP3_Play() && i_Mode_Get_ToggleSw()){
-				px_pub->i_sound = 1;
-				v_Mode_Clear_ToggleSW();
-			}
-			else{
-				px_pub->i_sound = 0;
-			}
+			// No entry beep: auto tilt transitions only (FU→FD / FORCE_ON→FD).
+			px_pub->i_sound = 0;
 		}
 		// LOW: Removed empty else block
 	}
@@ -2593,8 +2661,10 @@ void v_Mode_Init(){
 	//forceDown Delay
 	v_Mode_Set_ForceDownDelay(MODE_FORCE_DOWN_COOL_DELAY_INIT);
 
-	//spkear
-	//v_Mode_Set_Speaker_Vol(1);
+	//spkear — restore SW2 volume level from internal flash (sector 7).
+	// Flash survives full battery disconnect, unlike RTC BKUP which needs VBAT.
+	u8_vol_level = u8_Flash_Cfg_Load_VolLevel();
+	v_Mode_Set_Speaker_Vol(u8_vol_table[u8_vol_level]);
 
 #if MODE_IMU_USED
 	//gyro angle
@@ -2629,7 +2699,9 @@ void v_Mode_Handler(){
 	v_Temp_IR_Tout_Handler();
 	v_ESP_Tout_Handler();
 	//spkear
+	v_Mode_Volume_Cycle_Handler();   // SW2 → volume level cycle
 	v_Mode_Speaker_Vol_Handler();
+	v_Mode_Volume_LED_Handler();     // Cool 3-LED volume indicator
 	i_Mode_TempHeater_FB();
 
 #if MODE_TEST_SUB_BD
