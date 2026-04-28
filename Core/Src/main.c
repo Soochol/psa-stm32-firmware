@@ -381,18 +381,6 @@ int main(void)
 #endif
 	  v_Tim_1s_Test();
 
-#if MP3_USE_FLASH
-	  /* Flash MP3 부팅 테스트: 코덱 준비 후 MP3 #1 자동 1회 재생 */
-	  {
-		  static int s_flash_test_done = 0;
-		  if(!s_flash_test_done && e_Codec_Ready() == COMM_STAT_DONE){
-			  s_flash_test_done = 1;
-			  SEGGER_RTT_printf(0, "[MP3] Boot test: playing #1\r\n");
-			  i_MP3_Begin(1);
-		  }
-	  }
-#endif
-
 	  v_ADC_Handler();
 	  v_Uart_Handler();
 	  v_Key_Handler();
