@@ -2702,19 +2702,6 @@ void v_Mode_Handler(){
 
 
 
-/////////////////////////////////
-//	Only Test
-/////////////////////////////////
-void v_Mode_CoolFan(){
-	static uint32_t timRef;
-	if(_b_Tim_Is_OVR(u32_Tim_1msGet(), timRef, MODE_COOLFAN_HANDLER_ITV)){
-		timRef = u32_Tim_1msGet();
-		v_Mode_CoolFan_Enable();
-		v_Mode_CoolFan_Handler();
-		// LOW: Removed unused commented code
-	}
-}
-
 // 에러 LED 패턴 테스트 함수 (시리얼 명령어로 호출용)
 void v_Mode_Error_LED_Test(e_modeERR_t test_error) {
 	LOG_INFO("MODE", "Testing error pattern for code: 0x%04X", test_error);

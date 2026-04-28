@@ -389,40 +389,7 @@ int main(void)
 	  v_Mode_Handler();
 	  v_RGB_PWM_Out();
 
-
-	  //	B/D Test	//
-	  //v_Mode_JIG_LED_BD();	//SW
-	  //v_TempOut_Test();		//Temp Out
-	  //v_RGB_Test();			//RGB
-	  //v_Mode_CoolFan();		//cool fan Out
-
-
-	  //	Normal	//
-	  //v_AUDIO_Test();	//codec + speaker out
-	  //v_MP3_DAC_Test();	//only DAC test (next update)
-	  //v_Temp_IR_Test();		//Temp-IR test
-	  //v_Mode_Sound_Test();		//sound test
-	  //v_ESP_CmdTest();			//ESP receive test
-	  //v_Mode_Heater_Fan_Test();
-
-	  // GPS I2C Diagnostic (DISABLED - testing UBX configuration)
-	  // static bool gps_diag_done = false;
-	  // if(!gps_diag_done) {
-	  //     v_GPS_Test_Full_Diagnostic();
-	  //     v_I2C3_Set_Comm_Ready();  // Reset I2C3 driver state
-	  //     v_GPS_Reset_Comm();       // Reset GPS communication state
-	  //     v_printf_poll("DEBUG: GPS comm reset after diagnostic (I2C3=%d)\r\n", e_I2C3_Get_Comm_Stat());
-	  //     gps_diag_done = true;
-	  // }
-
 	  v_GPS_Test_Monitor();		//GPS debug output (2s interval)
-
-	  //	not used	//
-	  //v_Mode_Heater_Test();	//act heater on or off	//not used
-	  //v_MP3_Test();			//not codec
-	  //v_Mode_Sensing_Test();	//all sensing
-	  //v_Uart_ESP_Test();
-
   }
   /* USER CODE END 3 */
 }

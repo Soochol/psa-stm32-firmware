@@ -254,7 +254,6 @@ static void v_Uart_ESP_Handler(){
 		}
 	}
 	v_ESP_Handler();
-	//v_ESP_CmdTest();
 }
 
 
@@ -409,21 +408,6 @@ void v_printf_poll(const char *fmt, ...){
 	while(e_dbgTx == COMM_STAT_DONE || e_dbgTx == COMM_STAT_READY);
 #endif
 }
-
-
-void v_Uart_ESP_Test(){
-	static uint32_t timRef;
-	static char text = 'a';
-	if(_b_Tim_Is_OVR(u32_Tim_1msGet(), timRef, 1000)){
-		timRef = u32_Tim_1msGet();
-		u8_txEsp_arr[0] = text;
-		if(text < 'z')	{text++;}
-		else			{text = 'a';}
-		HAL_UART_Transmit_DMA(p_uart1, u8_txEsp_arr, 1);
-	}
-}
-
-
 
 
 

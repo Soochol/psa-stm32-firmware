@@ -57,8 +57,6 @@ void v_ESP_Tout_Handler();
 void v_ESP_Send_Error(uint16_t u16_error);
 void v_ESP_Send_Warning(uint8_t u8_warn_type);
 
-void v_ESP_CmdTest();
-
 #endif
 
 

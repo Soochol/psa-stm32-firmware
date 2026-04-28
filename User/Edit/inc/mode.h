@@ -432,11 +432,4 @@ void v_Mode_Set_DBG_Enable();
 
 void v_Mode_Set_DBG_Act(int type);
 
-
-/////////////////////////////////
-//	Only Test
-/////////////////////////////////
-void v_Mode_JIG_LED_BD();
-void v_Mode_CoolFan();
-
 #endif

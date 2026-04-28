@@ -35,10 +35,6 @@ void v_printf_poll(const char *fmt, ...);
 
 
 
-
-void v_Uart_ESP_Test();
-
-
 #endif
 
 

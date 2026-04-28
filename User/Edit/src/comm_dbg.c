@@ -99,16 +99,6 @@ static void v_DBG_Ascii_DataHandler(char* pc8_data){
  */
 void v_DBG_Handler(){
 	v_DBG_RxHandler();
-	//v_DBG_Ascii_Handler();
-}
-
-
-void v_DBG_RxTest(){
-	if(dbgRx->u16_cnt){
-		uint8_t str[128] = {0,};
-		dbgRx->fn.b_GetArr(dbgRx, str, dbgRx->u16_cnt);
-		printf("%s", str);
-	}
 }
 
 
