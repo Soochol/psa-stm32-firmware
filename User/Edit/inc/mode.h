@@ -444,9 +444,5 @@ void v_Mode_Set_DBG_Act(int type);
 /////////////////////////////////
 void v_Mode_JIG_LED_BD();
 void v_Mode_CoolFan();
-void v_Mode_Sound_Test();
-
-
-void v_Mode_Heater_Fan_Test();
 
 #endif

@@ -78,14 +78,11 @@ static e_COMM_STAT_t e_espRx;
 /****************************************/
 //define
 #define UART_DBG_ACTIVE			(1)
-#define UART_DBG_PRINT_TEST		(1)
 #define UART_DBG_TX_ARR_SIZE	(512)
 
 //function	: static
 static void v_Uart_DBG_Init();
 static void v_Uart_DBG_Handler();
-
-static void v_Uart_DBG_Test();
 
 //variable	: static
 //	TX	//
@@ -377,10 +374,6 @@ static void v_Uart_DBG_Handler(){
 			e_dbgTx = COMM_STAT_ERR;
 		}
 	}
-#if UART_DBG_PRINT_TEST
-	//v_Uart_DBG_Test();
-	//v_DBG_RxTest();
-#endif
 	v_DBG_Handler();
 }
 
@@ -416,25 +409,6 @@ void v_printf_poll(const char *fmt, ...){
 	while(e_dbgTx == COMM_STAT_DONE || e_dbgTx == COMM_STAT_READY);
 #endif
 }
-
-
-/*
- * brief	: test to terminal from ring buffer
- * date
- * - create	: 25.03.27
- * - modify	: 25.04.28
- */
-__attribute__((unused)) static void v_Uart_DBG_Test(){
-	static uint32_t u32_timRef;
-	if(_b_Tim_Is_OVR(u32_Tim_1msGet(), u32_timRef, 1000)){
-		u32_timRef = u32_Tim_1msGet();
-
-		static uint16_t cnt;
-		printf("num : %d\n", cnt++);
-	}
-}
-
-
 
 
 void v_Uart_ESP_Test(){

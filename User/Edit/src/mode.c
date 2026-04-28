@@ -740,7 +740,7 @@ static void v_Mode_HeatPad_PWM(x_modeSTEP_t x_step){
 	v_TIM2_Ch3_Out(pwm);
 }
 
-__attribute__((unused)) static void v_Mode_HeatPad_Handler(){
+static void v_Mode_HeatPad_Handler(){
 	v_Mode_HeatPad_PWM(x_modeHeatPad);
 }
 
@@ -2728,50 +2728,6 @@ void v_Mode_CoolFan(){
 		// LOW: Removed unused commented code
 	}
 }
-
-void v_Mode_Sound_Test(){
-	static int config;
-	static uint32_t timRef;
-	static int play;
-	if(config == 0){
-		if(e_Codec_Ready() == COMM_STAT_DONE){
-			config = 1;
-		}
-	}
-	else{
-		int volume = i_Mode_Get_Speaker_Vol();
-		if(i_Mode_Get_BlowFanSW()){
-			v_Mode_Clear_BlowFanSW();
-			if(volume){volume--;}
-			v_Mode_Set_Speaker_Vol(volume);
-
-			if(i_MP3_Is_Ready()){
-				timRef = u32_Tim_1msGet();
-				play = 1;
-			}
-		}
-		if(i_Mode_Get_ToggleSw()){
-			v_Mode_Clear_ToggleSW();
-			if(volume < MODE_SPEAKER_VOL_MAX){volume++;}
-			v_Mode_Set_Speaker_Vol(volume);
-
-			if(i_MP3_Is_Ready()){
-				timRef = u32_Tim_1msGet();
-				play = 1;
-			}
-		}
-		v_Mode_Speaker_Vol_Handler();
-
-
-		if(play && _b_Tim_Is_OVR(u32_Tim_1msGet(), timRef, MODE_SOUND_TEST_DELAY)){
-			if(i_MP3_Player(1) == MP3_DONE){
-				play = 0;
-			}
-		}
-	}
-}
-
-
 
 __attribute__((unused)) static void v_Mode_SubBD_Print(){
 	static uint32_t timRef;
