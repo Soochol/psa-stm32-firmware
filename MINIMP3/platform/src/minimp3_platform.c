@@ -1045,14 +1045,9 @@ int i_MP3_Decode(){
 
 #endif
 
-//#define MP3_BYPASS
-
 static e_MP3_STAT_t e_mp3_stat;
 
 int i_MP3_Player(uint16_t u16_num){
-#ifdef MP3_BYPASS
-	e_mp3_stat = MP3_DONE;
-#else
 	if(e_mp3_stat == MP3_IDLE || e_mp3_stat == MP3_DONE){
 		if(i_MP3_Start(u16_num) == 0){
 			e_mp3_stat = MP3_START;
@@ -1068,7 +1063,6 @@ int i_MP3_Player(uint16_t u16_num){
 	else{
 		e_mp3_stat = MP3_BUSY;
 	}
-#endif
 	return e_mp3_stat;
 }
 
@@ -1093,9 +1087,6 @@ int i_MP3_Get_Stat(){
 }
 
 int i_MP3_Playing(){
-#ifdef MP3_BYPASS
-	e_mp3_stat = MP3_DONE;
-#else
 	if(e_mp3_stat == MP3_BUSY || e_mp3_stat == MP3_START){
 		if(i_MP3_Decode()){
 			i_MP3_Stop();
@@ -1105,15 +1096,11 @@ int i_MP3_Playing(){
 			e_mp3_stat = MP3_BUSY;
 		}
 	}
-#endif
 	return e_mp3_stat;
 }
 
 int i_MP3_Begin(uint16_t u16_num){
 	LOG_INFO("MP3", "play #%u", (unsigned)u16_num);
-#ifdef MP3_BYPASS
-	e_mp3_stat = MP3_DONE;
-#else
 	if(e_mp3_stat == MP3_IDLE || e_mp3_stat == MP3_DONE){
 		if(i_MP3_Start(u16_num) == 0){
 			e_mp3_stat = MP3_START;
@@ -1122,7 +1109,6 @@ int i_MP3_Begin(uint16_t u16_num){
 			e_mp3_stat = MP3_ERR;
 		}
 	}
-#endif
 	return e_mp3_stat;
 }
 
