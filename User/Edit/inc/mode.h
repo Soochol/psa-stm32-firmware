@@ -11,7 +11,6 @@
 #define TEST_MODE_ONLY		0	//Booting - only test
 
 //B/D Inspiration
-#define MODE_TEST_SUB_BD	0
 #define MODE_MP3_PLAYING	1
 
 
@@ -105,11 +104,7 @@
 #define MODE_BLOWFAN_STEP_MAX	3
 
 //Sound (range : 0 ~ 10)
-#if MODE_TEST_SUB_BD
-#define MODE_SOUND_VOLUME_INIT	1
-#else
 #define MODE_SOUND_VOLUME_INIT	5
-#endif
 // SW2-driven volume cycle (Lv1/2/3 → 5/6/7 via u8_vol_table in mode.c)
 #define MODE_VOL_LV_MIN			1
 #define MODE_VOL_LV_MAX			3
@@ -345,7 +340,6 @@ void v_Mode_BlowFan_Disable();
 #define MODE_BAT_CHECK_ITV				100		// Battery voltage check interval
 #define MODE_COOLFAN_HANDLER_ITV		100		// Cool fan handler interval
 #define MODE_SENSING_SEND_ITV			100		// Sensor data send to ESP interval
-#define MODE_SUBBD_PRINT_ITV			250		// Sub-board debug print interval
 
 // State transition delays
 #define MODE_HEALING_INITIAL_TOUT		1000	// Healing mode initial timeout

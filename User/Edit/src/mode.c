@@ -73,8 +73,6 @@ static void v_Mode_HeatPad_PWM(x_modeSTEP_t x_step);
 
 static int i_Mode_Is_Off();
 
-static void v_Mode_SubBD_Print();
-
 static x_modeWORK_t x_modeWork;
 static x_modePUB_t x_modePub;
 
@@ -2619,10 +2617,6 @@ void v_Mode_Init(){
 	v_Temp_InOut_Deinit();
 
 	v_Mode_Heater_PID_Init();
-#if MODE_TEST_SUB_BD
-	v_Mode_Set_AI(MODE_AI_ESP);
-	v_Mode_SetInit(modeBOOTING);
-#else
 	v_Mode_Set_AI(MODE_AI_ESP);
 	if(u32_RTC_Read_BKUP() == 0xA5A5){
 		v_RTC_Write_BKUP(0x0000);
@@ -2632,7 +2626,6 @@ void v_Mode_Init(){
 		LOG_INFO("MODE", "Cold boot detected, RTC_backup=0x%08lX, starting in modeOFF", u32_RTC_Read_BKUP());
 		v_Mode_SetInit(modeOFF);
 	}
-#endif
 
 	v_IO_Enable_Fan();			//always	//25.07.10
 
@@ -2703,13 +2696,6 @@ void v_Mode_Handler(){
 	v_Mode_Speaker_Vol_Handler();
 	v_Mode_Volume_LED_Handler();     // Cool 3-LED volume indicator
 	i_Mode_TempHeater_FB();
-
-#if MODE_TEST_SUB_BD
-	//bd test
-	if(x_modeWork.guide.e_curr > modeBOOTING){
-		v_Mode_SubBD_Print();
-	}
-#endif
 }
 
 
@@ -2726,21 +2712,6 @@ void v_Mode_CoolFan(){
 		v_Mode_CoolFan_Enable();
 		v_Mode_CoolFan_Handler();
 		// LOW: Removed unused commented code
-	}
-}
-
-__attribute__((unused)) static void v_Mode_SubBD_Print(){
-	static uint32_t timRef;
-	if(_b_Tim_Is_OVR(u32_Tim_1msGet(), timRef, MODE_SUBBD_PRINT_ITV)){
-		timRef = u32_Tim_1msGet();
-#if MODE_IMU_USED
-		int16_t* imu_L = pi16_IMU_Get_Left();
-		int16_t* imu_R = pi16_IMU_Get_Right();
-		(void)imu_L; (void)imu_R;  // Suppress warnings when logs disabled
-		LOG_DEBUG("MODE", "[L] ACC - X : %-7d, Y : %-7d, Z : %-7d / GYRO - X : %-7d, Y : %-7d, Z : %-7d", imu_L[0], imu_L[1], imu_L[2], imu_L[3], imu_L[4], imu_L[5]);
-		LOG_DEBUG("MODE", "[R] ACC - X : %-7d, Y : %-7d, Z : %-7d / GYRO - X : %-7d, Y : %-7d, Z : %-7d", imu_R[0], imu_R[1], imu_R[2], imu_R[3], imu_R[4], imu_R[5]);
-#endif
-		LOG_DEBUG("MODE", "Temp : %.2f", f_Temp_Out_Get());
 	}
 }
 

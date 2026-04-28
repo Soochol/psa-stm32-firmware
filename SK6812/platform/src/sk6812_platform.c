@@ -208,38 +208,22 @@ bool b_RGB_Set_Color(uint8_t u8_idx, uint8_t u8_R, uint8_t u8_G, uint8_t u8_B){
 void v_RGB_Set_Top(uint8_t u8_R, uint8_t u8_G, uint8_t u8_B){
 	if(b_rgb_topbot_locked) return;  // calibration owns TOP/BOT
 	uint8_t R = u8_R, G = u8_G, B = u8_B;
-#if MODE_TEST_SUB_BD
 	b_RGB_Set_Color(RGB_TOP_1, R, G, B);
 	b_RGB_Set_Color(RGB_TOP_2, R, G, B);
 	b_RGB_Set_Color(RGB_TOP_3, R, G, B);
 	b_RGB_Set_Color(RGB_TOP_4, R, G, B);
 	b_RGB_Set_Color(RGB_TOP_5, R, G, B);
-#else
-	b_RGB_Set_Color(RGB_TOP_1, R, G, B);
-	b_RGB_Set_Color(RGB_TOP_2, R, G, B);
-	b_RGB_Set_Color(RGB_TOP_3, R, G, B);
-	b_RGB_Set_Color(RGB_TOP_4, R, G, B);
-	b_RGB_Set_Color(RGB_TOP_5, R, G, B);
-#endif
 	b_rgbAct = true;
 }
 
 void v_RGB_Set_Bot(uint8_t u8_R, uint8_t u8_G, uint8_t u8_B){
 	if(b_rgb_topbot_locked) return;  // calibration owns TOP/BOT
 	uint8_t R = u8_R, G = u8_G, B = u8_B;
-#if MODE_TEST_SUB_BD
 	b_RGB_Set_Color(RGB_BOT_1, R, G, B);
 	b_RGB_Set_Color(RGB_BOT_2, R, G, B);
 	b_RGB_Set_Color(RGB_BOT_3, R, G, B);
 	b_RGB_Set_Color(RGB_BOT_4, R, G, B);
 	b_RGB_Set_Color(RGB_BOT_5, R, G, B);
-#else
-	b_RGB_Set_Color(RGB_BOT_1, R, G, B);
-	b_RGB_Set_Color(RGB_BOT_2, R, G, B);
-	b_RGB_Set_Color(RGB_BOT_3, R, G, B);
-	b_RGB_Set_Color(RGB_BOT_4, R, G, B);
-	b_RGB_Set_Color(RGB_BOT_5, R, G, B);
-#endif
 	b_rgbAct = true;
 }
 
