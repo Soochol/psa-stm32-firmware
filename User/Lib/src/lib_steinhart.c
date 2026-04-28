@@ -57,12 +57,13 @@ static const uint8_t T1 = 25;
 static const uint8_t T2	= 50;
 static const uint8_t T3	= 100;
 
-#if 0
-//Device : NTCG164BH103JT1
-static const float R1 = 10.000;	//25'C
-static const float R2 = 3.481;	//50'C
-static const float R3 = 0.626;	//100'C
-#endif
+/*
+ * Reference (previous part): NTCG164BH103JT1
+ *   R1 = 10.000 (25C), R2 = 3.481 (50C), R3 = 0.626 (100C)
+ * Active part: NTCG103JF103FT1 (values below).
+ * Keep the previous part's values here for reference when a different
+ * NTC is used; replace R1/R2/R3 below if the part changes.
+ */
 //Device : NTCG103JF103FT1
 static const float R1 = 10.000;	//25'C
 static const float R2 = 4.158;	//50'C
@@ -94,10 +95,6 @@ void _v_Steinhart_Cal_Coefficient(){
 	r3 = (Y3 - Y1) / (L3 - L1);
 	
 	coefficientC = ( (r3 - r2) / (L3 - L2) ) / (L1 + L2 + L3);
-#if 0
-	coefficientB = r2 - coefficientC * ( pow(L1, 2) + L1*L2 + pow(L2, 2) );
-	coefficientA = Y1 - L1 * ( coefficientB + coefficientC * pow(L2, 2) );
-#endif
 	coefficientB = r2 - coefficientC * ( L1*L1 + L1*L2 + L2*L2 );
 	coefficientA = Y1 - L1 * ( coefficientB + coefficientC * L2*L2 );
 }

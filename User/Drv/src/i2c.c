@@ -755,10 +755,12 @@ void v_I2C2_Bus_Recovery_FastMode(void){
     GPIO_InitStruct.Pull = GPIO_NOPULL;
     GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
     HAL_GPIO_Init(I2C2_SCL_SUB_GPIO_Port, &GPIO_InitStruct);
-#if 0
-    HAL_GPIO_WritePin(I2C2_SDA_SUB_GPIO_Port, I2C2_SDA_SUB_Pin, GPIO_PIN_RESET);
-    HAL_GPIO_WritePin(I2C2_SCL_SUB_GPIO_Port, I2C2_SCL_SUB_Pin, GPIO_PIN_RESET);
-#endif
+
+    // Alternative recovery: drive both lines low first. Kept here as a
+    // reference in case a stuck slave is not released by the SCL-only
+    // toggle below — uncomment if needed.
+    //   HAL_GPIO_WritePin(I2C2_SDA_SUB_GPIO_Port, I2C2_SDA_SUB_Pin, GPIO_PIN_RESET);
+    //   HAL_GPIO_WritePin(I2C2_SCL_SUB_GPIO_Port, I2C2_SCL_SUB_Pin, GPIO_PIN_RESET);
 
     // 2. 항상 SCL 9회 토글 + STOP (slave mid-transaction 해제)
     for (int i = 0; i < 9; i++)
@@ -854,7 +856,6 @@ void v_I2C1_Bus_Recovery_FastMode(void){
 }
 
 
-GPIO_PinState i2c5_sda, i2c5_scl;
 void v_I2C5_Bus_Recovery_FastMode(void){
     GPIO_InitTypeDef GPIO_InitStruct = {0};
 
@@ -869,41 +870,27 @@ void v_I2C5_Bus_Recovery_FastMode(void){
 
     HAL_GPIO_WritePin(I2C5_SDA_AUDIO_GPIO_Port, I2C5_SDA_AUDIO_Pin, GPIO_PIN_RESET);
     HAL_GPIO_WritePin(I2C5_SCL_AUDIO_GPIO_Port, I2C5_SCL_AUDIO_Pin, GPIO_PIN_RESET);
-#if 0
-    i2c5_sda = HAL_GPIO_ReadPin(I2C5_SDA_AUDIO_GPIO_Port, I2C5_SDA_AUDIO_Pin);
-    i2c5_scl = HAL_GPIO_ReadPin(I2C5_SCL_AUDIO_GPIO_Port, I2C5_SCL_AUDIO_Pin);
-    // 2. SDA가 LOW 상태인지 확인
-    if (HAL_GPIO_ReadPin(I2C5_SDA_AUDIO_GPIO_Port, I2C5_SDA_AUDIO_Pin) == GPIO_PIN_RESET)
-    {
-        // 3. SCL을 9~18회 토글
-        for (int i = 0; i < 30; i++)
-        {
-            HAL_GPIO_WritePin(I2C5_SCL_AUDIO_GPIO_Port, I2C5_SCL_AUDIO_Pin, GPIO_PIN_SET);
-            delay_us(2);  // 약 2us 지연
 
-            HAL_GPIO_WritePin(I2C5_SCL_AUDIO_GPIO_Port, I2C5_SCL_AUDIO_Pin, GPIO_PIN_RESET);
-            delay_us(2);
-        }
-
-        // 4. STOP 조건 생성: SDA ↑ while SCL ↑
-        HAL_GPIO_WritePin(I2C5_SCL_AUDIO_GPIO_Port, I2C5_SCL_AUDIO_Pin, GPIO_PIN_SET);
-        delay_us(2);
-        HAL_GPIO_WritePin(I2C5_SDA_AUDIO_GPIO_Port, I2C5_SDA_AUDIO_Pin, GPIO_PIN_SET);
-        delay_us(2);
-
-        //add
-        // SDA를 LOW로 만들었다가, SCL이 HIGH일 때 SDA를 HIGH로 올려 STOP 조건 생성
-        HAL_GPIO_WritePin(I2C5_SDA_AUDIO_GPIO_Port, I2C5_SDA_AUDIO_Pin, GPIO_PIN_RESET);
-        delay_us(2);
-        HAL_GPIO_WritePin(I2C5_SCL_AUDIO_GPIO_Port, I2C5_SCL_AUDIO_Pin, GPIO_PIN_SET);
-        delay_us(2);
-        HAL_GPIO_WritePin(I2C5_SDA_AUDIO_GPIO_Port, I2C5_SDA_AUDIO_Pin, GPIO_PIN_SET);  // STOP 조건
-        delay_us(2);
-    }
-
-    // 5. 이후 I2C 핀을 Alternate Function으로 재설정
-    // (HAL_I2C_Init() 또는 CubeMX 설정으로 복구)
-#endif
+    // I2C5 (audio) full bus-recovery sequence (read SDA/SCL state, toggle
+    // SCL ~30 times if SDA stuck low, generate STOP). Currently disabled
+    // because the AUDIO codec hasn't shown the symptom in production.
+    // Re-enable here if I2C5 bus locks up. See I2C2 (sub-board) above
+    // for the active equivalent.
+    //   if (HAL_GPIO_ReadPin(I2C5_SDA_AUDIO_GPIO_Port, I2C5_SDA_AUDIO_Pin) == GPIO_PIN_RESET) {
+    //       for (int i = 0; i < 30; i++) {
+    //           HAL_GPIO_WritePin(I2C5_SCL_AUDIO_GPIO_Port, I2C5_SCL_AUDIO_Pin, GPIO_PIN_SET);
+    //           delay_us(2);
+    //           HAL_GPIO_WritePin(I2C5_SCL_AUDIO_GPIO_Port, I2C5_SCL_AUDIO_Pin, GPIO_PIN_RESET);
+    //           delay_us(2);
+    //       }
+    //       // STOP: SDA LOW -> SCL HIGH -> SDA HIGH
+    //       HAL_GPIO_WritePin(I2C5_SDA_AUDIO_GPIO_Port, I2C5_SDA_AUDIO_Pin, GPIO_PIN_RESET);
+    //       delay_us(2);
+    //       HAL_GPIO_WritePin(I2C5_SCL_AUDIO_GPIO_Port, I2C5_SCL_AUDIO_Pin, GPIO_PIN_SET);
+    //       delay_us(2);
+    //       HAL_GPIO_WritePin(I2C5_SDA_AUDIO_GPIO_Port, I2C5_SDA_AUDIO_Pin, GPIO_PIN_SET);
+    //       delay_us(2);
+    //   }
 }
 
 

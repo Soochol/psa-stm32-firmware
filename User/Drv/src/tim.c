@@ -316,37 +316,6 @@ ALIGN_32BYTES(static volatile uint16_t u16_tim4_pwm[TIM4_LED_SIZE] __attribute__
 #else
 static volatile uint16_t u16_tim4_pwm[TIM4_LED_SIZE] __attribute__((section(".my_nocache_section"))); // 32-Byte aligned for cache maintenance
 #endif
-/*
- * brief	: TIM4 CH2 pwm output
- * date
- * - create	: 25.04.16
- * - modify	: 25.04.29
- * param
- * - pu16_pwmArr	: led array
- * - u16_cnt		: array counts
- * note
- */
-#if 0
-void v_Tim4_Ch2_Out(uint16_t* pu16_pwmArr, uint16_t u16_cnt){
-	if(b_tim4_ready == false){
-		//__HAL_TIM_SET_COUNTER(p_tim4, 0);
-
-		led_send_cnt = u16_cnt;
-		for(int i=0; i<u16_cnt; i++){
-			u16_tim4_pwm[i] = pu16_pwmArr[i];
-		}
-#if TIM4_CACHE_ENABLE
-		SCB_CleanDCache_by_Addr((uint32_t*)&u16_tim4_pwm[0], sizeof(uint16_t) * TIM4_LED_SIZE);//after multiple calculation
-#endif
-		HAL_TIM_PWM_Start_DMA(p_tim4, TIM_CHANNEL_2, (uint32_t*)u16_tim4_pwm, u16_cnt);
-		b_tim4_ready = true;
-	}
-	else{
-		drgb->fn.v_PutArr(drgb, pu16_pwmArr, u16_cnt);
-	}
-}
-#endif
-
 
 void v_Tim4_Ch2_Out(uint16_t* pu16_pwmArr, uint16_t u16_cnt){
 	if(b_tim4_ready == false){

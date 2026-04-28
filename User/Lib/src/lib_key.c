@@ -89,27 +89,6 @@ bool _b_Key_Get_Act(_x_keyACT_t* px_act, _e_keyREAD_t e_key){
 }
 
 
-#if 0
-//example
-_x_keyACT_t x_Get_SW(){
-	static uint32_t u32_1ms;
-	uint32_t key_val = 1;
-	static _e_keyREAD_t e_ref;
-	static _x_keyTIM_t x_time = {
-		.u32_ref_pressed = 0,
-		.u32_ref_released = 0,
-		.u32_val_pressed = 50,
-		.u32_val_released = 5,
-		.u32_val_long_pressed = 2000,
-		.pu32_tick = &u32_1ms,
-	};
-	return _x_Key_Get_Act(&e_ref, _e_Key_Get_Long(&x_time, key_val));
-}
-#endif
-
-
-
-
 
 
 

@@ -815,14 +815,6 @@ void v_ESP_CmdTest(){
 				v_ESP_Transmit_toRx(ESP_DIR_REQ, ESP_CMD_INIT_TEMP_FORCEUP, data, 2);
 				break;
 			}
-#if 0
-			if(order < ESP_CMD_INIT_TEMP_FORCEUP){
-				order++;
-			}
-			else{
-				order = ESP_CMD_INIT_TEMP_SLEEP;
-			}
-#endif
 			if(toggle < 4){
 				toggle++;
 			}
