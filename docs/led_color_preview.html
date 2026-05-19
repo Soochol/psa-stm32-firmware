@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>SK6812 LED 상태별 색상 미리보기</title>
+<style>
+  body {
+    font-family: -apple-system, "Segoe UI", sans-serif;
+    background: #1a1a1a;
+    color: #eee;
+    margin: 0;
+    padding: 24px;
+  }
+  h1 { margin: 0 0 8px; }
+  .sub { color: #888; margin-bottom: 24px; font-size: 14px; }
+  h2 { margin-top: 32px; border-bottom: 1px solid #333; padding-bottom: 6px; }
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 14px;
+  }
+  .card {
+    background: #242424;
+    border-radius: 10px;
+    padding: 14px;
+    border: 1px solid #333;
+  }
+  .swatch {
+    width: 100%;
+    height: 90px;
+    border-radius: 8px;
+    margin-bottom: 10px;
+    box-shadow: 0 0 24px var(--glow, transparent);
+  }
+  .swatch.dark {
+    border: 1px dashed #444;
+  }
+  .name { font-weight: 600; font-size: 15px; }
+  .hex  { color: #9ad; font-family: ui-monospace, monospace; font-size: 12px; margin-top: 4px; }
+  .desc { color: #aaa; font-size: 12px; margin-top: 6px; }
+
+  /* level bars (COOL/HEAT/BAT) */
+  .levels { display: flex; gap: 6px; margin-top: 8px; }
+  .lv {
+    flex: 1;
+    height: 28px;
+    border-radius: 4px;
+    background: #111;
+    border: 1px solid #333;
+  }
+  .blink { animation: blink 1s steps(2, end) infinite; }
+  @keyframes blink { 50% { opacity: 0.15; } }
+</style>
+</head>
+<body>
+
+<h1>SK6812 LED 상태별 색상</h1>
+<div class="sub">User/Edit/inc/mode.h 정의 기준 · 발광 느낌을 보이기 위해 어두운 배경 + glow 적용</div>
+
+<h2>메인 상태 (TOP / BOT 5쌍)</h2>
+<div class="grid">
+
+  <div class="card">
+    <div class="swatch" style="background:#CDFF96; --glow:#CDFF9655;"></div>
+    <div class="name">BOOT (부팅)</div>
+    <div class="hex">R=0xCD G=0xFF B=0x96 → #CDFF96</div>
+    <div class="desc">전원 ON 직후</div>
+  </div>
+
+  <div class="card">
+    <div class="swatch" style="background:#3399FF; --glow:#3399FF55;"></div>
+    <div class="name">WAIT (대기)</div>
+    <div class="hex">R=0x33 G=0x99 B=0xFF → #3399FF</div>
+    <div class="desc">동작 대기 중</div>
+  </div>
+
+  <div class="card">
+    <div class="swatch blink" style="background:#CCFF00; --glow:#CCFF0055;"></div>
+    <div class="name">FORCE_UP (가압 중)</div>
+    <div class="hex">R=0xCC G=0xFF B=0x00 → #CCFF00</div>
+    <div class="desc">가압 진행 · 500ms 깜빡임</div>
+  </div>
+
+  <div class="card">
+    <div class="swatch" style="background:#CCFF00; --glow:#CCFF0055;"></div>
+    <div class="name">FORCE_ON (가압 유지)</div>
+    <div class="hex">R=0xCC G=0xFF B=0x00 → #CCFF00</div>
+    <div class="desc">목표 압력 도달 · 고정</div>
+  </div>
+
+  <div class="card">
+    <div class="swatch blink" style="background:#3399FF; --glow:#3399FF55;"></div>
+    <div class="name">FORCE_DOWN (감압)</div>
+    <div class="hex">R=0x33 G=0x99 B=0xFF → #3399FF</div>
+    <div class="desc">감압 진행 · 깜빡임</div>
+  </div>
+
+  <div class="card">
+    <div class="swatch" style="background:#D3D3D3; --glow:#D3D3D355;"></div>
+    <div class="name">SLEEP</div>
+    <div class="hex">R=0xD3 G=0xD3 B=0xD3 → #D3D3D3</div>
+    <div class="desc">절전 모드</div>
+  </div>
+
+  <div class="card">
+    <div class="swatch" style="background:#75EB95; --glow:#75EB9555;"></div>
+    <div class="name">OFF</div>
+    <div class="hex">R=0x75 G=0xEB B=0x95 → #75EB95</div>
+    <div class="desc">정지 상태</div>
+  </div>
+
+  <div class="card">
+    <div class="swatch" style="background:#DB4A75; --glow:#DB4A7555;"></div>
+    <div class="name">TEST</div>
+    <div class="hex">R=0xDB G=0x4A B=0x75 → #DB4A75</div>
+    <div class="desc">테스트 모드</div>
+  </div>
+
+  <div class="card">
+    <div class="swatch" style="background:#FF4D4F; --glow:#FF4D4F77;"></div>
+    <div class="name">ERROR</div>
+    <div class="hex">R=0xFF G=0x4D B=0x4F → #FF4D4F</div>
+    <div class="desc">에러 발생</div>
+  </div>
+
+  <div class="card">
+    <div class="swatch" style="background:#D0E040; --glow:#D0E04055;"></div>
+    <div class="name">IMU 캘리브레이션</div>
+    <div class="hex">R=0xD0 G=0xE0 B=0x40 → #D0E040</div>
+    <div class="desc">IMU 보정 중</div>
+  </div>
+
+</div>
+
+
+<h2>레벨 표시 (3단계 막대)</h2>
+<div class="grid">
+
+  <div class="card">
+    <div class="name">COOL (냉찜질 강도)</div>
+    <div class="hex">#87CEEB · sky blue</div>
+    <div class="levels">
+      <div class="lv"></div>
+      <div class="lv"></div>
+      <div class="lv" style="background:#87CEEB; box-shadow:0 0 12px #87CEEB99;"></div>
+    </div>
+    <div class="levels">
+      <div class="lv"></div>
+      <div class="lv" style="background:#87CEEB; box-shadow:0 0 12px #87CEEB99;"></div>
+      <div class="lv" style="background:#87CEEB; box-shadow:0 0 12px #87CEEB99;"></div>
+    </div>
+    <div class="levels">
+      <div class="lv" style="background:#87CEEB; box-shadow:0 0 12px #87CEEB99;"></div>
+      <div class="lv" style="background:#87CEEB; box-shadow:0 0 12px #87CEEB99;"></div>
+      <div class="lv" style="background:#87CEEB; box-shadow:0 0 12px #87CEEB99;"></div>
+    </div>
+    <div class="desc">레벨 1 / 2 / 3 점등 패턴</div>
+  </div>
+
+  <div class="card">
+    <div class="name">HEAT (온찜질 강도)</div>
+    <div class="hex">#87CEEB · sky blue ⚠ COOL과 동일</div>
+    <div class="levels">
+      <div class="lv"></div>
+      <div class="lv"></div>
+      <div class="lv" style="background:#87CEEB; box-shadow:0 0 12px #87CEEB99;"></div>
+    </div>
+    <div class="levels">
+      <div class="lv"></div>
+      <div class="lv" style="background:#87CEEB; box-shadow:0 0 12px #87CEEB99;"></div>
+      <div class="lv" style="background:#87CEEB; box-shadow:0 0 12px #87CEEB99;"></div>
+    </div>
+    <div class="levels">
+      <div class="lv" style="background:#87CEEB; box-shadow:0 0 12px #87CEEB99;"></div>
+      <div class="lv" style="background:#87CEEB; box-shadow:0 0 12px #87CEEB99;"></div>
+      <div class="lv" style="background:#87CEEB; box-shadow:0 0 12px #87CEEB99;"></div>
+    </div>
+    <div class="desc">현재 코드상 COOL과 동일색</div>
+  </div>
+
+  <div class="card">
+    <div class="name">BAT 정상 (배터리 잔량)</div>
+    <div class="hex">#CCFF00 · lime</div>
+    <div class="levels">
+      <div class="lv"></div>
+      <div class="lv"></div>
+      <div class="lv" style="background:#CCFF00; box-shadow:0 0 12px #CCFF0099;"></div>
+    </div>
+    <div class="levels">
+      <div class="lv"></div>
+      <div class="lv" style="background:#CCFF00; box-shadow:0 0 12px #CCFF0099;"></div>
+      <div class="lv" style="background:#CCFF00; box-shadow:0 0 12px #CCFF0099;"></div>
+    </div>
+    <div class="levels">
+      <div class="lv" style="background:#CCFF00; box-shadow:0 0 12px #CCFF0099;"></div>
+      <div class="lv" style="background:#CCFF00; box-shadow:0 0 12px #CCFF0099;"></div>
+      <div class="lv" style="background:#CCFF00; box-shadow:0 0 12px #CCFF0099;"></div>
+    </div>
+    <div class="desc">1칸 / 2칸 / 3칸 점등</div>
+  </div>
+
+  <div class="card">
+    <div class="name">BAT ALERT (저전압 경고)</div>
+    <div class="hex">#FF8000 · orange · 깜빡임</div>
+    <div class="levels">
+      <div class="lv blink" style="background:#FF8000; box-shadow:0 0 12px #FF8000AA;"></div>
+      <div class="lv"></div>
+      <div class="lv"></div>
+    </div>
+    <div class="desc">1번 LED만 주황색으로 깜빡임</div>
+  </div>
+
+</div>
+
+</body>
+</html>
