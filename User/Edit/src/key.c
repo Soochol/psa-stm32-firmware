@@ -11,10 +11,70 @@ void v_Key_BlowFan_Handler();
 void v_Key_ForceToggle_Handler();
 void v_Key_Power_Handler();
 
+static bool b_combo_lock = false;
+static void v_Key_Combo_Handler(void);
+static void v_Key_Combo_Toggle_FuFd(void);
+
 void v_Key_Handler(){
+	v_Key_Combo_Handler();        // SW1+SW2 1s combo - must run first to set lock
 	v_Key_BlowFan_Handler();
 	v_Key_ForceToggle_Handler();  // SW2: volume-cycle trigger (consumed in mode.c)
 	v_Key_Power_Handler();
+}
+
+static void v_Key_Combo_Handler(void){
+	static _x_keyTIM_t time = {
+		.u32_ref_pressed = 0,
+		.u32_ref_released = 0,
+		.u32_val_pressed = 10,
+		.u32_val_released = 10,
+		.u32_val_long_pressed = 1000,
+		.u32_tick = u32_Tim_1msGet,
+	};
+	static _x_keyACT_t act;
+
+	uint32_t sw1 = !CHK_BIT(DI_CTRL_SW1_GPIO_Port->IDR, DI_CTRL_SW1_Pin);
+	uint32_t sw2 = !CHK_BIT(DI_CTRL_SW2_GPIO_Port->IDR, DI_CTRL_SW2_Pin);
+	uint32_t combo = sw1 && sw2;
+
+	_e_keyREAD_t e = _e_Key_Get_Long(&time, combo);
+
+	if(_b_Key_Get_Act(&act, e)){
+		if(act.reg.bit.b1_upd){
+			if(act.reg.bit.b1_rst){
+				act.reg.u8 = 0;
+			}
+			else{
+				if(act.reg.bit.b1_long){
+					v_Key_Combo_Toggle_FuFd();
+					b_combo_lock = true;
+				}
+			}
+		}
+	}
+
+	if(e == _keyRELEASED){
+		b_combo_lock = false;
+	}
+}
+
+static void v_Key_Combo_Toggle_FuFd(void){
+	e_modeID_t id = e_Mode_Get_CurrID();
+	e_modeID_t next = id;
+
+	switch(id){
+		case modeFORCE_UP:    next = modeFORCE_DOWN; break;
+		case modeFORCE_ON:    next = modeFORCE_DOWN; break;
+		case modeFORCE_DOWN:  next = modeFORCE_UP;   break;
+		case modeWAITING:     next = modeFORCE_UP;   break;
+		case modeSLEEP:       next = modeFORCE_UP;   break;
+		default:
+			LOG_INFO("KEY", "Combo ignored, mode=%d not toggleable", id);
+			return;
+	}
+
+	LOG_INFO("KEY", "SW1+SW2 1s combo: %d -> %d", id, next);
+	v_Mode_SetNext(next);
 }
 
 
@@ -27,6 +87,10 @@ void v_Key_ForceToggle_Handler(){
 		.u32_tick = u32_Tim_1msGet,
 	};
 	static _x_keyACT_t act;
+	if(b_combo_lock){
+		act.reg.u8 = 0;
+		return;
+	}
 	if(_b_Key_Get_Act(&act, _e_Key_Get(&time, !CHK_BIT(DI_CTRL_SW2_GPIO_Port->IDR, DI_CTRL_SW2_Pin)))){
 		if(act.reg.bit.b1_upd){
 			if(act.reg.bit.b1_short){
@@ -51,6 +115,10 @@ void v_Key_BlowFan_Handler(){
 		.u32_tick = u32_Tim_1msGet,
 	};
 	static _x_keyACT_t act;
+	if(b_combo_lock){
+		act.reg.u8 = 0;
+		return;
+	}
 	if(_b_Key_Get_Act(&act, _e_Key_Get(&time, !CHK_BIT(DI_CTRL_SW1_GPIO_Port->IDR, DI_CTRL_SW1_Pin)))){
 		if(act.reg.bit.b1_upd){
 			if(act.reg.bit.b1_short){
