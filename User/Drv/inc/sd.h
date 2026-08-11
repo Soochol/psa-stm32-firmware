@@ -47,6 +47,7 @@ void v_SD_Log_Media_Handler();
 bool b_SD_Log_Get_Error(uint8_t* pu8_reason, uint16_t* pu16_detail);
 
 uint8_t  u8_SD_Log_Get_State();			// logState for reqLogStatus: 0 stop, 1 logging, 2 fault
+uint16_t u16_SD_Log_Get_FreeMB();		// 0xFFFF when unmounted or not known
 
 uint32_t u32_SD_Log_Get_Seq();			// next sample number
 uint32_t u32_SD_Log_Get_FlushedSeq();	// last seq actually on the card

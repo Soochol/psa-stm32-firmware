@@ -816,6 +816,30 @@ bool b_SD_Log_Get_Error(uint8_t* pu8_reason, uint16_t* pu16_detail){
 	return true;
 }
 
+/*
+ * brief	: free space in MB for the reqLogStatus(0x43) response
+ * note
+ * - Reads FatFs' running free-cluster count rather than calling f_getfree.
+ *   FatFs maintains it on every allocation (ff.c:1420) and seeds it from FSINFO
+ *   at mount, so this is a struct read. f_getfree returns the same number but
+ *   falls back to scanning the whole FAT when FSINFO is stale — seconds of
+ *   blocking against a 2 s watchdog, and a stale FSINFO is exactly what a
+ *   power cut during a write leaves behind.
+ * - 0xFFFF means "not known", using the same validity test f_getfree makes.
+ *   It overlaps the spec's "clamped at 65535" value; both mean "do not warn",
+ *   and a card that really is running out is caught by evtLogError(2) instead.
+ */
+uint16_t u16_SD_Log_Get_FreeMB(){
+	if(!b_SdMount) return 0xFFFFU;
+
+	FATFS* fs = p_fatFs;
+	if(fs->free_clst > fs->n_fatent - 2) return 0xFFFFU;	// FSINFO never was valid
+
+	uint64_t u64_free = (uint64_t)fs->free_clst * (uint64_t)fs->csize * (uint64_t)fs->ssize;
+	uint64_t u64_mb   = u64_free >> 20;
+	return (u64_mb > 65535ULL) ? 65535U : (uint16_t)u64_mb;
+}
+
 uint8_t u8_SD_Log_Get_State(){
 	if(b_logFault) return 2;
 	if(!b_logCrcOk || !b_logEnabled) return 0;

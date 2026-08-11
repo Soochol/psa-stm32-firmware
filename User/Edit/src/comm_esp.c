@@ -9,6 +9,7 @@
 #include "minimp3_platform.h"
 #include "lib_log.h"
 #include "sd.h"
+#include "flash_cfg.h"
 
 
 //STX	| LEN	| DIR	| CMD	| DATA	| CHK	| ETX
@@ -40,6 +41,7 @@ typedef enum {
 	ESP_CMD_INIT_GYRO_REL		=0x20,
 	ESP_CMD_INIT_MODE			=0x21,
 	ESP_CMD_INIT_PWM_BLOWFAN	=0x22,
+	ESP_CMD_INIT_LOG_IDENTITY	=0x23,	//SD logging spec 6.1
 	//REQUEST
 	ESP_CMD_REQ_TEMP_SLEEP		=0x30,
 	ESP_CMD_REQ_TEMP_WAITING	=0x31,
@@ -54,6 +56,7 @@ typedef enum {
 	ESP_CMD_REQ_GYRO_REL		=0x40,
 	ESP_CMD_REQ_MODE			=0x41,
 	ESP_CMD_REQ_PWM_BLOWFAN		=0x42,
+	ESP_CMD_REQ_LOG_STATUS		=0x43,	//SD logging spec 6.2
 	//CONTROL
 	ESP_CMD_CTRL_RST			=0x50,
 	ESP_CMD_CTRL_MODE			=0x51,	//add
@@ -451,6 +454,18 @@ static void v_ESP_InitProc(uint8_t u8_cmd, uint8_t* pu8_data, uint8_t u8_len){
 	case ESP_CMD_INIT_PWM_BLOWFAN:
 		v_Mode_Set_BlowFan_Now(pu8_data[0]);
 		break;
+	case ESP_CMD_INIT_LOG_IDENTITY:
+		// Stored non-volatile so the next boot can name its directory before the
+		// ESP32 says anything. Any file already open keeps the name it was created
+		// with — spec 6.1 forbids rewriting a header after the fact — so the new
+		// id first appears at the next rotation.
+		if(u8_len >= FLASH_CFG_DEVID_LEN){
+			v_Flash_Cfg_Set_DeviceId(pu8_data);
+			LOG_INFO("COMM_ESP", "deviceId %02X%02X%02X%02X%02X%02X",
+					pu8_data[0], pu8_data[1], pu8_data[2],
+					pu8_data[3], pu8_data[4], pu8_data[5]);
+		}
+		break;
 	}
 	//ack
 	b_ESP_Transmit(ESP_DIR_ACK, u8_cmd, NULL, 0);
@@ -540,6 +555,35 @@ static void v_ESP_ReqProc(uint8_t u8_cmd){
 	case ESP_CMD_REQ_PWM_BLOWFAN:
 		data[len++] = u16_Mode_Get_BlowFan_Now();
 		break;
+	case ESP_CMD_REQ_LOG_STATUS:
+	{
+		// 21 B, spec 6.2. currentTickMs is read here rather than carried from
+		// elsewhere: it is the anchor the merge tool pairs with absolute time, and
+		// pairing is only tight if it is sampled as the reply is built.
+		uint32_t u32_bootId  = u32_Flash_Cfg_Get_BootId();
+		uint32_t u32_lastSeq = u32_SD_Log_Get_FlushedSeq();
+		uint32_t u32_tick    = u32_Tim_1msGet();
+		uint32_t u32_fileIdx = u32_SD_Log_Get_FileIndex();
+		uint16_t u16_free    = u16_SD_Log_Get_FreeMB();
+		uint16_t u16_wrErr   = u16_SD_Log_Get_WriteErrCnt();
+
+		data[len++] = u8_SD_Log_Get_State();
+		data[len++] = u32_bootId >> 24;   data[len++] = u32_bootId >> 16;
+		data[len++] = u32_bootId >> 8;    data[len++] = u32_bootId;
+		data[len++] = u32_lastSeq >> 24;  data[len++] = u32_lastSeq >> 16;
+		data[len++] = u32_lastSeq >> 8;   data[len++] = u32_lastSeq;
+		data[len++] = u32_tick >> 24;     data[len++] = u32_tick >> 16;
+		data[len++] = u32_tick >> 8;      data[len++] = u32_tick;
+		data[len++] = u16_free >> 8;      data[len++] = u16_free;
+		// fileIndex is uint32 in the file header but uint16 on the wire; clamp
+		// rather than wrap, so a saturated value reads as "at least this many".
+		if(u32_fileIdx > 0xFFFFU) u32_fileIdx = 0xFFFFU;
+		data[len++] = u32_fileIdx >> 8;   data[len++] = u32_fileIdx;
+		data[len++] = u16_wrErr >> 8;     data[len++] = u16_wrErr;
+		data[len++] = 1;                  // formatVersion
+		data[len++] = u8_Mode_Get_ProtoMode();
+		break;
+	}
 	}
 	//ack
 	b_ESP_Transmit(ESP_DIR_ACK, u8_cmd, data, len);
