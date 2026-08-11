@@ -7,8 +7,12 @@ seq == firstSeq + n. Backfill seeks with 512 + (seq - firstSeq) * 80 instead of
 scanning, so a single broken slot makes the device answer a seq request with the
 wrong sample -- silently, because the record it returns is itself valid.
 
-Usage:  validate_psa.py FILE [FILE ...]
+Usage:  validate_psa.py [--decode=0,1,2] FILE [FILE ...]
 Exit:   0 all files valid, 1 otherwise
+
+--decode prints the full expected field decoding of the named records. That is
+what settles whether both sides read the payload the same way -- a file can
+parse cleanly and still be decoded with the wrong scale or endianness.
 """
 import sys
 import struct
@@ -46,6 +50,75 @@ def parse_header(raw: bytes) -> dict:
         "firstSeq": first_seq, "sampleRateMilliHz": rate,
         "headerCrc": stored_crc, "headerCrcCalc": crc16_ccitt_false(raw[:30]),
     }
+
+
+# STAT(0x70) payload layout, from comm_esp.c v_ESP_Send_Sensing. Offsets are
+# relative to the payload, i.e. record offset 8 + these.
+def decode_payload(p: bytes) -> list:
+    def i16(o):
+        return int.from_bytes(p[o:o + 2], "big", signed=True)
+
+    def u16(o):
+        return int.from_bytes(p[o:o + 2], "big")
+
+    def dec(o):
+        # [integer, fraction x100] -- the code stores value*100 minus int*100
+        return p[o] + p[o + 1] / 100.0
+
+    def f32(o):
+        return struct.unpack_from(">f", p, o)[0]
+
+    out = [
+        ("imu_l_gyro", f"{i16(0)}, {i16(2)}, {i16(4)}"),
+        ("imu_l_accel", f"{i16(6)}, {i16(8)}, {i16(10)}"),
+        ("imu_r_gyro", f"{i16(12)}, {i16(14)}, {i16(16)}"),
+        ("imu_r_accel", f"{i16(18)}, {i16(20)}, {i16(22)}"),
+        ("fsr_left", u16(24)), ("fsr_right", u16(26)),
+        ("temp_out", f"{dec(28):.2f}"), ("temp_in", f"{dec(30):.2f}"),
+        ("temp_ir", f"{dec(32):.2f}"),
+        ("tof1", u16(34)), ("tof2", u16(36)),
+        ("battery", f"{dec(38):.2f}"),
+        ("imu_l_evt", p[40]), ("imu_r_evt", p[41]),
+        ("gps_lat", f"{f32(42):.6f}"), ("gps_lon", f"{f32(46):.6f}"),
+        ("gps_sat", p[50]), ("gps_fix", p[51]),
+        ("angle_l", f"{i16(52)/100.0:.2f}, {i16(54)/100.0:.2f}, {i16(56)/100.0:.2f}"),
+        ("angle_r", f"{i16(58)/100.0:.2f}, {i16(60)/100.0:.2f}, {i16(62)/100.0:.2f}"),
+    ]
+    return out
+
+
+def decode(path: str, want: list) -> None:
+    """Print the full expected decoding of chosen records, for cross-checking."""
+    with open(path, "rb") as fh:
+        raw = fh.read()
+    h = parse_header(raw)
+    n_total = (len(raw) - HDR_SIZE) // REC_SIZE
+    print(f"\n=== {path} — expected decoding ===")
+    print(f"  header: bootId={h['bootId']} fileIndex={h['fileIndex']} "
+          f"firstSeq={h['firstSeq']} records={n_total}")
+    for n in want:
+        if n >= n_total:
+            print(f"  record {n}: out of range")
+            continue
+        r = raw[HDR_SIZE + n * REC_SIZE:HDR_SIZE + (n + 1) * REC_SIZE]
+        seq, tick = struct.unpack_from(">II", r, 0)
+        mode, flags = r[72], r[73]
+        err = struct.unpack_from(">H", r, 74)[0]
+        crc = struct.unpack_from(">H", r, 78)[0]
+        print(f"\n  --- record {n} (file offset {HDR_SIZE + n * REC_SIZE}) ---")
+        print(f"    seq          = {seq}      (expected firstSeq+n = {h['firstSeq'] + n})")
+        print(f"    tickMs       = {tick} ms   [big-endian]")
+        print(f"    deviceMode   = {mode} ({MODE_NAMES.get(mode, '?')})")
+        print(f"    flags        = 0x{flags:02X} "
+              f"(txOk={'y' if flags & FLAG_TX_OK else 'n'}, "
+              f"placeholder={'YES' if flags & FLAG_INVALID else 'no'})")
+        print(f"    errorMask    = 0x{err:04X}")
+        print(f"    crc16        = 0x{crc:04X}  (recomputed 0x{crc16_ccitt_false(r[:78]):04X})")
+        if flags & FLAG_INVALID:
+            print("    statPayload  = placeholder, all zero -- do not consume")
+            continue
+        for name, val in decode_payload(r[8:72]):
+            print(f"    {name:<12} = {val}")
 
 
 def validate(path: str) -> bool:
@@ -135,11 +208,24 @@ def validate(path: str) -> bool:
 
 
 def main() -> int:
-    if len(sys.argv) < 2:
+    args = sys.argv[1:]
+    if not args:
         print(__doc__)
         return 2
     assert crc16_ccitt_false(b"123456789") == 0x29B1, "CRC self test failed"
-    return 0 if all([validate(p) for p in sys.argv[1:]]) else 1
+
+    # --decode N,N,N prints the full expected field decoding of those records,
+    # which is what pins the two sides' interpretation of the payload.
+    want = None
+    if args[0].startswith("--decode"):
+        want = [int(x) for x in args[0].split("=", 1)[1].split(",")] if "=" in args[0] else [0]
+        args = args[1:]
+
+    ok = all([validate(p) for p in args])
+    if want is not None:
+        for p in args:
+            decode(p, want)
+    return 0 if ok else 1
 
 
 if __name__ == "__main__":

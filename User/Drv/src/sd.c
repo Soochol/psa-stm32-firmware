@@ -423,6 +423,22 @@ static uint16_t u16_logErrDetail;
 #define SD_LOG_MOUNT_ITV	5000	// remount attempts; each one re-inits the SDMMC
 #define SD_LOG_WRFAIL_MAX	3		// failed flushes before a remount is attempted
 
+/*
+ * Second fault injection point, for scenario 14. The write-failure hook in
+ * sd_diskio.c produces a rotation, not a placeholder — the two are different
+ * paths. A placeholder needs the length contract to trip, so forcing the length
+ * here runs exactly the code the field would run rather than a special case.
+ * Same rules as the other hook: no build configuration defines the symbol, and
+ * it defaults to 0 so forgetting the flag fails safe.
+ */
+#ifndef PSA_FAULT_INJECT
+#define PSA_FAULT_INJECT 0
+#endif
+
+#if PSA_FAULT_INJECT
+volatile uint8_t u8_sd_fault_inject_len;
+#endif
+
 static void v_log_err_raise(uint8_t u8_reason, uint16_t u16_detail){
 	if(b_logErrPend) return;		// keep the older one, it is closer to the cause
 	u8_logErrReason  = u8_reason;
@@ -633,6 +649,12 @@ void v_SD_Log_Write(const uint8_t* pu8_payload, uint16_t u16_len,
 	uint8_t  u8_flags = b_txOk ? SD_FLAG_TX_OK : 0;
 
 	if(!b_logCrcOk || !b_logEnabled || b_logFault) return;
+
+#if PSA_FAULT_INJECT
+	if(u8_sd_fault_inject_len){
+		if(--u8_sd_fault_inject_len == 0) u16_len = 0;	// trips the length contract
+	}
+#endif
 
 	// Length contract (spec section 7.4). Do not skip the slot: dropping one
 	// record shifts every later record in the file by 80 B and backfill would
