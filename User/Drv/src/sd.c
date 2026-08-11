@@ -1023,6 +1023,144 @@ bool b_SD_Log_Idx_Get(uint16_t u16_n, uint32_t* pu32_boot, uint32_t* pu32_first,
 }
 
 
+//////////////////////////////////
+//		BACKFILL READER			//
+//////////////////////////////////
+
+// Serves reqLogRead(0x44). The protocol layer pulls records from here one at a
+// time and frames them; this file never transmits.
+static FIL      bfFile;
+static bool     b_bfOpen;
+static bool     b_bfActive;
+static uint32_t u32_bfNext;			// next seq to hand out
+static uint32_t u32_bfLast;			// last seq of the request, inclusive
+static uint32_t u32_bfSent;			// last seq actually handed out
+static uint8_t  u8_bfResult;
+
+/*
+ * brief	: pick the file holding u32_seq of u32_boot
+ * note
+ * - Ranges can overlap after a failure rotation, because the batch still in RAM
+ *   is re-recorded into the new file. The higher fileIndex wins (correction 15):
+ *   it is the copy that was written after the failure, so it is the intact one.
+ */
+static bool b_bf_find(uint32_t u32_boot, uint32_t u32_seq, uint16_t* pu16_idx,
+		uint32_t* pu32_first){
+	bool b_found = false;
+	for(uint16_t i = 0; i < u16_logIdxCnt; i++){
+		if(x_logIdx[i].u32_bootId != u32_boot) continue;
+		if(u32_seq < x_logIdx[i].u32_firstSeq) continue;
+		if(u32_seq > x_logIdx[i].u32_lastSeq)  continue;
+		*pu16_idx   = x_logIdx[i].u16_fileIdx;	// index is sorted ascending,
+		*pu32_first = x_logIdx[i].u32_firstSeq;	// so the last match is the highest
+		b_found = true;
+	}
+	return b_found;
+}
+
+static void v_bf_close(){
+	if(b_bfOpen){
+		f_close(&bfFile);
+		b_bfOpen = false;
+	}
+	b_bfActive = false;
+}
+
+uint8_t u8_SD_Log_Backfill_Start(uint32_t u32_boot, uint32_t u32_startSeq, uint16_t u16_count){
+	char c_dev[13];
+	char c_path[SD_LOG_PATH_MAX];
+	uint16_t u16_idx;
+	uint32_t u32_first;
+
+	v_bf_close();						// a new request supersedes any in flight
+	u32_bfSent = (u32_startSeq == 0) ? 0 : (u32_startSeq - 1);
+
+	if(u16_count == 0) return 2;		// nothing asked for
+	if(!b_SdMount)     return 3;
+
+	// Is this bootId on the card at all?
+	bool b_boot = false;
+	for(uint16_t i = 0; i < u16_logIdxCnt; i++){
+		if(x_logIdx[i].u32_bootId == u32_boot){ b_boot = true; break; }
+	}
+	if(!b_boot) return 1;				// no such bootId
+
+	if(!b_bf_find(u32_boot, u32_startSeq, &u16_idx, &u32_first)) return 2;
+
+	v_log_devid_dir(c_dev);
+	snprintf(c_path, sizeof(c_path), "%s/%s/%08lX_%04lX.psa", SD_LOG_DIR, c_dev,
+			(unsigned long)u32_boot, (unsigned long)u16_idx);
+	if(f_open(&bfFile, c_path, FA_READ) != FR_OK){
+		v_log_err_raise(SD_LOG_ERR_BACKFILL, 0);
+		return 3;
+	}
+	// Fixed records are the whole point: the offset is arithmetic, no scanning.
+	if(f_lseek(&bfFile, SD_LOG_HDR_SIZE + (uint32_t)(u32_startSeq - u32_first) * SD_LOG_REC_SIZE)
+			!= FR_OK){
+		f_close(&bfFile);
+		v_log_err_raise(SD_LOG_ERR_BACKFILL, 0);
+		return 3;
+	}
+
+	b_bfOpen   = true;
+	b_bfActive = true;
+	u32_bfNext = u32_startSeq;
+	u32_bfLast = u32_startSeq + u16_count - 1;
+	u8_bfResult = 0;
+	return 0xFF;						// accepted; streaming begins
+}
+
+/*
+ * brief	: hand out the next record, or report the stream is finished
+ * retval	: true  = pu8_rec holds one 80 B record
+ *            false = done; *pu8_result and u32_SD_Log_Backfill_LastSent() apply
+ */
+bool b_SD_Log_Backfill_Next(uint8_t* pu8_rec, uint8_t* pu8_result){
+	UINT br = 0;
+
+	if(!b_bfActive){
+		if(pu8_result) *pu8_result = u8_bfResult;
+		return false;
+	}
+	if(u32_bfNext > u32_bfLast){
+		u8_bfResult = 0;				// requested range delivered
+		v_bf_close();
+		if(pu8_result) *pu8_result = u8_bfResult;
+		return false;
+	}
+
+	if(f_read(&bfFile, pu8_rec, SD_LOG_REC_SIZE, &br) != FR_OK){
+		u8_bfResult = 3;
+		v_log_err_raise(SD_LOG_ERR_BACKFILL, 0);
+		v_bf_close();
+		if(pu8_result) *pu8_result = u8_bfResult;
+		return false;
+	}
+	if(br != SD_LOG_REC_SIZE){
+		// End of file, or a partial record left by a power cut. Never send a
+		// fragment (spec section 10.3); result 0 means "all we hold", and the PC
+		// resumes from lastSeqSent + 1.
+		u8_bfResult = 0;
+		v_bf_close();
+		if(pu8_result) *pu8_result = u8_bfResult;
+		return false;
+	}
+
+	u32_bfSent = u32_bfNext;
+	u32_bfNext++;
+	return true;
+}
+
+void v_SD_Log_Backfill_Abort(uint8_t u8_result){
+	if(!b_bfActive) return;
+	u8_bfResult = u8_result;
+	v_bf_close();
+}
+
+bool     b_SD_Log_Backfill_Active(){	return b_bfActive; }
+uint32_t u32_SD_Log_Backfill_LastSent(){ return u32_bfSent; }
+
+
 uint32_t u32_SD_Log_Get_Seq(){			return u32_logSeq; }
 uint32_t u32_SD_Log_Get_FlushedSeq(){	return u32_logFlushedSeq; }
 uint32_t u32_SD_Log_Get_FileIndex(){	return u32_logFileIdx; }

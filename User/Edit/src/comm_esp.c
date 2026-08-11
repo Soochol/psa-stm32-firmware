@@ -57,6 +57,8 @@ typedef enum {
 	ESP_CMD_REQ_MODE			=0x41,
 	ESP_CMD_REQ_PWM_BLOWFAN		=0x42,
 	ESP_CMD_REQ_LOG_STATUS		=0x43,	//SD logging spec 6.2
+	ESP_CMD_REQ_LOG_READ		=0x44,	//SD logging spec 6.4
+	ESP_CMD_REQ_LOG_FILES		=0x45,	//SD logging spec 6.3
 	//CONTROL
 	ESP_CMD_CTRL_RST			=0x50,
 	ESP_CMD_CTRL_MODE			=0x51,	//add
@@ -67,6 +69,7 @@ typedef enum {
 	ESP_CMD_CTRL_LOG_EN			=0x56,	//SD logging spec 6.6
 	//STATUS
 	ESP_CMD_STAT=0x70,
+	ESP_CMD_STAT_LOG_CHUNK=0x71,	//SD logging spec 6.5
 	//EVENT
 	ESP_CMD_EVT_INIT_START=0x80,
     ESP_CMD_EVT_INIT_RESULT=0x81,
@@ -108,6 +111,11 @@ typedef enum {
 
 #define ESP_RX_ARR_SIZE		(128)
 
+// One statLogChunk DATA frame, and the room kept free ahead of it so the live
+// STAT frame (70 B) never has to queue behind a burst of them.
+#define ESP_BF_FRAME_SIZE	(6 + 81)
+#define ESP_BF_TX_RESERVE	(128)
+
 
 //function
 static bool b_ESP_Transmit(uint8_t u8_dir, uint8_t u8_cmd, uint8_t* pu8_data, uint16_t u16_len);
@@ -116,7 +124,7 @@ static void v_ESP_RxProc(uint8_t u8_cmd, uint8_t* pu8_data, uint8_t u8_len);
 static void v_ESP_RxAck(uint8_t u8_cmd, uint8_t* pu8_data, uint8_t u8_len);
 
 static void v_ESP_InitProc(uint8_t u8_cmd, uint8_t* pu8_data, uint8_t u8_len);
-static void v_ESP_ReqProc(uint8_t u8_cmd);
+static void v_ESP_ReqProc(uint8_t u8_cmd, uint8_t* pu8_data, uint8_t u8_len);
 static void v_ESP_CtrlProc(uint8_t u8_cmd, uint8_t* pu8_data, uint8_t u8_len);
 static void v_ESP_StatProc(uint8_t u8_cmd, uint8_t* pu8_data, uint8_t u8_len);
 
@@ -132,6 +140,51 @@ static int i_toutAct;
 void v_ESP_Handler(){
 	v_ESP_RxHandler();
 	v_ESP_LogError_Handler();
+	v_ESP_Backfill_Handler();
+}
+
+/*
+ * brief	: stream statLogChunk(0x71) frames while a backfill is running
+ * date
+ * - create	: 26.08.11
+ * note
+ * - Live STAT keeps priority (spec section 9.3) by reservation rather than by
+ *   preemption: chunks stop once the TX ring drops below ESP_BF_TX_RESERVE, so
+ *   the sensing tick always finds room for its 70 B frame. Nothing has to be
+ *   cut mid-stream, which is what "interrupt at a frame boundary" needs anyway.
+ * - No ACK per data chunk (spec section 9.2). A round trip per record would cost
+ *   more than the record; gaps are found by seq continuity and re-requested.
+ */
+void v_ESP_Backfill_Handler(){
+	uint8_t u8_chunk[1 + 80];
+	uint8_t u8_result = 0;
+
+	if(!b_SD_Log_Backfill_Active()) return;
+
+	while(u16_Uart_ESP_TxFree() >= (ESP_BF_FRAME_SIZE + ESP_BF_TX_RESERVE)){
+		u8_chunk[0] = 0x01;						// DATA chunk
+		if(!b_SD_Log_Backfill_Next(&u8_chunk[1], &u8_result)){
+			uint32_t u32_last = u32_SD_Log_Backfill_LastSent();
+			uint8_t  u8_end[6];
+			u8_end[0] = 0x00;					// END chunk
+			u8_end[1] = u8_result;
+			u8_end[2] = (uint8_t)(u32_last >> 24);
+			u8_end[3] = (uint8_t)(u32_last >> 16);
+			u8_end[4] = (uint8_t)(u32_last >> 8);
+			u8_end[5] = (uint8_t)(u32_last);
+			b_ESP_Transmit(ESP_DIR_REQ, ESP_CMD_STAT_LOG_CHUNK, u8_end, 6);
+			LOG_INFO("COMM_ESP", "backfill end result=%u lastSeqSent=%u",
+					u8_result, (unsigned)u32_last);
+			return;
+		}
+		if(!b_ESP_Transmit(ESP_DIR_REQ, ESP_CMD_STAT_LOG_CHUNK, u8_chunk, 1 + 80)){
+			// Should not happen given the reserve, but a dropped chunk must not
+			// be silently skipped: end the stream so the PC re-requests from
+			// lastSeqSent + 1 rather than seeing a hole it cannot explain.
+			v_SD_Log_Backfill_Abort(4);
+			return;
+		}
+	}
 }
 
 /*
@@ -359,7 +412,7 @@ static void v_ESP_RxProc(uint8_t u8_cmd, uint8_t* pu8_data, uint8_t u8_len){
 	}
 	else if(u8_cmd >= ESP_CMD_REQ_MIN && u8_cmd <= ESP_CMD_REQ_MAX){
 		//REQ
-		v_ESP_ReqProc(u8_cmd);
+		v_ESP_ReqProc(u8_cmd, pu8_data, u8_len);
 	}
 }
 
@@ -482,8 +535,9 @@ static void v_ESP_InitProc(uint8_t u8_cmd, uint8_t* pu8_data, uint8_t u8_len){
  * note
  * - response parameter
  */
-static void v_ESP_ReqProc(uint8_t u8_cmd){
-	static uint8_t data[32];
+static void v_ESP_ReqProc(uint8_t u8_cmd, uint8_t* pu8_data, uint8_t u8_len){
+	// 0x45 answers with up to 2 + 14*6 = 86 B, past the 32 the older commands need.
+	static uint8_t data[90];
 	float temp;
 	double integ, dot;
 	uint16_t len=0;
@@ -555,6 +609,57 @@ static void v_ESP_ReqProc(uint8_t u8_cmd){
 	case ESP_CMD_REQ_PWM_BLOWFAN:
 		data[len++] = u16_Mode_Get_BlowFan_Now();
 		break;
+	case ESP_CMD_REQ_LOG_FILES:
+	{
+		// startIndex paginates; the wire limit of 90 B caps a page at 6 entries.
+		uint16_t u16_total = u16_SD_Log_Idx_Count();
+		uint8_t  u8_start  = (u8_len >= 1) ? pu8_data[0] : 0;
+		uint8_t  u8_ret    = 0;
+
+		data[len++] = (u16_total > 255) ? 255 : (uint8_t)u16_total;
+		len++;								// returnedCount, filled in below
+		for(uint8_t i = 0; i < 6; i++){
+			uint32_t u32_boot, u32_first, u32_last;
+			uint16_t u16_idx;
+			if(!b_SD_Log_Idx_Get((uint16_t)(u8_start + i), &u32_boot, &u32_first,
+					&u32_last, &u16_idx)) break;
+			data[len++] = u32_boot >> 24;  data[len++] = u32_boot >> 16;
+			data[len++] = u32_boot >> 8;   data[len++] = u32_boot;
+			data[len++] = u32_first >> 24; data[len++] = u32_first >> 16;
+			data[len++] = u32_first >> 8;  data[len++] = u32_first;
+			data[len++] = u32_last >> 24;  data[len++] = u32_last >> 16;
+			data[len++] = u32_last >> 8;   data[len++] = u32_last;
+			data[len++] = u16_idx >> 8;    data[len++] = u16_idx;
+			u8_ret++;
+		}
+		data[1] = u8_ret;
+		break;
+	}
+	case ESP_CMD_REQ_LOG_READ:
+	{
+		// ACK first, then the chunk stream (spec 6.4). A refusal is reported as an
+		// END chunk rather than in the ACK, so the PC has one place to look.
+		if(u8_len < 10) break;
+		uint32_t u32_boot  = ((uint32_t)pu8_data[0] << 24) | ((uint32_t)pu8_data[1] << 16)
+		                   | ((uint32_t)pu8_data[2] << 8)  |  (uint32_t)pu8_data[3];
+		uint32_t u32_start = ((uint32_t)pu8_data[4] << 24) | ((uint32_t)pu8_data[5] << 16)
+		                   | ((uint32_t)pu8_data[6] << 8)  |  (uint32_t)pu8_data[7];
+		uint16_t u16_cnt   = (uint16_t)(((uint16_t)pu8_data[8] << 8) | pu8_data[9]);
+
+		uint8_t u8_res = u8_SD_Log_Backfill_Start(u32_boot, u32_start, u16_cnt);
+		LOG_INFO("COMM_ESP", "reqLogRead boot=%u seq=%u cnt=%u -> %u",
+				(unsigned)u32_boot, (unsigned)u32_start, u16_cnt, u8_res);
+		if(u8_res != 0xFF){
+			b_ESP_Transmit(ESP_DIR_ACK, u8_cmd, NULL, 0);
+			uint8_t u8_end[6] = {0x00, u8_res, 0, 0, 0, 0};
+			uint32_t u32_last = u32_SD_Log_Backfill_LastSent();
+			u8_end[2] = (uint8_t)(u32_last >> 24); u8_end[3] = (uint8_t)(u32_last >> 16);
+			u8_end[4] = (uint8_t)(u32_last >> 8);  u8_end[5] = (uint8_t)(u32_last);
+			b_ESP_Transmit(ESP_DIR_REQ, ESP_CMD_STAT_LOG_CHUNK, u8_end, 6);
+			return;						// ACK already sent
+		}
+		break;
+	}
 	case ESP_CMD_REQ_LOG_STATUS:
 	{
 		// 21 B, spec 6.2. currentTickMs is read here rather than carried from

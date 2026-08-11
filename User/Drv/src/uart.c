@@ -255,6 +255,12 @@ bool b_Uart_ESP_Out(uint8_t* pu8_arr, uint16_t u16_cnt){
  *   dispatching a received command there could re-enter FatFs, which is built
  *   with _FS_REENTRANT = 0.
  */
+uint16_t u16_Uart_ESP_TxFree(){
+	uint32_t u32_cap = (uint32_t)uartEspTx->u16_mask + 1U;
+	uint32_t u32_use = (uint32_t)uartEspTx->u16_cnt;
+	return (u32_use >= u32_cap) ? 0U : (uint16_t)(u32_cap - u32_use);
+}
+
 void v_Uart_ESP_TxPump(){
 	if(uartEspTx->u16_cnt && (e_espTx == COMM_STAT_DONE || e_espTx == COMM_STAT_READY)){
 		e_espTx = COMM_STAT_BUSY;

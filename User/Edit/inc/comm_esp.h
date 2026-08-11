@@ -70,6 +70,10 @@ void v_ESP_Send_Error(uint16_t u16_error);
 // Drains a pending SD logging fault into evtLogError(0x84). Called from
 // v_ESP_Handler, so it goes out within one main loop pass of the fault.
 void v_ESP_LogError_Handler();
+
+// Streams statLogChunk(0x71) while a backfill request is running. Also called
+// from v_ESP_Handler.
+void v_ESP_Backfill_Handler();
 void v_ESP_Send_Warning(uint8_t u8_warn_type);
 
 #endif

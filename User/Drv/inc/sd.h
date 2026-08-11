@@ -58,6 +58,18 @@ uint16_t u16_SD_Log_Idx_Count();
 bool     b_SD_Log_Idx_Get(uint16_t u16_n, uint32_t* pu32_boot, uint32_t* pu32_first,
 		uint32_t* pu32_last, uint16_t* pu16_idx);
 
+// Backfill reader for reqLogRead(0x44). Records are handed out one at a time;
+// the protocol layer frames and paces them, this driver never transmits.
+//
+// Start returns 0xFF when streaming begins, otherwise the statLogChunk END
+// result code to send straight back: 1 no such bootId, 2 range not held,
+// 3 read error.
+uint8_t  u8_SD_Log_Backfill_Start(uint32_t u32_boot, uint32_t u32_startSeq, uint16_t u16_count);
+bool     b_SD_Log_Backfill_Next(uint8_t* pu8_rec, uint8_t* pu8_result);
+void     v_SD_Log_Backfill_Abort(uint8_t u8_result);
+bool     b_SD_Log_Backfill_Active();
+uint32_t u32_SD_Log_Backfill_LastSent();
+
 uint32_t u32_SD_Log_Get_Seq();			// next sample number
 uint32_t u32_SD_Log_Get_FlushedSeq();	// last seq actually on the card
 uint32_t u32_SD_Log_Get_FileIndex();

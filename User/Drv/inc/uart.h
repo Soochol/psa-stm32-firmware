@@ -26,6 +26,10 @@ bool b_Uart_ESP_Out(uint8_t* pu8_arr, uint16_t u16_cnt);
 // Does not touch the receive path — see the note at the definition.
 void v_Uart_ESP_TxPump(void);
 
+// Room left in the TX ring. Backfill uses it to leave headroom for the live
+// STAT frame, which must never queue behind a burst of log chunks.
+uint16_t u16_Uart_ESP_TxFree(void);
+
 
 /****************************************/
 //	UART4 - Debug						//
