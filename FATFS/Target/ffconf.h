@@ -227,7 +227,10 @@
 /  _NORTC_MDAY and _NORTC_YEAR have no effect.
 /  These options have no effect at read-only configuration (_FS_READONLY = 1). */
 
-#define _FS_LOCK    2     /* 0:Disable or >=1:Enable */
+/* 4 = current log file (write) + backfill source file (read) + one spare for
+/  rotation and f_opendir. 2 was exactly the steady-state need, leaving no room
+/  for the moment a rotation or a directory scan overlaps a backfill read. */
+#define _FS_LOCK    4     /* 0:Disable or >=1:Enable */
 /* The option _FS_LOCK switches file lock function to control duplicated file open
 /  and illegal operation to open objects. This option must be 0 when _FS_READONLY
 /  is 1.

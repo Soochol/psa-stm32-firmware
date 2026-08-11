@@ -74,8 +74,19 @@ void v_Tim_1s_Test(){
 	v_1Cycle_Time();
 }
 
-// Override weak SD busy-wait yield to keep heartbeat alive during SD reads
+// Override the weak SD busy-wait yield. Called from every blocking wait in
+// sd_diskio.c, so this is the only code that runs while an SD access holds the
+// main loop.
+//
+// Deliberately absent: HAL_IWDG_Refresh(). Feeding the watchdog here would let a
+// wedged card stall posture control for the full SD timeout instead of resetting;
+// the blocking window is bounded by SD_TIMEOUT_* instead, which is what keeps it
+// under the 2 s IWDG period.
+//
+// Deliberately absent: v_Uart_Handler(). That would dispatch received commands
+// and could re-enter FatFs (_FS_REENTRANT = 0). Only the TX side is pumped.
 void v_SD_BusyWait_Yield(void) {
+	v_Uart_ESP_TxPump();
 	v_Tim_1s_Test();
 }
 

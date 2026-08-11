@@ -52,7 +52,11 @@ DMA_HandleTypeDef* p_dmaUart4Tx = &hdma_uart4_tx;
 //	- ESP
 /****************************************/
 //define
-#define UART_ESP_TX_ARR_SIZE	(256)
+// Must stay a power of two (_RING_VAR_DEF masks with cnt-1).
+// 256 B is only ~22 ms of line time at 115200 8N1, so any SD access that blocks
+// the main loop longer than that leaves the DMA idle with nothing queued behind
+// it. 2 KB covers ~178 ms, which is past the worst case in SD_TIMEOUT_BUSY.
+#define UART_ESP_TX_ARR_SIZE	(2048)
 
 
 //function
@@ -240,7 +244,20 @@ void v_Uart_ESP_Out(uint8_t* pu8_arr, uint16_t u16_cnt){
  * - create	: 25.04.28
  * - modify	: -
  */
-static void v_Uart_ESP_Handler(){
+/*
+ * brief	: start the next TX DMA if one is queued and the line is free
+ * date
+ * - create	: 26.08.11
+ * note
+ * - Transmit-only on purpose. HAL_UART_TxCpltCallback only flags completion, so
+ *   without this being called the queued bytes sit until the main loop comes
+ *   back around — which is exactly what does not happen while an SD access
+ *   blocks. v_SD_BusyWait_Yield() calls this from inside those waits.
+ * - Must NOT touch the receive path. It runs nested inside f_read/f_write, and
+ *   dispatching a received command there could re-enter FatFs, which is built
+ *   with _FS_REENTRANT = 0.
+ */
+void v_Uart_ESP_TxPump(){
 	if(uartEspTx->u16_cnt && (e_espTx == COMM_STAT_DONE || e_espTx == COMM_STAT_READY)){
 		e_espTx = COMM_STAT_BUSY;
 		uint16_t len = uartEspTx->u16_cnt;
@@ -253,6 +270,10 @@ static void v_Uart_ESP_Handler(){
 			e_espTx = COMM_STAT_ERR;
 		}
 	}
+}
+
+static void v_Uart_ESP_Handler(){
+	v_Uart_ESP_TxPump();
 	v_ESP_Handler();
 }
 

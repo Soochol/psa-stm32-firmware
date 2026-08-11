@@ -19,6 +19,10 @@ void v_Uart_ESP_EnableIT();
 
 void v_Uart_ESP_Out(uint8_t* pu8_arr, uint16_t u16_cnt);
 
+// Transmit-only drain, safe to call from inside a blocking SD wait.
+// Does not touch the receive path — see the note at the definition.
+void v_Uart_ESP_TxPump(void);
+
 
 /****************************************/
 //	UART4 - Debug						//
