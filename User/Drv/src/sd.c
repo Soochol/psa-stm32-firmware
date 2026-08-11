@@ -375,8 +375,13 @@ bool b_UnMountSD(){
 #define SD_HDR_RATE				26
 #define SD_HDR_CRC				30
 
-#define SD_LOG_FLUSH_ITV		10000		// 10s; spec section 10.2 tightens this to 2s
-#define SD_LOG_BUF_MAX			110			// 10s / 100ms + 10% margin
+// Flush policy (spec section 10.2). Two seconds bounds what an unexpected power
+// loss costs at 20 samples, and it is also the cheaper option for the control
+// loop: 1.6 kB per write against 8.8 kB at the old ten seconds, so the blocking
+// peak drops with the loss window rather than trading against it.
+#define SD_LOG_FLUSH_ITV		2000		// 2s
+#define SD_LOG_FLUSH_REC		20			// ...or 20 records, whichever comes first
+#define SD_LOG_BUF_MAX			24			// flush trigger + margin
 #define SD_LOG_BUF_SIZE			(SD_LOG_REC_SIZE * SD_LOG_BUF_MAX)
 
 // Rotation caps the damage a corrupt file can do (spec section 8.3). At 10 Hz an
@@ -390,7 +395,8 @@ bool b_UnMountSD(){
 #define SD_LOG_PATH_MAX			48
 
 static FIL      logFile;
-static bool     b_logArmed;			// logging wanted
+static bool     b_logCrcOk;			// CRC self test passed at start-up
+static bool     b_logEnabled;		// on at boot, toggled by ctrlLogEnable(0x56)
 static bool     b_logOpen;			// a file is open and its header is on the card
 static uint8_t  u8_logBuf[SD_LOG_BUF_SIZE];
 static uint16_t u16_logBufIdx;
@@ -566,13 +572,13 @@ bool b_SD_Log_Init(){
 	// A wrong polynomial is invisible on the device: records still look fine and
 	// only the merge tool notices, by which point a whole card is unusable.
 	// Refuse to log rather than fill a card with records nobody can validate.
-	if(!i_CRC16_SelfTest()){
+	b_logCrcOk  = i_CRC16_SelfTest() ? true : false;
+	b_logEnabled = true;			// on by default; ESP32 is not required to ask
+
+	if(!b_logCrcOk){
 		LOG_ERROR("SD_LOG", "CRC-16 self test failed, logging disabled");
-		b_logArmed = false;
 		return false;
 	}
-
-	b_logArmed = true;
 	LOG_INFO("SD_LOG", "armed, bootId=%u", (unsigned)u32_Flash_Cfg_Get_BootId());
 	return true;
 }
@@ -597,7 +603,7 @@ void v_SD_Log_Write(const uint8_t* pu8_payload, uint16_t u16_len,
 	uint32_t u32_seq = u32_logSeq++;
 	uint8_t  u8_flags = b_txOk ? SD_FLAG_TX_OK : 0;
 
-	if(!b_logArmed) return;
+	if(!b_logCrcOk || !b_logEnabled) return;
 
 	// Length contract (spec section 7.4). Do not skip the slot: dropping one
 	// record shifts every later record in the file by 80 B and backfill would
@@ -634,7 +640,10 @@ void v_SD_Log_Write(const uint8_t* pu8_payload, uint16_t u16_len,
 	u16_logBufIdx += SD_LOG_REC_SIZE;
 	u32_logFileRec++;
 
-	if(_b_Tim_Is_OVR(u32_Tim_1msGet(), u32_logFlushRef, SD_LOG_FLUSH_ITV)){
+	// Whichever comes first. At 10 Hz the two coincide, but the record count keeps
+	// the 20-sample loss bound true if the rate ever changes or the tick jitters.
+	if((u16_logBufIdx / SD_LOG_REC_SIZE) >= SD_LOG_FLUSH_REC
+	|| _b_Tim_Is_OVR(u32_Tim_1msGet(), u32_logFlushRef, SD_LOG_FLUSH_ITV)){
 		v_SD_Log_Flush();
 	}
 }
@@ -685,6 +694,17 @@ void v_SD_Log_Close(){
 	// deliberate close — the card is about to go away — so drop it rather than
 	// carry it into a file that may never be opened.
 	u16_logBufIdx = 0;
+}
+
+
+/*
+ * brief	: ctrlLogEnable(0x56) — stop means flush + close so the card is safe to pull
+ */
+void v_SD_Log_SetEnabled(bool b_en){
+	if(b_en == b_logEnabled) return;
+	if(!b_en) v_SD_Log_Close();
+	b_logEnabled = b_en;
+	LOG_INFO("SD_LOG", "%s", b_en ? "enabled" : "stopped (flushed and closed)");
 }
 
 

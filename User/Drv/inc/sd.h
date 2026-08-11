@@ -24,6 +24,10 @@ void v_SD_Log_Write(const uint8_t* pu8_payload, uint16_t u16_len,
 void v_SD_Log_Flush();
 void v_SD_Log_Close();
 
+// ctrlLogEnable(0x56). Stopping flushes and closes, so the card is safe to pull.
+// Logging is on from boot — the ESP32 is not required to ask for it.
+void v_SD_Log_SetEnabled(bool b_en);
+
 uint32_t u32_SD_Log_Get_Seq();			// next sample number
 uint32_t u32_SD_Log_Get_FlushedSeq();	// last seq actually on the card
 uint32_t u32_SD_Log_Get_FileIndex();

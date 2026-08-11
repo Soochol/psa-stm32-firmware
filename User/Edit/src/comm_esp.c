@@ -61,6 +61,7 @@ typedef enum {
 	ESP_CMD_CTRL_BLOWFAN_ON		=0x53,
 	ESP_CMD_CTRL_SPK_PLAY		=0x54,
 	ESP_CMD_CTRL_COOLFAN_ON		=0x55,
+	ESP_CMD_CTRL_LOG_EN			=0x56,	//SD logging spec 6.6
 	//STATUS
 	ESP_CMD_STAT=0x70,
 	//EVENT
@@ -575,6 +576,14 @@ static void v_ESP_CtrlProc(uint8_t u8_cmd, uint8_t* pu8_data, uint8_t u8_len){
 		}
 		else{
 			v_Mode_CoolFan_Disable();
+		}
+		break;
+	case ESP_CMD_CTRL_LOG_EN:
+		// 0 = stop (flush + close, card safe to pull), 1 = start.
+		// Length checked because a malformed frame reaching here would otherwise
+		// read past the data the sender actually sent.
+		if(u8_len >= 1){
+			v_SD_Log_SetEnabled(pu8_data[0] != 0);
 		}
 		break;
 	}
