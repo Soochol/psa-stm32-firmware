@@ -867,6 +867,7 @@ typedef struct {
 	uint32_t u32_firstSeq;
 	uint32_t u32_lastSeq;
 	uint16_t u16_fileIdx;
+	uint8_t  u8_unknownDir;		// written before initLogIdentity supplied a MAC
 } x_log_idx_t;
 
 static x_log_idx_t x_logIdx[SD_LOG_IDX_MAX];
@@ -912,7 +913,7 @@ static bool b_log_name_parse(const char* pc_name, uint32_t* pu32_boot, uint32_t*
  *   and firstSeq + N - 1 would underflow.
  */
 static void v_log_idx_add(const char* pc_dir, const char* pc_name,
-		uint32_t u32_boot, uint32_t u32_idx, uint32_t u32_size){
+		uint32_t u32_boot, uint32_t u32_idx, uint32_t u32_size, uint8_t u8_unknown){
 	char c_path[SD_LOG_PATH_MAX];
 	uint8_t u8_hdr[SD_LOG_HDR_SIZE];
 	FIL x_f;
@@ -934,8 +935,9 @@ static void v_log_idx_add(const char* pc_dir, const char* pc_name,
 	if(u16_CRC16_CCITT(u8_hdr, SD_HDR_CRC) !=
 			(uint16_t)((u8_hdr[SD_HDR_CRC] << 8) | u8_hdr[SD_HDR_CRC + 1])) return;
 
-	x_logIdx[u16_logIdxCnt].u32_bootId   = u32_boot;
-	x_logIdx[u16_logIdxCnt].u16_fileIdx  = (uint16_t)u32_idx;
+	x_logIdx[u16_logIdxCnt].u32_bootId    = u32_boot;
+	x_logIdx[u16_logIdxCnt].u16_fileIdx   = (uint16_t)u32_idx;
+	x_logIdx[u16_logIdxCnt].u8_unknownDir = u8_unknown;
 	x_logIdx[u16_logIdxCnt].u32_firstSeq = u32_get_u32be(&u8_hdr[SD_HDR_FIRSTSEQ]);
 	x_logIdx[u16_logIdxCnt].u32_lastSeq  =
 			x_logIdx[u16_logIdxCnt].u32_firstSeq + u32_rec - 1;
@@ -952,22 +954,11 @@ static void v_log_idx_add(const char* pc_dir, const char* pc_name,
  *   if a flash write ever failed, the reused bootId would otherwise have
  *   FA_CREATE_ALWAYS overwrite a file that still held unsent data.
  */
-void v_SD_Log_Scan(){
-	char c_dev[13];
-	char c_dir[SD_LOG_PATH_MAX];
-
-	u16_logIdxCnt = 0;
-	if(!b_SdMount) return;
-
-	v_log_devid_dir(c_dev);
-	snprintf(c_dir, sizeof(c_dir), "%s/%s", SD_LOG_DIR, c_dev);
-	if(f_opendir(&x_logScanDir, c_dir) != FR_OK){
-		LOG_INFO("SD_LOG", "no %s yet", c_dir);
-		return;
-	}
-
+static uint32_t u32_log_scan_dir(const char* pc_dir, uint8_t u8_unknown){
 	uint32_t u32_curBoot = u32_Flash_Cfg_Get_BootId();
 	uint32_t u32_seen = 0;
+
+	if(f_opendir(&x_logScanDir, pc_dir) != FR_OK) return 0;
 
 	while(u16_logIdxCnt < SD_LOG_IDX_MAX){
 		if(f_readdir(&x_logScanDir, &x_logScanInfo) != FR_OK) break;
@@ -983,10 +974,45 @@ void v_SD_Log_Scan(){
 			LOG_WARN("SD_LOG", "bootId %u already has files, resuming at #%u",
 					(unsigned)u32_boot, (unsigned)u32_logFileIdx);
 		}
-		v_log_idx_add(c_dir, x_logScanInfo.fname, u32_boot, u32_idx,
-				(uint32_t)x_logScanInfo.fsize);
+		v_log_idx_add(pc_dir, x_logScanInfo.fname, u32_boot, u32_idx,
+				(uint32_t)x_logScanInfo.fsize, u8_unknown);
 	}
 	f_closedir(&x_logScanDir);
+	return u32_seen;
+}
+
+/*
+ * brief	: build the log file index from the card
+ * note
+ * - Scans the UNKNOWN directory as well as this device's own. Every device
+ *   records into /LOG/UNKNOWN/ until initLogIdentity(0x23) supplies a MAC, and
+ *   once it does, those files would otherwise stop being visible to
+ *   reqLogFiles — present on the card, unreachable by backfill, which is the
+ *   silent loss this whole format exists to prevent.
+ * - Sorted bootId then fileIndex ascending, so the oldest unsent data is offered
+ *   first (spec section 6.3).
+ */
+void v_SD_Log_Scan(){
+	char c_dev[13];
+	char c_dir[SD_LOG_PATH_MAX];
+	uint32_t u32_seen = 0;
+
+	u16_logIdxCnt = 0;
+	if(!b_SdMount) return;
+
+	v_log_devid_dir(c_dev);
+	snprintf(c_dir, sizeof(c_dir), "%s/%s", SD_LOG_DIR, c_dev);
+	u32_seen += u32_log_scan_dir(c_dir, 0);
+
+	if(strcmp(c_dev, "UNKNOWN") != 0){
+		snprintf(c_dir, sizeof(c_dir), "%s/UNKNOWN", SD_LOG_DIR);
+		uint32_t u32_orphan = u32_log_scan_dir(c_dir, 1);
+		if(u32_orphan){
+			LOG_INFO("SD_LOG", "%u file(s) from before the deviceId was known",
+					(unsigned)u32_orphan);
+		}
+		u32_seen += u32_orphan;
+	}
 
 	// insertion sort: bootId, then fileIndex
 	for(uint16_t i = 1; i < u16_logIdxCnt; i++){
@@ -1045,14 +1071,15 @@ static uint8_t  u8_bfResult;
  *   it is the copy that was written after the failure, so it is the intact one.
  */
 static bool b_bf_find(uint32_t u32_boot, uint32_t u32_seq, uint16_t* pu16_idx,
-		uint32_t* pu32_first){
+		uint32_t* pu32_first, uint8_t* pu8_unknown){
 	bool b_found = false;
 	for(uint16_t i = 0; i < u16_logIdxCnt; i++){
 		if(x_logIdx[i].u32_bootId != u32_boot) continue;
 		if(u32_seq < x_logIdx[i].u32_firstSeq) continue;
 		if(u32_seq > x_logIdx[i].u32_lastSeq)  continue;
-		*pu16_idx   = x_logIdx[i].u16_fileIdx;	// index is sorted ascending,
-		*pu32_first = x_logIdx[i].u32_firstSeq;	// so the last match is the highest
+		*pu16_idx    = x_logIdx[i].u16_fileIdx;		// index is sorted ascending,
+		*pu32_first  = x_logIdx[i].u32_firstSeq;	// so the last match is the highest
+		*pu8_unknown = x_logIdx[i].u8_unknownDir;
 		b_found = true;
 	}
 	return b_found;
@@ -1071,6 +1098,7 @@ uint8_t u8_SD_Log_Backfill_Start(uint32_t u32_boot, uint32_t u32_startSeq, uint1
 	char c_path[SD_LOG_PATH_MAX];
 	uint16_t u16_idx;
 	uint32_t u32_first;
+	uint8_t  u8_unknown = 0;
 
 	v_bf_close();						// a new request supersedes any in flight
 	u32_bfSent = (u32_startSeq == 0) ? 0 : (u32_startSeq - 1);
@@ -1085,9 +1113,12 @@ uint8_t u8_SD_Log_Backfill_Start(uint32_t u32_boot, uint32_t u32_startSeq, uint1
 	}
 	if(!b_boot) return 1;				// no such bootId
 
-	if(!b_bf_find(u32_boot, u32_startSeq, &u16_idx, &u32_first)) return 2;
+	if(!b_bf_find(u32_boot, u32_startSeq, &u16_idx, &u32_first, &u8_unknown)) return 2;
 
-	v_log_devid_dir(c_dev);
+	// Read from wherever the file actually is. Once a MAC arrives the current
+	// directory changes, but the files recorded before it do not move.
+	if(u8_unknown) strcpy(c_dev, "UNKNOWN");
+	else           v_log_devid_dir(c_dev);
 	snprintf(c_path, sizeof(c_path), "%s/%s/%08lX_%04lX.psa", SD_LOG_DIR, c_dev,
 			(unsigned long)u32_boot, (unsigned long)u16_idx);
 	if(f_open(&bfFile, c_path, FA_READ) != FR_OK){
