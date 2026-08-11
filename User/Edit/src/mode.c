@@ -1827,13 +1827,25 @@ static void v_Mode_ForceUp(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t* 
 		}
 	}
 	if(px_work->cr.bit.b1_on){
+		// Both exits report the IR reading and how long the ramp took. Which exit
+		// was taken matters: reaching the setpoint and running out of time look the
+		// same downstream, but only the second means the actuator never got there.
+		int ir  = (int)(f_IR_Temp_Get() * 10);
+		int set = (int)(f_Mode_Get_Temp_ForceUp() * 10);
+		unsigned ms = (unsigned)(u32_Tim_1msGet() - px_pub->u32_timToutRef);
+
 		if(_b_Tim_Is_OVR(u32_Tim_1msGet(), px_pub->u32_timToutRef, tout)){
+			LOG_INFO("FORCE", "UP timeout ir=%d.%d set=%d.%d after %ums -> ON",
+					ir/10, ir%10 < 0 ? -(ir%10) : ir%10,
+					set/10, set%10, ms);
 			v_Mode_SetNext(modeFORCE_ON);
 		}
 
 		int temp = i_Mode_Is_TempHeater_Over(&px_pub->i_tempRenew, f_Mode_Get_Temp_ForceUp());
 		if(temp > 0){
-			LOG_INFO("FORCE", "UP temp reached -> ON");
+			LOG_INFO("FORCE", "UP reached ir=%d.%d set=%d.%d in %ums -> ON",
+					ir/10, ir%10 < 0 ? -(ir%10) : ir%10,
+					set/10, set%10, ms);
 			v_Mode_Heater_Off();
 			v_Mode_SetNext(modeFORCE_ON);
 		}
