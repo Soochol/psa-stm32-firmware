@@ -79,7 +79,10 @@ def decode_payload(p: bytes) -> list:
         ("tof1", u16(34)), ("tof2", u16(36)),
         ("battery", f"{dec(38):.2f}"),
         ("imu_l_evt", p[40]), ("imu_r_evt", p[41]),
-        ("gps_lat", f"{f32(42):.6f}"), ("gps_lon", f"{f32(46):.6f}"),
+        # Zero-filled when there is no fix (spec 9.4). Printing 0.000000 reads as
+        # a coordinate off the African coast, so say what it is instead.
+        ("gps_lat", f"{f32(42):.6f}" if p[51] else "-- (no fix)"),
+        ("gps_lon", f"{f32(46):.6f}" if p[51] else "-- (no fix)"),
         ("gps_sat", p[50]), ("gps_fix", p[51]),
         ("angle_l", f"{i16(52)/100.0:.2f}, {i16(54)/100.0:.2f}, {i16(56)/100.0:.2f}"),
         ("angle_r", f"{i16(58)/100.0:.2f}, {i16(60)/100.0:.2f}, {i16(62)/100.0:.2f}"),
@@ -216,10 +219,23 @@ def main() -> int:
 
     # --decode N,N,N prints the full expected field decoding of those records,
     # which is what pins the two sides' interpretation of the payload.
+    # Accepted anywhere in the arguments: whoever runs the capture procedure is
+    # not necessarily whoever wrote it, and a flag in the wrong position used to
+    # surface as a FileNotFoundError naming the flag.
     want = None
-    if args[0].startswith("--decode"):
-        want = [int(x) for x in args[0].split("=", 1)[1].split(",")] if "=" in args[0] else [0]
-        args = args[1:]
+    files = []
+    for a in args:
+        if a.startswith("--decode"):
+            want = [int(x) for x in a.split("=", 1)[1].split(",")] if "=" in a else [0]
+        elif a.startswith("-"):
+            print(f"unknown option {a!r}")
+            return 2
+        else:
+            files.append(a)
+    args = files
+    if not args:
+        print("no input files")
+        return 2
 
     ok = all([validate(p) for p in args])
     if want is not None:
