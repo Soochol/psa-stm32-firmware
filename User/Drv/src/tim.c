@@ -71,8 +71,15 @@ void v_Tim_1s_Test(){
 				bv/10, bv%10 < 0 ? -(bv%10) : bv%10,
 				(unsigned)u16_TOF_Get_1(), tf);
 			uint32_t us = one_cycle / (SystemCoreClock / 1000000);
-			SEGGER_RTT_printf(0, "[D]cyc=%uus sdmax=%uus\r\n",
-				us, (unsigned)u32_Tim_SD_Block_MaxUs());
+			SEGGER_RTT_printf(0, "[D]cyc=%uus sdmax=%uus n=%u\r\n",
+				us, (unsigned)u32_Tim_SD_Block_MaxUs(),
+				(unsigned)u32_Tim_SD_Block_Count());
+			// buckets: <1ms <2 <5 <10 <50 <100 <500 >=500ms
+			SEGGER_RTT_printf(0, "[D]sdh %u %u %u %u %u %u %u %u\r\n",
+				(unsigned)u32_Tim_SD_Block_Hist(0), (unsigned)u32_Tim_SD_Block_Hist(1),
+				(unsigned)u32_Tim_SD_Block_Hist(2), (unsigned)u32_Tim_SD_Block_Hist(3),
+				(unsigned)u32_Tim_SD_Block_Hist(4), (unsigned)u32_Tim_SD_Block_Hist(5),
+				(unsigned)u32_Tim_SD_Block_Hist(6), (unsigned)u32_Tim_SD_Block_Hist(7));
 		}
 	}
 	v_1Cycle_Time();
@@ -127,6 +134,16 @@ void DWT_Init(){
 #define SD_BLOCK_GAP_US			2000U		// beyond this, a new wait started
 #define SD_BLOCK_SANE_US		2000000U	// longer than IWDG, cannot be one wait
 
+// A single maximum cannot tell a normal tail from a one-off: 600 ms once in ten
+// thousand waits and 600 ms every tenth wait look identical. Log-spaced buckets
+// make one hardware session answer both, which matters because that session is
+// also the SD_TIMEOUT_BUSY decision (spec section 13, scenario 8).
+static const uint32_t u32_sdBucketUs[SD_BLOCK_BUCKETS - 1] =
+		{1000U, 2000U, 5000U, 10000U, 50000U, 100000U, 500000U};
+
+static uint32_t u32_sdBucketCyc[SD_BLOCK_BUCKETS - 1];
+static uint32_t u32_sdHist[SD_BLOCK_BUCKETS];
+static uint32_t u32_sdWaitCnt;
 static uint32_t u32_sdBlockMaxCyc;
 static uint32_t u32_sdBlockStart;
 static uint32_t u32_sdBlockLast;
@@ -137,6 +154,17 @@ void v_Tim_SD_Block_Init(void){
 	uint32_t u32_perUs = SystemCoreClock / 1000000U;
 	u32_sdGapCyc  = SD_BLOCK_GAP_US  * u32_perUs;
 	u32_sdSaneCyc = SD_BLOCK_SANE_US * u32_perUs;
+	for(int i = 0; i < SD_BLOCK_BUCKETS - 1; i++){
+		u32_sdBucketCyc[i] = u32_sdBucketUs[i] * u32_perUs;
+	}
+}
+
+/* Called when a wait is seen to have ended, with its duration in cycles. */
+static void v_sd_bucket(uint32_t u32_cyc){
+	int i = 0;
+	while(i < SD_BLOCK_BUCKETS - 1 && u32_cyc >= u32_sdBucketCyc[i]) i++;
+	u32_sdHist[i]++;
+	u32_sdWaitCnt++;
 }
 
 static void v_Tim_SD_Block_Track(void){
@@ -145,6 +173,11 @@ static void v_Tim_SD_Block_Track(void){
 	uint32_t u32_held = u32_now - u32_sdBlockStart;
 
 	if(u32_gap > u32_sdGapCyc || u32_held > u32_sdSaneCyc){
+		// The gap means the previous wait finished at u32_sdBlockLast. Bucket it
+		// now; the very last wait before a report is counted on the next SD access.
+		if(u32_sdWaitCnt || u32_sdBlockLast != u32_sdBlockStart){
+			v_sd_bucket(u32_sdBlockLast - u32_sdBlockStart);
+		}
 		u32_sdBlockStart = u32_now;
 	}
 	else if(u32_held > u32_sdBlockMaxCyc){
@@ -159,8 +192,18 @@ uint32_t u32_Tim_SD_Block_MaxUs(void){
 	return u32_sdBlockMaxCyc / u32_perUs;
 }
 
+uint32_t u32_Tim_SD_Block_Hist(uint8_t u8_bucket){
+	return (u8_bucket < SD_BLOCK_BUCKETS) ? u32_sdHist[u8_bucket] : 0U;
+}
+
+uint32_t u32_Tim_SD_Block_Count(void){
+	return u32_sdWaitCnt;
+}
+
 void v_Tim_SD_Block_Clear(void){
 	u32_sdBlockMaxCyc = 0;
+	u32_sdWaitCnt = 0;
+	for(int i = 0; i < SD_BLOCK_BUCKETS; i++) u32_sdHist[i] = 0;
 }
 
 void delay_us(uint32_t us){
