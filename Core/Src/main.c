@@ -368,6 +368,7 @@ int main(void)
   else				{v_Mode_Set_MP3_Play(0);}
 #endif
   b_SD_Log_Init();          // arm .psa logging; files are created on first sample
+  v_SD_Log_Scan();          // index existing .psa files for reqLogFiles(0x45)
   SEGGER_RTT_printf(0, "[RTT] === Init complete, entering main loop ===\r\n");
   /* USER CODE END 2 */
 

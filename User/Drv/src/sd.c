@@ -847,6 +847,182 @@ uint8_t u8_SD_Log_Get_State(){
 }
 
 
+//////////////////////////////////
+//		LOG FILE INDEX			//
+//////////////////////////////////
+
+// Built once at start-up so reqLogFiles(0x45) can answer without touching the
+// card. Rebuilding per request would mean an f_open per file, and f_open walks
+// the directory, so the cost is quadratic in the number of files.
+//
+// The cap is a blocking-time budget, not a memory one: each entry costs one
+// f_open plus a 512 B header read, and f_open's directory walk grows with the
+// file count. 128 files is a few hundred ms at start-up, which fits inside the
+// 2 s watchdog with room to spare. Files past the cap stay on the card and are
+// still recoverable by pulling it (spec section 6.3).
+#define SD_LOG_IDX_MAX		128
+
+typedef struct {
+	uint32_t u32_bootId;
+	uint32_t u32_firstSeq;
+	uint32_t u32_lastSeq;
+	uint16_t u16_fileIdx;
+} x_log_idx_t;
+
+static x_log_idx_t x_logIdx[SD_LOG_IDX_MAX];
+static uint16_t    u16_logIdxCnt;
+
+// ~300 B each; kept off the stack because the scan runs from the start-up path.
+static DIR     x_logScanDir;
+static FILINFO x_logScanInfo;
+
+static int i_hex_nib(char c){
+	if(c >= '0' && c <= '9') return c - '0';
+	if(c >= 'A' && c <= 'F') return c - 'A' + 10;
+	if(c >= 'a' && c <= 'f') return c - 'a' + 10;
+	return -1;
+}
+
+static bool b_hex_parse(const char* pc, int i_len, uint32_t* pu32_out){
+	uint32_t u32_v = 0;
+	for(int i = 0; i < i_len; i++){
+		int n = i_hex_nib(pc[i]);
+		if(n < 0) return false;
+		u32_v = (u32_v << 4) | (uint32_t)n;
+	}
+	*pu32_out = u32_v;
+	return true;
+}
+
+/* "<bootId:08X>_<fileIndex:04X>.psa" — anything else is not ours. */
+static bool b_log_name_parse(const char* pc_name, uint32_t* pu32_boot, uint32_t* pu32_idx){
+	if(strlen(pc_name) != 17) return false;
+	if(pc_name[8] != '_') return false;
+	if(strcmp(&pc_name[13], ".psa") != 0) return false;
+	if(!b_hex_parse(&pc_name[0], 8, pu32_boot)) return false;
+	if(!b_hex_parse(&pc_name[9], 4, pu32_idx))  return false;
+	return true;
+}
+
+/*
+ * brief	: read one file's header and add it to the index
+ * note
+ * - A file whose header is present but which holds no record is skipped, per
+ *   correction 26(a): reqLogFiles has no way to express "last record" for it,
+ *   and firstSeq + N - 1 would underflow.
+ */
+static void v_log_idx_add(const char* pc_dir, const char* pc_name,
+		uint32_t u32_boot, uint32_t u32_idx, uint32_t u32_size){
+	char c_path[SD_LOG_PATH_MAX];
+	uint8_t u8_hdr[SD_LOG_HDR_SIZE];
+	FIL x_f;
+	UINT br = 0;
+
+	if(u16_logIdxCnt >= SD_LOG_IDX_MAX) return;
+	if(u32_size < SD_LOG_HDR_SIZE + SD_LOG_REC_SIZE) return;	// header only, no record
+
+	uint32_t u32_rec = (u32_size - SD_LOG_HDR_SIZE) / SD_LOG_REC_SIZE;
+	if(u32_rec == 0) return;
+
+	snprintf(c_path, sizeof(c_path), "%s/%s", pc_dir, pc_name);
+	if(f_open(&x_f, c_path, FA_READ) != FR_OK) return;
+	FRESULT e_res = f_read(&x_f, u8_hdr, SD_LOG_HDR_SIZE, &br);
+	f_close(&x_f);
+	if(e_res != FR_OK || br != SD_LOG_HDR_SIZE) return;
+
+	if(memcmp(&u8_hdr[SD_HDR_MAGIC], "PSA1", 4) != 0) return;
+	if(u16_CRC16_CCITT(u8_hdr, SD_HDR_CRC) !=
+			(uint16_t)((u8_hdr[SD_HDR_CRC] << 8) | u8_hdr[SD_HDR_CRC + 1])) return;
+
+	x_logIdx[u16_logIdxCnt].u32_bootId   = u32_boot;
+	x_logIdx[u16_logIdxCnt].u16_fileIdx  = (uint16_t)u32_idx;
+	x_logIdx[u16_logIdxCnt].u32_firstSeq = u32_get_u32be(&u8_hdr[SD_HDR_FIRSTSEQ]);
+	x_logIdx[u16_logIdxCnt].u32_lastSeq  =
+			x_logIdx[u16_logIdxCnt].u32_firstSeq + u32_rec - 1;
+	u16_logIdxCnt++;
+}
+
+/*
+ * brief	: build the log file index from the card
+ * note
+ * - Sorted bootId then fileIndex ascending, so the oldest unsent data is offered
+ *   first (spec section 6.3).
+ * - Also advances fileIndex past anything already present for the current
+ *   bootId. That should be impossible, since bootId increments every reset — but
+ *   if a flash write ever failed, the reused bootId would otherwise have
+ *   FA_CREATE_ALWAYS overwrite a file that still held unsent data.
+ */
+void v_SD_Log_Scan(){
+	char c_dev[13];
+	char c_dir[SD_LOG_PATH_MAX];
+
+	u16_logIdxCnt = 0;
+	if(!b_SdMount) return;
+
+	v_log_devid_dir(c_dev);
+	snprintf(c_dir, sizeof(c_dir), "%s/%s", SD_LOG_DIR, c_dev);
+	if(f_opendir(&x_logScanDir, c_dir) != FR_OK){
+		LOG_INFO("SD_LOG", "no %s yet", c_dir);
+		return;
+	}
+
+	uint32_t u32_curBoot = u32_Flash_Cfg_Get_BootId();
+	uint32_t u32_seen = 0;
+
+	while(u16_logIdxCnt < SD_LOG_IDX_MAX){
+		if(f_readdir(&x_logScanDir, &x_logScanInfo) != FR_OK) break;
+		if(x_logScanInfo.fname[0] == 0) break;
+		if(x_logScanInfo.fattrib & AM_DIR) continue;
+
+		uint32_t u32_boot, u32_idx;
+		if(!b_log_name_parse(x_logScanInfo.fname, &u32_boot, &u32_idx)) continue;
+		u32_seen++;
+
+		if(u32_boot == u32_curBoot && u32_idx >= u32_logFileIdx){
+			u32_logFileIdx = u32_idx + 1;
+			LOG_WARN("SD_LOG", "bootId %u already has files, resuming at #%u",
+					(unsigned)u32_boot, (unsigned)u32_logFileIdx);
+		}
+		v_log_idx_add(c_dir, x_logScanInfo.fname, u32_boot, u32_idx,
+				(uint32_t)x_logScanInfo.fsize);
+	}
+	f_closedir(&x_logScanDir);
+
+	// insertion sort: bootId, then fileIndex
+	for(uint16_t i = 1; i < u16_logIdxCnt; i++){
+		x_log_idx_t x_key = x_logIdx[i];
+		int16_t j = (int16_t)i - 1;
+		while(j >= 0 && (x_logIdx[j].u32_bootId > x_key.u32_bootId ||
+				(x_logIdx[j].u32_bootId == x_key.u32_bootId &&
+				 x_logIdx[j].u16_fileIdx > x_key.u16_fileIdx))){
+			x_logIdx[j + 1] = x_logIdx[j];
+			j--;
+		}
+		x_logIdx[j + 1] = x_key;
+	}
+
+	if(u32_seen > u16_logIdxCnt){
+		LOG_WARN("SD_LOG", "index %u of %u files (cap %u)",
+				(unsigned)u16_logIdxCnt, (unsigned)u32_seen, SD_LOG_IDX_MAX);
+	}
+	LOG_INFO("SD_LOG", "indexed %u file(s)", (unsigned)u16_logIdxCnt);
+}
+
+uint16_t u16_SD_Log_Idx_Count(){
+	return u16_logIdxCnt;
+}
+
+bool b_SD_Log_Idx_Get(uint16_t u16_n, uint32_t* pu32_boot, uint32_t* pu32_first,
+		uint32_t* pu32_last, uint16_t* pu16_idx){
+	if(u16_n >= u16_logIdxCnt) return false;
+	if(pu32_boot)  *pu32_boot  = x_logIdx[u16_n].u32_bootId;
+	if(pu32_first) *pu32_first = x_logIdx[u16_n].u32_firstSeq;
+	if(pu32_last)  *pu32_last  = x_logIdx[u16_n].u32_lastSeq;
+	if(pu16_idx)   *pu16_idx   = x_logIdx[u16_n].u16_fileIdx;
+	return true;
+}
+
+
 uint32_t u32_SD_Log_Get_Seq(){			return u32_logSeq; }
 uint32_t u32_SD_Log_Get_FlushedSeq(){	return u32_logFlushedSeq; }
 uint32_t u32_SD_Log_Get_FileIndex(){	return u32_logFileIdx; }

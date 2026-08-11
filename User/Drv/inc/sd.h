@@ -49,6 +49,15 @@ bool b_SD_Log_Get_Error(uint8_t* pu8_reason, uint16_t* pu16_detail);
 uint8_t  u8_SD_Log_Get_State();			// logState for reqLogStatus: 0 stop, 1 logging, 2 fault
 uint16_t u16_SD_Log_Get_FreeMB();		// 0xFFFF when unmounted or not known
 
+// Log file index, built once at start-up for reqLogFiles(0x45). Sorted by
+// bootId then fileIndex ascending, so the oldest unsent data comes first.
+// Files holding no record are excluded — reqLogFiles cannot express a lastSeq
+// for them.
+void     v_SD_Log_Scan();
+uint16_t u16_SD_Log_Idx_Count();
+bool     b_SD_Log_Idx_Get(uint16_t u16_n, uint32_t* pu32_boot, uint32_t* pu32_first,
+		uint32_t* pu32_last, uint16_t* pu16_idx);
+
 uint32_t u32_SD_Log_Get_Seq();			// next sample number
 uint32_t u32_SD_Log_Get_FlushedSeq();	// last seq actually on the card
 uint32_t u32_SD_Log_Get_FileIndex();
