@@ -379,6 +379,13 @@ bool b_UnMountSD(){
 #define SD_LOG_BUF_MAX			110			// 10s / 100ms + 10% margin
 #define SD_LOG_BUF_SIZE			(SD_LOG_REC_SIZE * SD_LOG_BUF_MAX)
 
+// Rotation caps the damage a corrupt file can do (spec section 8.3). At 10 Hz an
+// hour is 2.9 MB, so the time trigger always fires long before the size one —
+// the size cap only matters if the sample rate ever rises.
+#define SD_LOG_ROTATE_ITV		(60UL * 60UL * 1000UL)		// 1 hour
+#define SD_LOG_ROTATE_BYTES		(32UL * 1024UL * 1024UL)	// 32 MB
+#define SD_LOG_ROTATE_REC		((SD_LOG_ROTATE_BYTES - SD_LOG_HDR_SIZE) / SD_LOG_REC_SIZE)
+
 #define SD_LOG_DIR				"/LOG"
 #define SD_LOG_PATH_MAX			48
 
@@ -391,6 +398,8 @@ static uint32_t u32_logFlushRef;
 static uint32_t u32_logSeq;			// next sample number
 static uint32_t u32_logFlushedSeq;	// last seq actually on the card, for reqLogStatus
 static uint32_t u32_logFileIdx;
+static uint32_t u32_logFileRef;		// tick when the current file was opened
+static uint32_t u32_logFileRec;		// records placed in the current file
 static uint16_t u16_logWrErr;		// reported as writeErrorCount in reqLogStatus(0x43)
 
 
@@ -503,8 +512,40 @@ static bool b_log_file_open(uint32_t u32_firstSeq){
 
 	b_logOpen = true;
 	u32_logFlushRef = u32_Tim_1msGet();
+	u32_logFileRef  = u32_logFlushRef;
+	u32_logFileRec  = 0;
 	LOG_INFO("SD_LOG", "%s firstSeq=%u", c_path, (unsigned)u32_firstSeq);
 	return true;
+}
+
+
+/*
+ * brief	: end the current file so the next sample starts a fresh one
+ * note
+ * - close-then-open by construction (spec section 8.3): the replacement is not
+ *   created here but lazily on the next record, so there is never a moment with
+ *   two write handles competing with a backfill read for _FS_LOCK.
+ * - Does not clear the record buffer. A flush that failed leaves the batch in
+ *   RAM on purpose, and the new file re-records it from the start.
+ */
+static void v_log_rotate(const char* pc_reason){
+	if(!b_logOpen) return;
+
+	v_SD_Log_Flush();				// on failure this already closed and bumped
+	if(b_logOpen){
+		f_close(&logFile);
+		b_logOpen = false;
+		u32_logFileIdx++;
+	}
+	LOG_INFO("SD_LOG", "rotate (%s) -> fileIndex=%u",
+			pc_reason, (unsigned)u32_logFileIdx);
+}
+
+static const char* pc_log_rotate_reason(void){
+	if(!b_logOpen) return NULL;
+	if(_b_Tim_Is_OVR(u32_Tim_1msGet(), u32_logFileRef, SD_LOG_ROTATE_ITV)) return "1h";
+	if(u32_logFileRec >= SD_LOG_ROTATE_REC) return "32MB";
+	return NULL;
 }
 
 
@@ -570,6 +611,10 @@ void v_SD_Log_Write(const uint8_t* pu8_payload, uint16_t u16_len,
 				u16_len, SD_LOG_PAYLOAD_SIZE, (unsigned)u32_seq);
 	}
 
+	// Rotate before placing the record, so it lands in the file it belongs to.
+	const char* pc_reason = pc_log_rotate_reason();
+	if(pc_reason != NULL) v_log_rotate(pc_reason);
+
 	if(!b_logOpen){
 		if(!b_SdMount) return;
 		// A pending batch keeps its own first seq, so a file opened after a failed
@@ -587,6 +632,7 @@ void v_SD_Log_Write(const uint8_t* pu8_payload, uint16_t u16_len,
 	v_log_build_record(&u8_logBuf[u16_logBufIdx], u32_seq, pu8_payload, u8_flags,
 			u8_devMode, u16_errMask);
 	u16_logBufIdx += SD_LOG_REC_SIZE;
+	u32_logFileRec++;
 
 	if(_b_Tim_Is_OVR(u32_Tim_1msGet(), u32_logFlushRef, SD_LOG_FLUSH_ITV)){
 		v_SD_Log_Flush();
@@ -634,14 +680,10 @@ void v_SD_Log_Flush(){
  * - create	: 26.08.11
  */
 void v_SD_Log_Close(){
-	if(!b_logOpen) return;
-
-	v_SD_Log_Flush();
-	if(b_logOpen){					// still open means the flush succeeded
-		f_close(&logFile);
-		b_logOpen = false;
-		u32_logFileIdx++;
-	}
+	v_log_rotate("close");
+	// Unlike a rotation, nothing is going to re-record a pending batch after a
+	// deliberate close — the card is about to go away — so drop it rather than
+	// carry it into a file that may never be opened.
 	u16_logBufIdx = 0;
 }
 
