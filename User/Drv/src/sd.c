@@ -6,6 +6,7 @@
 #include "fatfs.h"
 #include "tim.h"
 #include "uart.h"
+#include "lib_log.h"
 
 #include "minimp3_platform.h"
 
@@ -333,22 +334,29 @@ bool b_UnMountSD(){
 //		SENSOR LOG				//
 //////////////////////////////////
 
-#define SD_LOG_RECORD_SIZE		56		// 4B timestamp + 52B sensor data
+// Record = 4B timestamp + STAT(0x70) payload. The payload grew 52 -> 64 B when
+// GPS (10 B) and angles (12 B) were added to v_ESP_Send_Sensing, so derive the
+// record size from the payload instead of restating it — the previous literal 56
+// went stale and sized the buffer below one flush interval, which deadlocked
+// logging entirely (see v_SD_Log_Write).
+#define SD_LOG_PAYLOAD_SIZE		64		// STAT(0x70) DATA length
+#define SD_LOG_RECORD_SIZE		(4 + SD_LOG_PAYLOAD_SIZE)				// 68 bytes
 #define SD_LOG_FLUSH_ITV		10000	// 10s flush interval (ms)
-#define SD_LOG_BUF_MAX			100		// max records per flush (10s / 100ms)
-#define SD_LOG_BUF_SIZE			(SD_LOG_RECORD_SIZE * SD_LOG_BUF_MAX)	// 5600 bytes
+#define SD_LOG_BUF_MAX			110		// 10s / 100ms + 10% margin
+#define SD_LOG_BUF_SIZE			(SD_LOG_RECORD_SIZE * SD_LOG_BUF_MAX)	// 7480 bytes
 
 static FIL logFile;
 static bool b_logOpen;
 static uint8_t u8_logBuf[SD_LOG_BUF_SIZE];
 static uint16_t u16_logBufIdx;
 static uint32_t u32_logFlushRef;
+static uint32_t u32_logDropCnt;		// samples rejected by the length contract
 
 static const char c_sensorFmt[] =
 "PSA Sensor Binary Log Format\r\n"
 "=============================\r\n"
 "File: sensor.bin\r\n"
-"Record Size: 56 bytes\r\n"
+"Record Size: 68 bytes\r\n"
 "Interval: 100ms\r\n"
 "\r\n"
 "Byte Layout (per record):\r\n"
@@ -360,7 +368,7 @@ static const char c_sensorFmt[] =
 "[22-27] imu_r_accel     int16x3 BE    Right IMU Accelerometer (X,Y,Z)\r\n"
 "[28-29] fsr_left        uint16  BE    Force Sensor Left\r\n"
 "[30-31] fsr_right       uint16  BE    Force Sensor Right\r\n"
-"[32-33] temp_out        [int,dec]     Outdoor Temp (byte0=integer, byte1=decimal*10)\r\n"
+"[32-33] temp_out        [int,dec]     Outdoor Temp (byte0=integer, byte1=decimal*100)\r\n"
 "[34-35] temp_in         [int,dec]     Indoor Temp\r\n"
 "[36-37] temp_ir         [int,dec]     IR Temp\r\n"
 "[38-39] tof1            uint16  BE    Time-of-Flight Sensor 1\r\n"
@@ -372,12 +380,16 @@ static const char c_sensorFmt[] =
 "[50-53] gps_lon         float   BE    GPS Longitude (IEEE754)\r\n"
 "[54]    gps_sat         uint8         Number of Satellites\r\n"
 "[55]    gps_fix         uint8         Fix Type (0=none,1=2D,2=3D)\r\n"
+"[56-61] angle_left      int16x3 BE    Left tilt X,Y,Z (degrees x100). Z always 0\r\n"
+"[62-67] angle_right     int16x3 BE    Right tilt X,Y,Z (degrees x100). Z always 0\r\n"
 "\r\n"
 "Notes:\r\n"
 "- LE = Little-Endian, BE = Big-Endian\r\n"
-"- Temperature: value = byte0 + (byte1 / 10.0)\r\n"
+"- Temperature: value = byte0 + (byte1 / 100.0)\r\n"
+"- Battery: same [int,dec] encoding as temperature\r\n"
+"- Angle: value = int16 / 100.0 (accel-only tilt, drift-free)\r\n"
 "- GPS zeros when no fix available\r\n"
-"- Total records = file_size / 56\r\n";
+"- Total records = file_size / 68\r\n";
 
 
 /*
@@ -420,7 +432,24 @@ bool b_SD_Log_Open(){
  */
 void v_SD_Log_Write(uint8_t* pu8_data, uint16_t u16_len){
 	if(!b_logOpen) return;
-	if((u16_logBufIdx + 4 + u16_len) > SD_LOG_BUF_SIZE) return;
+
+	// Length contract: the buffer is a fixed record grid, so any other payload
+	// size would desync it. Count the drop instead of reshaping the record — a
+	// mismatch here means the STAT layout changed and the reader must be updated.
+	if(u16_len != SD_LOG_PAYLOAD_SIZE){
+		u32_logDropCnt++;
+		LOG_WARN("SD_LOG", "payload %u != %u, dropped (total %u)",
+				u16_len, SD_LOG_PAYLOAD_SIZE, (unsigned)u32_logDropCnt);
+		return;
+	}
+
+	// CRITICAL: flush before rejecting. A bare early return here would skip the
+	// interval check at the end of this function, so the buffer could never drain
+	// and logging would stop for good the first time it filled.
+	if((u16_logBufIdx + SD_LOG_RECORD_SIZE) > SD_LOG_BUF_SIZE){
+		v_SD_Log_Flush();
+		if((u16_logBufIdx + SD_LOG_RECORD_SIZE) > SD_LOG_BUF_SIZE) return;
+	}
 
 	// prepend timestamp (4B LE)
 	uint32_t ts = u32_Tim_1msGet();

@@ -22,6 +22,7 @@
 #include "sk6812_platform.h"	//led
 #include "sam_m10q_platform.h"	//gps (v_GPS_Init / e_GPS_Ready)
 #include "flash_cfg.h"			//non-volatile volume storage
+#include "sd.h"					//sensor log flush/close on power-off
 //tilt
 //#include "quaternion_mahony.h"
 #include "lib_log.h"
@@ -2087,6 +2088,10 @@ void v_Mode_Off(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t* px_pub){
 			//pwr_off = 1;
 			//sensor stop..
 			i_mode_off = 1;
+			// Sampling has just stopped, so commit whatever is still buffered.
+			// This is the last point with a running main loop before STOP entry
+			// (~1.1 s later) and the file is not closed anywhere else.
+			v_SD_Log_Close();
 			// LOW: Removed unused commented code
 			pwr_off = low_pwr = 0;
 		}
