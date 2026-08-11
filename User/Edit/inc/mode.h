@@ -67,6 +67,19 @@
 //////////////////////////////////
 
 //Operation Temperature (unit : 1 degree)
+// Hard ceiling for any temperature arriving over UART.
+//
+// The mode setpoints ARE the thermal cut-off — i_Mode_Is_TempHeater_Over compares
+// the IR reading against the setpoint and switches the heater off there. Nothing
+// else guards the actuator, and f_max is only a clamp on what a setpoint may be
+// set to, so without this a bad value on the link becomes the temperature the SMA
+// is driven to.
+//
+// 85 is confirmed by the safety owner as the ceiling above the highest legitimate
+// operating point (healing 80; intensity setpoints 72 / 64 / 54). It changes
+// nothing in normal operation — every value the ESP32 sends is below it.
+#define MODE_TEMP_ABS_MAX	85.0f
+
 #define MODE_TEMP_MAX		70.0f
 #define MODE_TEMP_SLEEP		38.0f	//35 -> 38
 #define MODE_TEMP_WAITING	38.0f

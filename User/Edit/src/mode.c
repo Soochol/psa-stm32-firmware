@@ -219,23 +219,52 @@ float f_Mode_Get_Temp_ForceUp(){
 }
 
 
+// What the link last asked for, before f_max was applied. Kept so a setpoint that
+// arrived while f_max was still at its default is not stranded low: the sender has
+// no way to learn it was clamped, so the value would silently stay wrong for the
+// whole session.
+static float f_tempReqSleep   = MODE_TEMP_SLEEP;
+static float f_tempReqWaiting = MODE_TEMP_WAITING;
+static float f_tempReqForceUp = MODE_TEMP_FORCE_UP;
+
+static float f_Mode_Temp_Clamp(float f_temp, const char* pc_what){
+	if(f_temp > MODE_TEMP_ABS_MAX){
+		LOG_WARN("MODE", "%s %d.%d C over absolute limit, clamped to %d C",
+				pc_what, (int)f_temp, (int)((f_temp - (int)f_temp) * 10),
+				(int)MODE_TEMP_ABS_MAX);
+		return MODE_TEMP_ABS_MAX;
+	}
+	return f_temp;
+}
+
+/* Re-derives the setpoints from what was requested, for a new f_max. */
+static void v_Mode_Temp_Reapply(void){
+	float f_max = x_modeTempLmt.f_max;
+	x_modeTempLmt.f_sleep   = (f_tempReqSleep   > f_max) ? f_max : f_tempReqSleep;
+	x_modeTempLmt.f_waiting = (f_tempReqWaiting > f_max) ? f_max : f_tempReqWaiting;
+	x_modeTempLmt.f_forceUp = (f_tempReqForceUp > f_max) ? f_max : f_tempReqForceUp;
+}
+
 void v_Mode_Set_Temp_Max(float f_temp){
-	x_modeTempLmt.f_max = f_temp;
+	x_modeTempLmt.f_max = f_Mode_Temp_Clamp(f_temp, "temp limit");
+	// Raising f_max lifts anything that was clamped against the old one. Without
+	// this the result depends on the order 0x14 and 0x12 happen to arrive in.
+	v_Mode_Temp_Reapply();
 }
 
 void v_Mode_Set_Temp_Sleep(float f_temp){
-	if(f_temp > x_modeTempLmt.f_max){f_temp = x_modeTempLmt.f_max;}
-	x_modeTempLmt.f_sleep = f_temp;
+	f_tempReqSleep = f_Mode_Temp_Clamp(f_temp, "sleep temp");
+	v_Mode_Temp_Reapply();
 }
 
 void v_Mode_Set_Temp_Waiting(float f_temp){
-	if(f_temp > x_modeTempLmt.f_max){f_temp = x_modeTempLmt.f_max;}
-	x_modeTempLmt.f_waiting = f_temp;
+	f_tempReqWaiting = f_Mode_Temp_Clamp(f_temp, "waiting temp");
+	v_Mode_Temp_Reapply();
 }
 
 void v_Mode_Set_Temp_ForceUp(float f_temp){
-	if(f_temp > x_modeTempLmt.f_max){f_temp = x_modeTempLmt.f_max;}
-	x_modeTempLmt.f_forceUp = f_temp;
+	f_tempReqForceUp = f_Mode_Temp_Clamp(f_temp, "forceup temp");
+	v_Mode_Temp_Reapply();
 }
 
 
