@@ -24,6 +24,13 @@
 #define ESP_TEMP_DECIMAL_DIV		10		// Temperature conversion divisor
 #define ESP_TEMP_TO_INT_MULT		100		// Temperature to integer multiplier
 
+// Protocol mode codes. Distinct numbering from the internal e_modeID_t — the two
+// must always be converted, never assigned across (internal modeWAITING is 2,
+// which is FORCE_UP here). See SD logging spec v1.3 section 7.1.
+//
+// 7-10 were added for the SD log deviceMode field. Only 0-5 and 7 can ever
+// appear in a record: the rest are modes where sampling is stopped, so they show
+// up in reqLogStatus(0x43) responses only.
 typedef enum {
 	ESP_EVT_MODE_SLEEP=0,
 	ESP_EVT_MODE_WAITING,
@@ -32,6 +39,10 @@ typedef enum {
 	ESP_EVT_MODE_FORCE_DOWN,
 	ESP_EVT_MODE_TEST,
 	ESP_EVT_MODE_ERROR,
+	ESP_EVT_MODE_HEALING,
+	ESP_EVT_MODE_BOOTING,
+	ESP_EVT_MODE_WAKE_UP,
+	ESP_EVT_MODE_OFF,
 } e_ESP_EVT_MODE_t;
 
 typedef enum {

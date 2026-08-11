@@ -15,6 +15,9 @@ extern TIM_HandleTypeDef htim4;
 
 extern TIM_HandleTypeDef htim7;
 
+//function
+static void v_Tim_SD_Block_Track(void);   // defined below, called from the SD yield hook
+
 //static
 static TIM_HandleTypeDef* p_tim2 = &htim2;
 static TIM_HandleTypeDef* p_tim4 = &htim4;
@@ -68,7 +71,8 @@ void v_Tim_1s_Test(){
 				bv/10, bv%10 < 0 ? -(bv%10) : bv%10,
 				(unsigned)u16_TOF_Get_1(), tf);
 			uint32_t us = one_cycle / (SystemCoreClock / 1000000);
-			SEGGER_RTT_printf(0, "[D]cyc=%uus\r\n", us);
+			SEGGER_RTT_printf(0, "[D]cyc=%uus sdmax=%uus\r\n",
+				us, (unsigned)u32_Tim_SD_Block_MaxUs());
 		}
 	}
 	v_1Cycle_Time();
@@ -87,6 +91,7 @@ void v_Tim_1s_Test(){
 // and could re-enter FatFs (_FS_REENTRANT = 0). Only the TX side is pumped.
 void v_SD_BusyWait_Yield(void) {
 	v_Uart_ESP_TxPump();
+	v_Tim_SD_Block_Track();
 	v_Tim_1s_Test();
 }
 
@@ -103,6 +108,59 @@ void DWT_Init(){
 		DWT->CYCCNT = 0;
 		DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
 	}
+	v_Tim_SD_Block_Init();
+}
+
+
+/****************************************/
+//		SD BLOCKING MEASUREMENT			//
+/****************************************/
+// Feeds the scenario 8 report: how long does one SD access hold the main loop?
+// v_SD_BusyWait_Yield() is called from every blocking wait in sd_diskio.c and
+// those calls sit microseconds apart inside a single wait, so a longer gap means
+// a new wait began.
+//
+// Thresholds are kept in cycles so the hot path does no division. CYCCNT wraps
+// every ~7.8 s at 550 MHz; unsigned subtraction absorbs one wrap, and the sanity
+// bound catches the case where the card was idle across a wrap and the gap
+// happens to read small.
+#define SD_BLOCK_GAP_US			2000U		// beyond this, a new wait started
+#define SD_BLOCK_SANE_US		2000000U	// longer than IWDG, cannot be one wait
+
+static uint32_t u32_sdBlockMaxCyc;
+static uint32_t u32_sdBlockStart;
+static uint32_t u32_sdBlockLast;
+static uint32_t u32_sdGapCyc;
+static uint32_t u32_sdSaneCyc;
+
+void v_Tim_SD_Block_Init(void){
+	uint32_t u32_perUs = SystemCoreClock / 1000000U;
+	u32_sdGapCyc  = SD_BLOCK_GAP_US  * u32_perUs;
+	u32_sdSaneCyc = SD_BLOCK_SANE_US * u32_perUs;
+}
+
+static void v_Tim_SD_Block_Track(void){
+	uint32_t u32_now  = DWT->CYCCNT;
+	uint32_t u32_gap  = u32_now - u32_sdBlockLast;
+	uint32_t u32_held = u32_now - u32_sdBlockStart;
+
+	if(u32_gap > u32_sdGapCyc || u32_held > u32_sdSaneCyc){
+		u32_sdBlockStart = u32_now;
+	}
+	else if(u32_held > u32_sdBlockMaxCyc){
+		u32_sdBlockMaxCyc = u32_held;
+	}
+	u32_sdBlockLast = u32_now;
+}
+
+uint32_t u32_Tim_SD_Block_MaxUs(void){
+	uint32_t u32_perUs = SystemCoreClock / 1000000U;
+	if(u32_perUs == 0U) return 0U;
+	return u32_sdBlockMaxCyc / u32_perUs;
+}
+
+void v_Tim_SD_Block_Clear(void){
+	u32_sdBlockMaxCyc = 0;
 }
 
 void delay_us(uint32_t us){

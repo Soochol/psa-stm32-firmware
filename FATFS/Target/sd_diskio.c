@@ -126,6 +126,28 @@ const Diskio_drvTypeDef  SD_Driver =
 /* USER CODE BEGIN beforeFunctionSection */
 /* can be used to modify / undefine following code or add new code */
 __attribute__((weak)) void v_SD_BusyWait_Yield(void) { }
+
+/*
+ * Fault injection for scenario 13-15 (write failure -> file rotation).
+ *
+ * Deliberately keyed on a symbol that no build configuration defines — not on
+ * DEBUG. This repository has two build systems, and the CubeIDE side defines
+ * DEBUG while having no Release configuration, so units can be flashed from a
+ * DEBUG build. Defaulting to 0 here means forgetting the flag fails safe.
+ *
+ * To exercise it: pio run -e stm32_debug -DPSA_FAULT_INJECT=1, then set
+ * u8_sd_fault_inject_write = N from the debugger. The Nth following SD_write
+ * fails and the flag clears itself. Failing a later write inside a multi-sector
+ * f_write is what produces a genuine partial write, which is the case the
+ * rotation rule exists for.
+ */
+#ifndef PSA_FAULT_INJECT
+#define PSA_FAULT_INJECT 0
+#endif
+
+#if PSA_FAULT_INJECT
+volatile uint8_t u8_sd_fault_inject_write;
+#endif
 /* USER CODE END beforeFunctionSection */
 
 /* Private functions ---------------------------------------------------------*/
@@ -331,6 +353,13 @@ DRESULT SD_write(BYTE lun, const BYTE *buff, DWORD sector, UINT count)
   uint32_t timeout;
 #if defined(ENABLE_SCRATCH_BUFFER)
   int i;
+#endif
+
+#if PSA_FAULT_INJECT
+  if (u8_sd_fault_inject_write)
+  {
+    if (--u8_sd_fault_inject_write == 0) return RES_ERROR;
+  }
 #endif
 
    WriteStatus = 0;

@@ -16,6 +16,15 @@ void v_Tim_1s_Test();
 void DWT_Init();
 void delay_us(uint32_t us);
 void v_1Cycle_Time();
+
+/****************************************/
+//		SD BLOCKING MEASUREMENT			//
+/****************************************/
+// Longest single SD access that held the main loop, in microseconds. Reported
+// with the scenario 8 measurement to settle the SD_TIMEOUT_* values.
+void     v_Tim_SD_Block_Init(void);
+uint32_t u32_Tim_SD_Block_MaxUs(void);
+void     v_Tim_SD_Block_Clear(void);
 /****************************************/
 //				TIM2					//
 //	CH1	: PWM (actuator heater)			//

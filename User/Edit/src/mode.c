@@ -1365,6 +1365,11 @@ static void v_Mode_Booting(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t* 
 			tilt = 1;
 			//esp send
 			v_ESP_Send_InitStart();
+			// BOOTING can hold indefinitely (tilt centring, sensor init) while
+			// sampling is stopped, so without this the ESP32 sees seq stall with
+			// no way to tell it apart from a fault. This is the gating value
+			// that matters most in the health report.
+			v_ESP_Send_EvtModeChange(ESP_EVT_MODE_BOOTING);
 			// gps init kicker (non-blocking, arms async state machine).
 			// Placed here (NOT in main.c) so GPS init only runs when mode is
 			// BOOTING — avoids race condition with v_Mode_Off()'s I2C3 pin
@@ -1651,6 +1656,9 @@ static void v_Mode_Healing(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t* 
 			tout = MODE_HEALING_INITIAL_TOUT;
 			//temperature condition renew
 			px_pub->i_tempRenew = 1;
+			// Healing samples but never reported a mode, so its ~10 records had
+			// no deviceMode code. Now HEALING(7).
+			v_ESP_Send_EvtModeChange(ESP_EVT_MODE_HEALING);
 		}
 		else{
 
@@ -2088,6 +2096,10 @@ void v_Mode_Off(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t* px_pub){
 			//pwr_off = 1;
 			//sensor stop..
 			i_mode_off = 1;
+			// Tell the ESP32 this is a deliberate power-down before the link goes
+			// quiet. STOP follows ~1.1 s later and kills UART entirely, so without
+			// this the silence is indistinguishable from a dead link.
+			v_ESP_Send_EvtModeChange(ESP_EVT_MODE_OFF);
 			// Sampling has just stopped, so commit whatever is still buffered.
 			// This is the last point with a running main loop before STOP entry
 			// (~1.1 s later) and the file is not closed anywhere else.
@@ -2142,6 +2154,14 @@ void v_Mode_Off(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t* px_pub){
 				v_IO_PWR_WakeUp_Disable();
 				v_Key_Power_Init();
 
+				// Re-arm. The wake pin fires on any press, but only a long press
+				// (1500 ms) leaves modeOFF, so a short press or a knock used to
+				// leave the device awake in run mode with no way back to STOP —
+				// "switched off" to the user while the battery drains. Clearing
+				// low_pwr lets the condition above fire again after
+				// MODE_LOWPWR_ENTRY_DELAY; a held key keeps refreshing
+				// u32_timToutRef below, so a genuine long press is not cut short.
+				low_pwr = 0;
 				px_pub->u32_timToutRef = u32_Tim_1msGet();
 			}
 		}
