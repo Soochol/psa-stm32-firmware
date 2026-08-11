@@ -407,6 +407,28 @@ static uint32_t u32_logFileIdx;
 static uint32_t u32_logFileRef;		// tick when the current file was opened
 static uint32_t u32_logFileRec;		// records placed in the current file
 static uint16_t u16_logWrErr;		// reported as writeErrorCount in reqLogStatus(0x43)
+static bool     b_logFault;			// unrecoverable: full card or damaged filesystem
+static uint8_t  u8_logWrFail;		// consecutive failed flushes
+static bool     b_logCardSeen;		// card was present at the last media poll
+static uint32_t u32_logMediaRef;
+static uint32_t u32_logMountRef;
+
+// One slot is enough: the drain runs every main loop pass and faults arrive at
+// media speed, so a second one cannot arrive before the first is taken.
+static bool     b_logErrPend;
+static uint8_t  u8_logErrReason;
+static uint16_t u16_logErrDetail;
+
+#define SD_LOG_MEDIA_ITV	1000	// card presence poll (a GPIO read)
+#define SD_LOG_MOUNT_ITV	5000	// remount attempts; each one re-inits the SDMMC
+#define SD_LOG_WRFAIL_MAX	3		// failed flushes before a remount is attempted
+
+static void v_log_err_raise(uint8_t u8_reason, uint16_t u16_detail){
+	if(b_logErrPend) return;		// keep the older one, it is closer to the cause
+	u8_logErrReason  = u8_reason;
+	u16_logErrDetail = u16_detail;
+	b_logErrPend     = true;
+}
 
 
 static void v_put_u16be(uint8_t* p, uint16_t v){
@@ -567,7 +589,14 @@ bool b_SD_Log_Init(){
 	u16_logBufIdx     = 0;
 	u16_logWrErr      = 0;
 	b_logOpen         = false;
+	b_logFault        = false;
+	u8_logWrFail      = 0;
+	b_logErrPend      = false;
 	u32_logFlushRef   = u32_Tim_1msGet();
+	u32_logMediaRef   = u32_logFlushRef;
+	u32_logMountRef   = u32_logFlushRef;
+	b_logCardSeen     = (BSP_SD_IsDetected() == SD_PRESENT);
+	if(!b_logCardSeen) v_log_err_raise(SD_LOG_ERR_NO_CARD, 0);
 
 	// A wrong polynomial is invisible on the device: records still look fine and
 	// only the merge tool notices, by which point a whole card is unusable.
@@ -603,7 +632,7 @@ void v_SD_Log_Write(const uint8_t* pu8_payload, uint16_t u16_len,
 	uint32_t u32_seq = u32_logSeq++;
 	uint8_t  u8_flags = b_txOk ? SD_FLAG_TX_OK : 0;
 
-	if(!b_logCrcOk || !b_logEnabled) return;
+	if(!b_logCrcOk || !b_logEnabled || b_logFault) return;
 
 	// Length contract (spec section 7.4). Do not skip the slot: dropping one
 	// record shifts every later record in the file by 80 B and backfill would
@@ -665,7 +694,30 @@ void v_SD_Log_Flush(){
 		u32_logFlushedSeq = u32_get_u32be(&u8_logBuf[u16_logBufIdx - SD_LOG_REC_SIZE]);
 		u16_logBufIdx = 0;
 		u32_logFlushRef = u32_Tim_1msGet();
+		u8_logWrFail = 0;
 		return;
+	}
+
+	// FatFs distinguishes the two failures for us, which is why f_getfree is not
+	// consulted here: a short write with FR_OK means the volume is full, anything
+	// else is an I/O or filesystem problem. f_getfree would answer the same
+	// question but scans the whole FAT when FSINFO is stale — seconds of blocking
+	// against a 2 s watchdog.
+	if(e_res == FR_OK){
+		LOG_ERROR("SD_LOG", "card full at seq=%u, logging stopped",
+				(unsigned)u32_logSeq);
+		v_log_err_raise(SD_LOG_ERR_NO_SPACE, 0);
+		b_logFault = true;			// spec 10.4: stop, never delete to make room
+	}
+	else{
+		// Retries are simply the next flush, 2 s away, so they cost no blocking
+		// time here. Only a persistent failure escalates.
+		u8_logWrFail++;
+		if(u8_logWrFail >= SD_LOG_WRFAIL_MAX){
+			u8_logWrFail = 0;
+			v_log_err_raise(SD_LOG_ERR_WRITE, (uint16_t)e_res);
+			b_SdMount = false;		// media handler remounts on the next pass
+		}
 	}
 
 	// Short or failed write. The file may now end part way through a record, and
@@ -705,6 +757,69 @@ void v_SD_Log_SetEnabled(bool b_en){
 	if(!b_en) v_SD_Log_Close();
 	b_logEnabled = b_en;
 	LOG_INFO("SD_LOG", "%s", b_en ? "enabled" : "stopped (flushed and closed)");
+}
+
+
+/*
+ * brief	: card presence, removal and remount (spec section 10.4)
+ * note
+ * - Nothing here touches the protocol layer. Faults are parked for
+ *   b_SD_Log_Get_Error so this stays a driver.
+ */
+void v_SD_Log_Media_Handler(){
+	if(!_b_Tim_Is_OVR(u32_Tim_1msGet(), u32_logMediaRef, SD_LOG_MEDIA_ITV)) return;
+	u32_logMediaRef = u32_Tim_1msGet();
+
+	bool b_present = (BSP_SD_IsDetected() == SD_PRESENT);
+
+	if(!b_present){
+		if(b_logCardSeen || b_SdMount){
+			// Abandon the handle rather than f_close it: closing writes the
+			// directory entry, and the card it would be written to is gone.
+			// Whatever the last flush committed stays valid on the card.
+			b_logOpen     = false;
+			u16_logBufIdx = 0;
+			u32_logFileIdx++;			// a re-insert resumes in a new file
+			b_SdMount     = false;
+			v_log_err_raise(SD_LOG_ERR_NO_CARD, 0);
+			LOG_WARN("SD_LOG", "card removed, next file will be #%u",
+					(unsigned)u32_logFileIdx);
+		}
+		b_logCardSeen = false;
+		return;
+	}
+
+	b_logCardSeen = true;
+	if(b_SdMount) return;
+
+	// Present but not mounted: a fresh insert, or recovery after a write fault.
+	// Rate limited because each attempt re-inits the SDMMC peripheral.
+	if(!_b_Tim_Is_OVR(u32_Tim_1msGet(), u32_logMountRef, SD_LOG_MOUNT_ITV)) return;
+	u32_logMountRef = u32_Tim_1msGet();
+
+	if(b_MountSD()){
+		LOG_INFO("SD_LOG", "card mounted");
+		b_logFault = false;				// a new card clears a full/damaged one
+		u8_logWrFail = 0;
+	}
+	else{
+		v_log_err_raise(SD_LOG_ERR_MOUNT, 0);
+	}
+}
+
+
+bool b_SD_Log_Get_Error(uint8_t* pu8_reason, uint16_t* pu16_detail){
+	if(!b_logErrPend) return false;
+	if(pu8_reason  != NULL) *pu8_reason  = u8_logErrReason;
+	if(pu16_detail != NULL) *pu16_detail = u16_logErrDetail;
+	b_logErrPend = false;
+	return true;
+}
+
+uint8_t u8_SD_Log_Get_State(){
+	if(b_logFault) return 2;
+	if(!b_logCrcOk || !b_logEnabled) return 0;
+	return 1;
 }
 
 

@@ -391,6 +391,7 @@ int main(void)
 
 	  v_ADC_Handler();
 	  v_Uart_Handler();
+	  v_SD_Log_Media_Handler();  // card insert/remove, remount; rate limits itself
 	  v_Key_Handler();
 	  v_GPS_Handler();
 	  v_GPS_Tout_Handler();  // GPS I2C timeout monitoring

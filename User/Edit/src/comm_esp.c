@@ -69,6 +69,7 @@ typedef enum {
     ESP_CMD_EVT_INIT_RESULT=0x81,
     ESP_CMD_EVT_MODE=0x82,
     ESP_CMD_EVT_WARN=0x83,
+	ESP_CMD_EVT_LOG_ERR=0x84,	//SD logging spec 6.7
 	//ERROR
 	ESP_CMD_ERR=0x90,
 } e_ESP_CMD_t;
@@ -127,6 +128,29 @@ static int i_toutAct;
 
 void v_ESP_Handler(){
 	v_ESP_RxHandler();
+	v_ESP_LogError_Handler();
+}
+
+/*
+ * brief	: forward a pending SD logging fault as evtLogError(0x84)
+ * date
+ * - create	: 26.08.11
+ * note
+ * - Pushed as soon as it happens rather than waiting for the next reqLogStatus
+ *   poll, which is a minute away (spec section 6.7).
+ */
+void v_ESP_LogError_Handler(){
+	uint8_t  u8_reason;
+	uint16_t u16_detail;
+
+	if(!b_SD_Log_Get_Error(&u8_reason, &u16_detail)) return;
+
+	uint8_t data[3];
+	data[0] = u8_reason;
+	data[1] = (uint8_t)(u16_detail >> 8);
+	data[2] = (uint8_t)(u16_detail);
+	b_ESP_Transmit(ESP_DIR_REQ, ESP_CMD_EVT_LOG_ERR, data, 3);
+	LOG_WARN("COMM_ESP", "evtLogError reason=%u detail=%u", u8_reason, u16_detail);
 }
 
 /*

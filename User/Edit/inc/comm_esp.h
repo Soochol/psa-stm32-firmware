@@ -66,6 +66,10 @@ void v_ESP_Send_Sensing(int16_t* pi16_imu_left, int16_t* pi16_imu_right,\
 
 void v_ESP_Tout_Handler();
 void v_ESP_Send_Error(uint16_t u16_error);
+
+// Drains a pending SD logging fault into evtLogError(0x84). Called from
+// v_ESP_Handler, so it goes out within one main loop pass of the fault.
+void v_ESP_LogError_Handler();
 void v_ESP_Send_Warning(uint8_t u8_warn_type);
 
 #endif
