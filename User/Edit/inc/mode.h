@@ -185,6 +185,12 @@ typedef enum {
 } e_modeERR_t;
 void v_Mode_Set_Error(e_modeERR_t e_type);
 e_modeERR_t e_Mode_Get_Error(void);
+
+// Current mode as a protocol code (e_ESP_EVT_MODE_t), for the SD record's
+// deviceMode field and the reqLogStatus(0x43) response. The internal e_modeID_t
+// uses different numbers and must never be sent as-is — internal modeWAITING is
+// 2, which the protocol reads as FORCE_UP.
+uint8_t u8_Mode_Get_ProtoMode(void);
 void v_Mode_Error_LED_Test(e_modeERR_t test_error);  // LED 에러 패턴 테스트 함수
 
 

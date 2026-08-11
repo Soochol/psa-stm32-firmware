@@ -367,7 +367,7 @@ int main(void)
   if(b_MountSD())	{v_Mode_Set_MP3_Play(1);}
   else				{v_Mode_Set_MP3_Play(0);}
 #endif
-  b_SD_Log_Open();          // sensor.bin + sensor_fmt.txt
+  b_SD_Log_Init();          // arm .psa logging; files are created on first sample
   SEGGER_RTT_printf(0, "[RTT] === Init complete, entering main loop ===\r\n");
   /* USER CODE END 2 */
 

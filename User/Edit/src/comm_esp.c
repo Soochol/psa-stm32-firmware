@@ -105,7 +105,7 @@ typedef enum {
 
 
 //function
-static void v_ESP_Transmit(uint8_t u8_dir, uint8_t u8_cmd, uint8_t* pu8_data, uint16_t u16_len);
+static bool b_ESP_Transmit(uint8_t u8_dir, uint8_t u8_cmd, uint8_t* pu8_data, uint16_t u16_len);
 static void v_ESP_RxHandler();
 static void v_ESP_RxProc(uint8_t u8_cmd, uint8_t* pu8_data, uint8_t u8_len);
 static void v_ESP_RxAck(uint8_t u8_cmd, uint8_t* pu8_data, uint8_t u8_len);
@@ -149,12 +149,12 @@ void v_ESP_Recive(uint8_t u8_rx){
  * - pu8_data	: data array
  * - u16_len	: data length
  */
-static void v_ESP_Transmit(uint8_t u8_dir, uint8_t u8_cmd, uint8_t* pu8_data, uint16_t u16_len){
+static bool b_ESP_Transmit(uint8_t u8_dir, uint8_t u8_cmd, uint8_t* pu8_data, uint16_t u16_len){
 	// CRITICAL: Validate buffer size to prevent stack overflow
 	// fmt[64] = STX(1) + LEN(1) + DIR(1) + CMD(1) + DATA(u16_len) + CHK(1) + ETX(1)
 	// Maximum safe data length: 64 - 6 = 58 bytes
 	if(u16_len > (ESP_TX_FMT_BUF_SIZE - 6)){
-		return;  // Prevent buffer overflow
+		return false;  // Prevent buffer overflow
 	}
 
 	uint8_t fmt[ESP_TX_FMT_BUF_SIZE];
@@ -184,7 +184,7 @@ static void v_ESP_Transmit(uint8_t u8_dir, uint8_t u8_cmd, uint8_t* pu8_data, ui
 	//ETX
 	fmt[cnt++] = ESP_FMT_ETX;	//etx
 
-	v_Uart_ESP_Out(fmt, cnt);
+	return b_Uart_ESP_Out(fmt, cnt);
 }
 
 /*
@@ -428,7 +428,7 @@ static void v_ESP_InitProc(uint8_t u8_cmd, uint8_t* pu8_data, uint8_t u8_len){
 		break;
 	}
 	//ack
-	v_ESP_Transmit(ESP_DIR_ACK, u8_cmd, NULL, 0);
+	b_ESP_Transmit(ESP_DIR_ACK, u8_cmd, NULL, 0);
 }
 
 
@@ -517,7 +517,7 @@ static void v_ESP_ReqProc(uint8_t u8_cmd){
 		break;
 	}
 	//ack
-	v_ESP_Transmit(ESP_DIR_ACK, u8_cmd, data, len);
+	b_ESP_Transmit(ESP_DIR_ACK, u8_cmd, data, len);
 }
 
 
@@ -579,7 +579,7 @@ static void v_ESP_CtrlProc(uint8_t u8_cmd, uint8_t* pu8_data, uint8_t u8_len){
 		break;
 	}
 	//ack
-	v_ESP_Transmit(ESP_DIR_ACK, u8_cmd, NULL, 0);
+	b_ESP_Transmit(ESP_DIR_ACK, u8_cmd, NULL, 0);
 }
 
 
@@ -590,11 +590,11 @@ static void v_ESP_StatProc(uint8_t u8_cmd, uint8_t* pu8_data, uint8_t u8_len){
 }
 
 void v_ESP_Send_InitStart(){
-	v_ESP_Transmit(ESP_DIR_REQ, ESP_CMD_EVT_INIT_START, NULL, 0);
+	b_ESP_Transmit(ESP_DIR_REQ, ESP_CMD_EVT_INIT_START, NULL, 0);
 }
 
 void v_ESP_Send_InitEnd(){
-	v_ESP_Transmit(ESP_DIR_REQ, ESP_CMD_EVT_INIT_RESULT, NULL, 0);
+	b_ESP_Transmit(ESP_DIR_REQ, ESP_CMD_EVT_INIT_RESULT, NULL, 0);
 }
 
 
@@ -605,7 +605,7 @@ void v_ESP_Send_InitEnd(){
  * - modify	: -
  */
 void v_ESP_Send_EvtModeChange(uint8_t u8_mode){
-	v_ESP_Transmit(ESP_DIR_REQ, ESP_CMD_EVT_MODE, &u8_mode, 1);
+	b_ESP_Transmit(ESP_DIR_REQ, ESP_CMD_EVT_MODE, &u8_mode, 1);
 }
 
 void v_ESP_Send_Sensing(int16_t* pi16_imu_left, int16_t* pi16_imu_right,\
@@ -734,10 +734,12 @@ void v_ESP_Send_Sensing(int16_t* pi16_imu_left, int16_t* pi16_imu_right,\
 		}
 	}
 
-	v_ESP_Transmit(ESP_DIR_REQ, ESP_CMD_STAT, data, cnt);
+	bool b_txOk = b_ESP_Transmit(ESP_DIR_REQ, ESP_CMD_STAT, data, cnt);
 
-	// SD sensor log
-	v_SD_Log_Write(data, cnt);
+	// SD sensor log. deviceMode and errorMask are read here rather than inside the
+	// driver so sd.c stays a driver — it has no business reaching up into mode.
+	v_SD_Log_Write(data, cnt, u8_Mode_Get_ProtoMode(),
+			(uint16_t)e_Mode_Get_Error(), b_txOk);
 
 	if(i_toutAct == 0){
 		i_toutAct = 1;
@@ -763,11 +765,11 @@ void v_ESP_Send_Error(uint16_t u16_error){
 	uint8_t error[4];
 	error[0] = u16_error >> 8;
 	error[1] = u16_error;	//fixed ->
-	v_ESP_Transmit(ESP_DIR_REQ, ESP_CMD_ERR, error, 2);
+	b_ESP_Transmit(ESP_DIR_REQ, ESP_CMD_ERR, error, 2);
 }
 
 void v_ESP_Send_Warning(uint8_t u8_warn_type){
-	v_ESP_Transmit(ESP_DIR_REQ, ESP_CMD_EVT_WARN, &u8_warn_type, 1);
+	b_ESP_Transmit(ESP_DIR_REQ, ESP_CMD_EVT_WARN, &u8_warn_type, 1);
 }
 
 

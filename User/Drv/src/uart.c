@@ -212,10 +212,17 @@ void v_Uart_ESP_EnableIT(){
  * - create	: 25.04.28
  * - modify	: -
  */
-void v_Uart_ESP_Out(uint8_t* pu8_arr, uint16_t u16_cnt){
+bool b_Uart_ESP_Out(uint8_t* pu8_arr, uint16_t u16_cnt){
 	// CRITICAL: Validate pointer parameters to prevent hard fault
 	if(pu8_arr == NULL || u16_cnt == 0){
-		return;
+		return false;
+	}
+
+	// The ring drops its oldest bytes on overflow rather than refusing, which
+	// would corrupt a frame already in flight. Refuse instead, and let the caller
+	// record that this frame never made it out.
+	if(((uint32_t)uartEspTx->u16_cnt + u16_cnt) > ((uint32_t)uartEspTx->u16_mask + 1U)){
+		return false;
 	}
 
 	// HIGH: Protect ring buffer access from ISR race condition
@@ -225,17 +232,8 @@ void v_Uart_ESP_Out(uint8_t* pu8_arr, uint16_t u16_cnt){
 	uartEspTx->fn.v_PutArr(uartEspTx, pu8_arr, u16_cnt);
 	__set_PRIMASK(primask);
 
-	if((e_espTx == COMM_STAT_DONE || e_espTx == COMM_STAT_READY) && uartEspTx->u16_cnt){
-		e_espTx = COMM_STAT_BUSY;
-		uartEspTx->fn.b_GetArr(uartEspTx, u8_txEsp_arr, u16_cnt);
-#if UART_CACHE_ENABLED
-		SCB_CleanDCache_by_Addr((uint32_t*)u8_txEsp_arr, UART_ESP_TX_ARR_SIZE);//after multiple calculation
-#endif
-		// HIGH: Check return value to detect DMA transmit start failure
-		if(HAL_UART_Transmit_DMA(p_uart1, u8_txEsp_arr, u16_cnt) != HAL_OK){
-			e_espTx = COMM_STAT_ERR;
-		}
-	}
+	v_Uart_ESP_TxPump();
+	return true;
 }
 
 /*

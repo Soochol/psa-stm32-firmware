@@ -7,6 +7,8 @@
 #include "tim.h"
 #include "uart.h"
 #include "lib_log.h"
+#include "lib_crc.h"
+#include "flash_cfg.h"		// bootId / deviceId for the .psa file header
 
 #include "minimp3_platform.h"
 
@@ -334,135 +336,258 @@ bool b_UnMountSD(){
 //		SENSOR LOG				//
 //////////////////////////////////
 
-// Record = 4B timestamp + STAT(0x70) payload. The payload grew 52 -> 64 B when
-// GPS (10 B) and angles (12 B) were added to v_ESP_Send_Sensing, so derive the
-// record size from the payload instead of restating it — the previous literal 56
-// went stale and sized the buffer below one flush interval, which deadlocked
-// logging entirely (see v_SD_Log_Write).
-#define SD_LOG_PAYLOAD_SIZE		64		// STAT(0x70) DATA length
-#define SD_LOG_RECORD_SIZE		(4 + SD_LOG_PAYLOAD_SIZE)				// 68 bytes
-#define SD_LOG_FLUSH_ITV		10000	// 10s flush interval (ms)
-#define SD_LOG_BUF_MAX			110		// 10s / 100ms + 10% margin
-#define SD_LOG_BUF_SIZE			(SD_LOG_RECORD_SIZE * SD_LOG_BUF_MAX)	// 7480 bytes
+// SD logging spec sections 7 / 8.1. Records are a fixed 80 B grid because two
+// things depend on it: a merge tool must be able to find record boundaries
+// arithmetically after a power cut, and backfill (spec section 6.4) seeks to a
+// requested seq with 512 + (seq - firstSeq) * 80 instead of scanning.
+//
+// That arithmetic only holds while the n-th record in a file carries
+// seq == firstSeq + n, so nothing here may ever skip a slot. Where a real sample
+// cannot be produced, a placeholder takes its place; where even that is
+// impossible, the file ends and a new one starts.
+#define SD_LOG_PAYLOAD_SIZE		64			// STAT(0x70) DATA length
+#define SD_LOG_REC_SIZE			80
+#define SD_LOG_HDR_SIZE			512			// sector aligned; records start here
+#define SD_LOG_FORMAT_VER		1
+#define SD_LOG_SAMPLE_MHZ		10000U		// 10.000 Hz, in milli-hertz
 
-static FIL logFile;
-static bool b_logOpen;
-static uint8_t u8_logBuf[SD_LOG_BUF_SIZE];
+// record field offsets (spec section 7)
+#define SD_REC_SEQ				0
+#define SD_REC_TICK				4
+#define SD_REC_PAYLOAD			8
+#define SD_REC_MODE				72
+#define SD_REC_FLAGS			73
+#define SD_REC_ERRMASK			74
+#define SD_REC_CRC				78
+
+// flags, record offset 73
+#define SD_FLAG_TX_OK			(1U << 0)	// this sample's STAT reached the UART queue
+#define SD_FLAG_INVALID			(1U << 1)	// placeholder: statPayload is not real data
+
+// header field offsets (spec section 8.1)
+#define SD_HDR_MAGIC			0
+#define SD_HDR_FORMAT_VER		4
+#define SD_HDR_REC_SIZE			6
+#define SD_HDR_DEVID			8
+#define SD_HDR_BOOTID			14
+#define SD_HDR_FILEIDX			18
+#define SD_HDR_FIRSTSEQ			22
+#define SD_HDR_RATE				26
+#define SD_HDR_CRC				30
+
+#define SD_LOG_FLUSH_ITV		10000		// 10s; spec section 10.2 tightens this to 2s
+#define SD_LOG_BUF_MAX			110			// 10s / 100ms + 10% margin
+#define SD_LOG_BUF_SIZE			(SD_LOG_REC_SIZE * SD_LOG_BUF_MAX)
+
+#define SD_LOG_DIR				"/LOG"
+#define SD_LOG_PATH_MAX			48
+
+static FIL      logFile;
+static bool     b_logArmed;			// logging wanted
+static bool     b_logOpen;			// a file is open and its header is on the card
+static uint8_t  u8_logBuf[SD_LOG_BUF_SIZE];
 static uint16_t u16_logBufIdx;
 static uint32_t u32_logFlushRef;
-static uint32_t u32_logDropCnt;		// samples rejected by the length contract
+static uint32_t u32_logSeq;			// next sample number
+static uint32_t u32_logFlushedSeq;	// last seq actually on the card, for reqLogStatus
+static uint32_t u32_logFileIdx;
+static uint16_t u16_logWrErr;		// reported as writeErrorCount in reqLogStatus(0x43)
 
-static const char c_sensorFmt[] =
-"PSA Sensor Binary Log Format\r\n"
-"=============================\r\n"
-"File: sensor.bin\r\n"
-"Record Size: 68 bytes\r\n"
-"Interval: 100ms\r\n"
-"\r\n"
-"Byte Layout (per record):\r\n"
-"--------------------------\r\n"
-"[0-3]   timestamp_ms    uint32  LE    System tick (ms since boot)\r\n"
-"[4-9]   imu_l_gyro      int16x3 BE    Left IMU Gyroscope (X,Y,Z)\r\n"
-"[10-15] imu_l_accel     int16x3 BE    Left IMU Accelerometer (X,Y,Z)\r\n"
-"[16-21] imu_r_gyro      int16x3 BE    Right IMU Gyroscope (X,Y,Z)\r\n"
-"[22-27] imu_r_accel     int16x3 BE    Right IMU Accelerometer (X,Y,Z)\r\n"
-"[28-29] fsr_left        uint16  BE    Force Sensor Left\r\n"
-"[30-31] fsr_right       uint16  BE    Force Sensor Right\r\n"
-"[32-33] temp_out        [int,dec]     Outdoor Temp (byte0=integer, byte1=decimal*100)\r\n"
-"[34-35] temp_in         [int,dec]     Indoor Temp\r\n"
-"[36-37] temp_ir         [int,dec]     IR Temp\r\n"
-"[38-39] tof1            uint16  BE    Time-of-Flight Sensor 1\r\n"
-"[40-41] tof2            uint16  BE    Time-of-Flight Sensor 2\r\n"
-"[42-43] battery         [int,dec]     Battery Voltage\r\n"
-"[44]    imu_l_evt       uint8         Left IMU Event Flags\r\n"
-"[45]    imu_r_evt       uint8         Right IMU Event Flags\r\n"
-"[46-49] gps_lat         float   BE    GPS Latitude (IEEE754)\r\n"
-"[50-53] gps_lon         float   BE    GPS Longitude (IEEE754)\r\n"
-"[54]    gps_sat         uint8         Number of Satellites\r\n"
-"[55]    gps_fix         uint8         Fix Type (0=none,1=2D,2=3D)\r\n"
-"[56-61] angle_left      int16x3 BE    Left tilt X,Y,Z (degrees x100). Z always 0\r\n"
-"[62-67] angle_right     int16x3 BE    Right tilt X,Y,Z (degrees x100). Z always 0\r\n"
-"\r\n"
-"Notes:\r\n"
-"- LE = Little-Endian, BE = Big-Endian\r\n"
-"- Temperature: value = byte0 + (byte1 / 100.0)\r\n"
-"- Battery: same [int,dec] encoding as temperature\r\n"
-"- Angle: value = int16 / 100.0 (accel-only tilt, drift-free)\r\n"
-"- GPS zeros when no fix available\r\n"
-"- Total records = file_size / 68\r\n";
 
+static void v_put_u16be(uint8_t* p, uint16_t v){
+	p[0] = (uint8_t)(v >> 8);
+	p[1] = (uint8_t)(v);
+}
+
+static void v_put_u32be(uint8_t* p, uint32_t v){
+	p[0] = (uint8_t)(v >> 24);
+	p[1] = (uint8_t)(v >> 16);
+	p[2] = (uint8_t)(v >> 8);
+	p[3] = (uint8_t)(v);
+}
+
+static uint32_t u32_get_u32be(const uint8_t* p){
+	return ((uint32_t)p[0] << 24) | ((uint32_t)p[1] << 16) |
+	       ((uint32_t)p[2] << 8)  |  (uint32_t)p[3];
+}
 
 /*
- * brief	: open sensor log files (sensor.bin + sensor_fmt.txt)
- * date
- * - create	: 26.03.04
+ * brief	: directory name for the current device id
+ * note
+ * - "UNKNOWN" until initLogIdentity(0x23) supplies a MAC, so a card written
+ *   before the ESP32 ever talks is still self-describing (spec section 8.2).
  */
-bool b_SD_Log_Open(){
-	if(!b_SdMount) return false;
+static void v_log_devid_dir(char* pc_out){
+	static const char c_hex[] = "0123456789ABCDEF";
+	const uint8_t* pu8_id = pu8_Flash_Cfg_Get_DeviceId();
+	int i_known = 0;
 
-	// create sensor_fmt.txt (overwrite)
-	FIL fmtFile;
-	UINT bw;
-	if(f_open(&fmtFile, "sensor_fmt.txt", FA_CREATE_ALWAYS | FA_WRITE) == FR_OK){
-		f_write(&fmtFile, c_sensorFmt, strlen(c_sensorFmt), (void*)&bw);
-		f_close(&fmtFile);
+	for(int i = 0; i < 6; i++){
+		if(pu8_id[i] != 0xFF) i_known = 1;
 	}
+	if(!i_known){
+		strcpy(pc_out, "UNKNOWN");
+		return;
+	}
+	for(int i = 0; i < 6; i++){
+		pc_out[i * 2]     = c_hex[pu8_id[i] >> 4];
+		pc_out[i * 2 + 1] = c_hex[pu8_id[i] & 0x0F];
+	}
+	pc_out[12] = '\0';
+}
 
-	// open sensor.bin (append)
-	res = f_open(&logFile, "sensor.bin", FA_OPEN_APPEND | FA_WRITE);
-	if(res != FR_OK){
-		b_logOpen = false;
+static void v_log_build_header(uint8_t* pu8_hdr, uint32_t u32_firstSeq){
+	memset(pu8_hdr, 0, SD_LOG_HDR_SIZE);
+	memcpy(&pu8_hdr[SD_HDR_MAGIC], "PSA1", 4);
+	v_put_u16be(&pu8_hdr[SD_HDR_FORMAT_VER], SD_LOG_FORMAT_VER);
+	v_put_u16be(&pu8_hdr[SD_HDR_REC_SIZE],   SD_LOG_REC_SIZE);
+	memcpy(&pu8_hdr[SD_HDR_DEVID], pu8_Flash_Cfg_Get_DeviceId(), 6);
+	v_put_u32be(&pu8_hdr[SD_HDR_BOOTID],   u32_Flash_Cfg_Get_BootId());
+	v_put_u32be(&pu8_hdr[SD_HDR_FILEIDX],  u32_logFileIdx);
+	v_put_u32be(&pu8_hdr[SD_HDR_FIRSTSEQ], u32_firstSeq);
+	v_put_u32be(&pu8_hdr[SD_HDR_RATE],     SD_LOG_SAMPLE_MHZ);
+	v_put_u16be(&pu8_hdr[SD_HDR_CRC], u16_CRC16_CCITT(pu8_hdr, SD_HDR_CRC));
+}
+
+static void v_log_build_record(uint8_t* pu8_rec, uint32_t u32_seq,
+		const uint8_t* pu8_payload, uint8_t u8_flags,
+		uint8_t u8_devMode, uint16_t u16_errMask){
+	memset(pu8_rec, 0, SD_LOG_REC_SIZE);
+	v_put_u32be(&pu8_rec[SD_REC_SEQ],  u32_seq);
+	v_put_u32be(&pu8_rec[SD_REC_TICK], u32_Tim_1msGet());
+	if(pu8_payload != NULL){
+		memcpy(&pu8_rec[SD_REC_PAYLOAD], pu8_payload, SD_LOG_PAYLOAD_SIZE);
+	}
+	pu8_rec[SD_REC_MODE]  = u8_devMode;
+	pu8_rec[SD_REC_FLAGS] = u8_flags;
+	v_put_u16be(&pu8_rec[SD_REC_ERRMASK], u16_errMask);
+	// [76..77] reserved, left zero by the memset above
+	v_put_u16be(&pu8_rec[SD_REC_CRC], u16_CRC16_CCITT(pu8_rec, SD_REC_CRC));
+}
+
+/*
+ * brief	: create /LOG/<dev>/<bootId>_<fileIndex>.psa and write its header
+ * note
+ * - Called on the first record that needs a home, never at start-up. A session
+ *   that samples nothing — cold boot straight into modeOFF, for one — therefore
+ *   leaves no file at all, which is what keeps empty sessions out of
+ *   reqLogFiles (spec section 8.3).
+ */
+static bool b_log_file_open(uint32_t u32_firstSeq){
+	char c_dev[13];
+	char c_dir[SD_LOG_PATH_MAX];
+	char c_path[SD_LOG_PATH_MAX];
+	uint8_t u8_hdr[SD_LOG_HDR_SIZE];
+	UINT bw = 0;
+
+	v_log_devid_dir(c_dev);
+	f_mkdir(SD_LOG_DIR);					// FR_EXIST is the normal answer
+	snprintf(c_dir, sizeof(c_dir), "%s/%s", SD_LOG_DIR, c_dev);
+	f_mkdir(c_dir);
+	snprintf(c_path, sizeof(c_path), "%s/%08lX_%04lX.psa", c_dir,
+			(unsigned long)u32_Flash_Cfg_Get_BootId(), (unsigned long)u32_logFileIdx);
+
+	if(f_open(&logFile, c_path, FA_CREATE_ALWAYS | FA_WRITE) != FR_OK){
+		u16_logWrErr++;
 		return false;
 	}
 
+	v_log_build_header(u8_hdr, u32_firstSeq);
+	if(f_write(&logFile, u8_hdr, SD_LOG_HDR_SIZE, &bw) != FR_OK || bw != SD_LOG_HDR_SIZE){
+		f_close(&logFile);
+		u16_logWrErr++;
+		u32_logFileIdx++;
+		return false;
+	}
+	f_sync(&logFile);
+
 	b_logOpen = true;
-	u16_logBufIdx = 0;
 	u32_logFlushRef = u32_Tim_1msGet();
+	LOG_INFO("SD_LOG", "%s firstSeq=%u", c_path, (unsigned)u32_firstSeq);
 	return true;
 }
 
 
 /*
- * brief	: accumulate sensor data to buffer, flush every 10s
+ * brief	: arm sensor logging for this boot
  * date
- * - create	: 26.03.04
- * param
- * - pu8_data	: sensor data (52 bytes, same as ESP format)
- * - u16_len	: data length
+ * - create	: 26.08.11
  */
-void v_SD_Log_Write(uint8_t* pu8_data, uint16_t u16_len){
-	if(!b_logOpen) return;
+bool b_SD_Log_Init(){
+	u32_logSeq        = 0;
+	u32_logFlushedSeq = 0;
+	u32_logFileIdx    = 0;
+	u16_logBufIdx     = 0;
+	u16_logWrErr      = 0;
+	b_logOpen         = false;
+	u32_logFlushRef   = u32_Tim_1msGet();
 
-	// Length contract: the buffer is a fixed record grid, so any other payload
-	// size would desync it. Count the drop instead of reshaping the record — a
-	// mismatch here means the STAT layout changed and the reader must be updated.
-	if(u16_len != SD_LOG_PAYLOAD_SIZE){
-		u32_logDropCnt++;
-		LOG_WARN("SD_LOG", "payload %u != %u, dropped (total %u)",
-				u16_len, SD_LOG_PAYLOAD_SIZE, (unsigned)u32_logDropCnt);
-		return;
+	// A wrong polynomial is invisible on the device: records still look fine and
+	// only the merge tool notices, by which point a whole card is unusable.
+	// Refuse to log rather than fill a card with records nobody can validate.
+	if(!i_CRC16_SelfTest()){
+		LOG_ERROR("SD_LOG", "CRC-16 self test failed, logging disabled");
+		b_logArmed = false;
+		return false;
 	}
 
-	// CRITICAL: flush before rejecting. A bare early return here would skip the
-	// interval check at the end of this function, so the buffer could never drain
-	// and logging would stop for good the first time it filled.
-	if((u16_logBufIdx + SD_LOG_RECORD_SIZE) > SD_LOG_BUF_SIZE){
+	b_logArmed = true;
+	LOG_INFO("SD_LOG", "armed, bootId=%u", (unsigned)u32_Flash_Cfg_Get_BootId());
+	return true;
+}
+
+
+/*
+ * brief	: append one sample to the current file
+ * date
+ * - create	: 26.08.11
+ * param
+ * - pu8_payload	: STAT(0x70) DATA, must be SD_LOG_PAYLOAD_SIZE bytes
+ * - u16_len		: length of pu8_payload
+ * - u8_devMode		: protocol mode code (e_ESP_EVT_MODE_t), record offset 72
+ * - u16_errMask	: errInit(0x90) bitmask snapshot, record offset 74
+ * - b_txOk			: this sample's STAT frame was accepted by the UART queue
+ */
+void v_SD_Log_Write(const uint8_t* pu8_payload, uint16_t u16_len,
+		uint8_t u8_devMode, uint16_t u16_errMask, bool b_txOk){
+	// seq counts samples, not writes (spec section 4). It has to advance with no
+	// card in the slot too, otherwise the next file's firstSeq would not line up
+	// with the sample stream the ESP32 sees.
+	uint32_t u32_seq = u32_logSeq++;
+	uint8_t  u8_flags = b_txOk ? SD_FLAG_TX_OK : 0;
+
+	if(!b_logArmed) return;
+
+	// Length contract (spec section 7.4). Do not skip the slot: dropping one
+	// record shifts every later record in the file by 80 B and backfill would
+	// then answer a seq request with the wrong sample. Write a placeholder with
+	// the right seq and let the reader discard it by flags bit1.
+	if(pu8_payload == NULL || u16_len != SD_LOG_PAYLOAD_SIZE){
+		pu8_payload = NULL;
+		u8_flags |= SD_FLAG_INVALID;
+		u16_logWrErr++;
+		LOG_WARN("SD_LOG", "payload %u != %u, placeholder at seq=%u",
+				u16_len, SD_LOG_PAYLOAD_SIZE, (unsigned)u32_seq);
+	}
+
+	if(!b_logOpen){
+		if(!b_SdMount) return;
+		// A pending batch keeps its own first seq, so a file opened after a failed
+		// flush still describes the records it actually contains.
+		uint32_t u32_first = (u16_logBufIdx > 0)
+				? u32_get_u32be(&u8_logBuf[SD_REC_SEQ]) : u32_seq;
+		if(!b_log_file_open(u32_first)) return;
+	}
+
+	if((u16_logBufIdx + SD_LOG_REC_SIZE) > SD_LOG_BUF_SIZE){
 		v_SD_Log_Flush();
-		if((u16_logBufIdx + SD_LOG_RECORD_SIZE) > SD_LOG_BUF_SIZE) return;
+		if((u16_logBufIdx + SD_LOG_REC_SIZE) > SD_LOG_BUF_SIZE) return;
 	}
 
-	// prepend timestamp (4B LE)
-	uint32_t ts = u32_Tim_1msGet();
-	u8_logBuf[u16_logBufIdx++] = ts & 0xFF;
-	u8_logBuf[u16_logBufIdx++] = (ts >> 8) & 0xFF;
-	u8_logBuf[u16_logBufIdx++] = (ts >> 16) & 0xFF;
-	u8_logBuf[u16_logBufIdx++] = (ts >> 24) & 0xFF;
+	v_log_build_record(&u8_logBuf[u16_logBufIdx], u32_seq, pu8_payload, u8_flags,
+			u8_devMode, u16_errMask);
+	u16_logBufIdx += SD_LOG_REC_SIZE;
 
-	// append sensor data
-	memcpy(&u8_logBuf[u16_logBufIdx], pu8_data, u16_len);
-	u16_logBufIdx += u16_len;
-
-	// flush every 10s
 	if(_b_Tim_Is_OVR(u32_Tim_1msGet(), u32_logFlushRef, SD_LOG_FLUSH_ITV)){
 		v_SD_Log_Flush();
 	}
@@ -470,40 +595,61 @@ void v_SD_Log_Write(uint8_t* pu8_data, uint16_t u16_len){
 
 
 /*
- * brief	: flush buffer to SD card and clear
+ * brief	: write the buffered records to the card
  * date
- * - create	: 26.03.04
+ * - create	: 26.08.11
  */
 void v_SD_Log_Flush(){
 	if(!b_logOpen || u16_logBufIdx == 0) return;
 
-	UINT bw;
-	res = f_write(&logFile, u8_logBuf, u16_logBufIdx, (void*)&bw);
-	if(res == FR_OK){
+	UINT bw = 0;
+	FRESULT e_res = f_write(&logFile, u8_logBuf, u16_logBufIdx, (void*)&bw);
+
+	if(e_res == FR_OK && bw == u16_logBufIdx){
 		f_sync(&logFile);
+		u32_logFlushedSeq = u32_get_u32be(&u8_logBuf[u16_logBufIdx - SD_LOG_REC_SIZE]);
+		u16_logBufIdx = 0;
+		u32_logFlushRef = u32_Tim_1msGet();
+		return;
 	}
 
-	// clear buffer
-	u16_logBufIdx = 0;
+	// Short or failed write. The file may now end part way through a record, and
+	// carrying on would break "n-th record has seq firstSeq + n" for everything
+	// after it. End the file here; the batch is still in RAM, so the next sample
+	// opens a new file that re-records it from the start and nothing is lost.
+	// (Full rotation policy — time, size, close-then-open — lands with 16.3-5.)
+	u16_logWrErr++;
+	LOG_ERROR("SD_LOG", "write %u/%u res=%d, rotating",
+			(unsigned)bw, (unsigned)u16_logBufIdx, (int)e_res);
+	f_close(&logFile);
+	b_logOpen = false;
+	u32_logFileIdx++;
 	u32_logFlushRef = u32_Tim_1msGet();
 }
 
 
 /*
- * brief	: close sensor log file
+ * brief	: flush and close the current file
  * date
- * - create	: 26.03.04
+ * - create	: 26.08.11
  */
 void v_SD_Log_Close(){
 	if(!b_logOpen) return;
 
-	// flush remaining data
-	if(u16_logBufIdx > 0){
-		v_SD_Log_Flush();
+	v_SD_Log_Flush();
+	if(b_logOpen){					// still open means the flush succeeded
+		f_close(&logFile);
+		b_logOpen = false;
+		u32_logFileIdx++;
 	}
-	f_close(&logFile);
-	b_logOpen = false;
+	u16_logBufIdx = 0;
 }
+
+
+uint32_t u32_SD_Log_Get_Seq(){			return u32_logSeq; }
+uint32_t u32_SD_Log_Get_FlushedSeq(){	return u32_logFlushedSeq; }
+uint32_t u32_SD_Log_Get_FileIndex(){	return u32_logFileIdx; }
+uint16_t u16_SD_Log_Get_WriteErrCnt(){	return u16_logWrErr; }
 
 
 /*

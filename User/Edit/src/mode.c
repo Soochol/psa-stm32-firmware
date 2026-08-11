@@ -2080,6 +2080,23 @@ static int i_Mode_Is_Off(){
 	return i_mode_off;
 }
 
+uint8_t u8_Mode_Get_ProtoMode(void){
+	switch(e_Mode_Get_CurrID()){
+	case modeSLEEP:			return ESP_EVT_MODE_SLEEP;
+	case modeWAITING:		return ESP_EVT_MODE_WAITING;
+	case modeFORCE_UP:		return ESP_EVT_MODE_FORCE_UP;
+	case modeFORCE_ON:		return ESP_EVT_MODE_FORCE_ON;
+	case modeFORCE_DOWN:	return ESP_EVT_MODE_FORCE_DOWN;
+	case modeTEST:			return ESP_EVT_MODE_TEST;
+	case modeERROR:			return ESP_EVT_MODE_ERROR;
+	case modeHEALING:		return ESP_EVT_MODE_HEALING;
+	case modeBOOTING:		return ESP_EVT_MODE_BOOTING;
+	case modeWAKE_UP:		return ESP_EVT_MODE_WAKE_UP;
+	case modeOFF:			return ESP_EVT_MODE_OFF;
+	default:				return 0xFF;	// unknown, never silently mapped to 0
+	}
+}
+
 void v_Mode_Off(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t* px_pub){
 	if(e_id != px_work->guide.e_curr){return;}
 	static int pwr_off, low_pwr;

@@ -13,11 +13,21 @@ bool b_IsMountSD();
 bool b_MountSD();
 bool b_UnMountSD();
 
-// SD Sensor Log
-bool b_SD_Log_Open();
-void v_SD_Log_Write(uint8_t* pu8_data, uint16_t u16_len);
+// SD Sensor Log — 80 B records in /LOG/<dev>/<bootId>_<fileIndex>.psa
+// (SD logging spec sections 7 and 8.1).
+//
+// Files are created on the first sample that needs one, not at start-up, so a
+// session that never samples leaves nothing behind.
+bool b_SD_Log_Init();
+void v_SD_Log_Write(const uint8_t* pu8_payload, uint16_t u16_len,
+		uint8_t u8_devMode, uint16_t u16_errMask, bool b_txOk);
 void v_SD_Log_Flush();
 void v_SD_Log_Close();
+
+uint32_t u32_SD_Log_Get_Seq();			// next sample number
+uint32_t u32_SD_Log_Get_FlushedSeq();	// last seq actually on the card
+uint32_t u32_SD_Log_Get_FileIndex();
+uint16_t u16_SD_Log_Get_WriteErrCnt();
 
 #endif
 
