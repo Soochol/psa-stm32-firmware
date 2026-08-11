@@ -73,6 +73,30 @@ typedef enum {
 } e_ESP_CMD_t;
 
 
+// Category bounds of the ESP32 command map. The parser accepts a whole category
+// rather than stopping at the last command implemented here, so a newly assigned
+// code reaches its handler instead of being discarded before the checksum check
+// (which also drops the receiver into byte-by-byte resync).
+//
+// Bounds are deliberately NOT derived from the enum above: using the last
+// defined command as the upper bound is what made the parser reject every code
+// the SD logging extension assigns (0x23 / 0x43 / 0x44 / 0x45 / 0x56 / 0x71 /
+// 0x84). Codes inside a category with no case in their handler are ACKed
+// without action.
+#define ESP_CMD_INIT_MIN	(0x10)
+#define ESP_CMD_INIT_MAX	(0x29)
+#define ESP_CMD_REQ_MIN		(0x30)
+#define ESP_CMD_REQ_MAX		(0x49)
+#define ESP_CMD_CTRL_MIN	(0x50)
+#define ESP_CMD_CTRL_MAX	(0x69)
+#define ESP_CMD_STAT_MIN	(0x70)
+#define ESP_CMD_STAT_MAX	(0x79)
+#define ESP_CMD_EVT_MIN		(0x80)
+#define ESP_CMD_EVT_MAX		(0x89)
+#define ESP_CMD_ERR_MIN		(0x90)
+#define ESP_CMD_ERR_MAX		(0x99)
+
+
 
 
 
@@ -170,12 +194,12 @@ static void v_ESP_Transmit(uint8_t u8_dir, uint8_t u8_cmd, uint8_t* pu8_data, ui
  * - modify	: 25.04.29
  */
 bool b_ESP_CmdCompare(uint8_t u8_cmd){
-	if(u8_cmd == ESP_CMD_STAT\
-	||(u8_cmd >= ESP_CMD_INIT_TEMP_SLEEP && u8_cmd <= ESP_CMD_INIT_PWM_BLOWFAN)\
-	||(u8_cmd >= ESP_CMD_REQ_TEMP_SLEEP && u8_cmd <= ESP_CMD_REQ_PWM_BLOWFAN)\
-	||(u8_cmd >= ESP_CMD_CTRL_RST && u8_cmd <= ESP_CMD_CTRL_COOLFAN_ON)\
-	||(u8_cmd >= ESP_CMD_EVT_INIT_START && u8_cmd <= ESP_CMD_EVT_WARN)\
-	||(u8_cmd == ESP_CMD_ERR)){
+	if((u8_cmd >= ESP_CMD_INIT_MIN && u8_cmd <= ESP_CMD_INIT_MAX)\
+	||(u8_cmd >= ESP_CMD_REQ_MIN && u8_cmd <= ESP_CMD_REQ_MAX)\
+	||(u8_cmd >= ESP_CMD_CTRL_MIN && u8_cmd <= ESP_CMD_CTRL_MAX)\
+	||(u8_cmd >= ESP_CMD_STAT_MIN && u8_cmd <= ESP_CMD_STAT_MAX)\
+	||(u8_cmd >= ESP_CMD_EVT_MIN && u8_cmd <= ESP_CMD_EVT_MAX)\
+	||(u8_cmd >= ESP_CMD_ERR_MIN && u8_cmd <= ESP_CMD_ERR_MAX)){
 		return true;
 	}
 	else{
@@ -297,20 +321,27 @@ static void v_ESP_RxHandler(){
  * - modify	: -
  */
 static void v_ESP_RxProc(uint8_t u8_cmd, uint8_t* pu8_data, uint8_t u8_len){
-	if(u8_cmd >= ESP_CMD_CTRL_RST && u8_cmd <= ESP_CMD_CTRL_COOLFAN_ON){
+	if(u8_cmd >= ESP_CMD_CTRL_MIN && u8_cmd <= ESP_CMD_CTRL_MAX){
 		//CTRL
 		v_ESP_CtrlProc(u8_cmd, pu8_data, u8_len);
 	}
-	else if(u8_cmd >= ESP_CMD_INIT_TEMP_SLEEP && u8_cmd <= ESP_CMD_INIT_PWM_BLOWFAN){
+	else if(u8_cmd >= ESP_CMD_INIT_MIN && u8_cmd <= ESP_CMD_INIT_MAX){
 		//INIT
 		v_ESP_InitProc(u8_cmd, pu8_data, u8_len);
 	}
-	else if(u8_cmd >= ESP_CMD_REQ_TEMP_SLEEP && u8_cmd <= ESP_CMD_REQ_PWM_BLOWFAN){
+	else if(u8_cmd >= ESP_CMD_REQ_MIN && u8_cmd <= ESP_CMD_REQ_MAX){
 		//REQ
 		v_ESP_ReqProc(u8_cmd);
 	}
 }
 
+/*
+ * note
+ * - ACKs for STM->ESP messages we do not track yet (evtWarn, evtLogError...)
+ *   fall through here on purpose. The frame is still consumed correctly because
+ *   b_ESP_CmdCompare accepts the whole category; only the reaction is missing.
+ *   Add a case together with the command that needs its ACK observed.
+ */
 static void v_ESP_RxAck(uint8_t u8_cmd, uint8_t* pu8_data, uint8_t u8_len){
 	if(u8_cmd == ESP_CMD_STAT){
 		v_ESP_StatProc(u8_cmd, pu8_data, u8_len);
