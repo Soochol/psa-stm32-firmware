@@ -563,6 +563,9 @@ static bool b_log_file_open(uint32_t u32_firstSeq){
 }
 
 
+static void v_log_idx_add(const char* pc_dir, const char* pc_name,
+		uint32_t u32_boot, uint32_t u32_idx, uint32_t u32_size, uint8_t u8_unknown);
+
 /*
  * brief	: end the current file so the next sample starts a fresh one
  * note
@@ -577,12 +580,36 @@ static void v_log_rotate(const char* pc_reason){
 
 	v_SD_Log_Flush();				// on failure this already closed and bumped
 	if(b_logOpen){
+		// The index is built once, by the boot scan. A file closed here would
+		// stay out of reqLogFiles and out of backfill until the next reset --
+		// in practice the whole session, which is exactly the data someone
+		// wants back after a dropout. Register it the moment it closes, with
+		// the routine the scan itself uses so the entry is identical either
+		// way: it re-reads the header for firstSeq and derives the count from
+		// the size, rather than trusting counters this path would have to keep.
+		char c_dev[13];
+		char c_dir[SD_LOG_PATH_MAX];
+		char c_name[24];
+		uint32_t u32_boot = u32_Flash_Cfg_Get_BootId();
+		uint32_t u32_size = (uint32_t)f_size(&logFile);
+
 		f_close(&logFile);
 		b_logOpen = false;
-		u32_logFileIdx++;
+
+		v_log_devid_dir(c_dev);
+		snprintf(c_dir, sizeof(c_dir), "%s/%s", SD_LOG_DIR, c_dev);
+		snprintf(c_name, sizeof(c_name), "%08lX_%04lX.psa",
+				(unsigned long)u32_boot, (unsigned long)u32_logFileIdx);
+		v_log_idx_add(c_dir, c_name, u32_boot, u32_logFileIdx, u32_size,
+				(strcmp(c_dev, "UNKNOWN") == 0) ? 1U : 0U);
+
+		u32_logFileIdx++;			// after the entry, which names the old index
 	}
-	LOG_INFO("SD_LOG", "rotate (%s) -> fileIndex=%u",
-			pc_reason, (unsigned)u32_logFileIdx);
+	// indexed= is how the registration above is checked without a card reader:
+	// it has to step by one here and match what reqLogFiles then reports.
+	LOG_INFO("SD_LOG", "rotate (%s) -> fileIndex=%u indexed=%u",
+			pc_reason, (unsigned)u32_logFileIdx,
+			(unsigned)u16_SD_Log_Idx_Count());
 }
 
 static const char* pc_log_rotate_reason(void){
