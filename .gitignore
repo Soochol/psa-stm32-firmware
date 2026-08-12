@@ -27,6 +27,10 @@ Release/
 *.list
 *.cyclo
 
+# RTT captures from the hardware sessions (docs/fixtures/CAPTURE.md). An 8 hour
+# run is tens of MB, and the findings belong in the progress reports, not here.
+session-*.log
+
 # Temporary files
 *.swp
 *.swo
