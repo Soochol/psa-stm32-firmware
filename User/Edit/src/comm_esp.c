@@ -113,8 +113,21 @@ typedef enum {
 
 // One statLogChunk DATA frame, and the room kept free ahead of it so the live
 // STAT frame (70 B) never has to queue behind a burst of them.
+//
+// The reserve has to cover everything that can be sent between two runs of the
+// pump, not the STAT alone. It was 128, which is what STAT needs plus a little,
+// and that is not enough: a reqLogFiles reply is 6 entries of 14 B plus 2, or
+// 92 B on the wire, and ESP32 polls for it while a backfill is running. 92 + 70
+// overruns 128, the STAT is refused, and the sample goes to the card with
+// SD_FLAG_TX_OK clear -- 4.5 % of them during backfill, measured by ESP32 off
+// the card in their report #23.
+//
+// Sized from the frame buffer instead of from one command: no frame can exceed
+// ESP_TX_FMT_BUF_SIZE, so a largest frame plus a STAT plus slack for the small
+// ACKs that follow a request is the bound. The pump then needs 343 B free of
+// the 2 KB ring, still ~19 chunks of headroom.
 #define ESP_BF_FRAME_SIZE	(6 + 81)
-#define ESP_BF_TX_RESERVE	(128)
+#define ESP_BF_TX_RESERVE	(256)
 
 
 //function
