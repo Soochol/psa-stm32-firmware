@@ -1955,6 +1955,21 @@ static void v_Mode_ForceOn(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t* 
 				f_Mode_Heater_PID_Handler(f_Mode_Get_Temp_ForceUp());
 			}
 
+			// FORCE_UP turns the cool fan off on entry so the ramp can heat, and
+			// nothing turned it back on here, so residual heat used to drain by
+			// natural cooling alone. Run the fan while the plate is far enough
+			// above the setpoint to mean draining rather than regulating, and
+			// stop once it arrives. The two thresholds are deliberately apart:
+			// switching on and off at the same reading would chatter.
+			float f_ir  = f_IR_Temp_Get();
+			float f_set = f_Mode_Get_Temp_ForceUp();
+			if(f_ir > (f_set + MODE_TEMP_RESIDUAL_MARGIN)){
+				v_Mode_CoolFan_Enable();
+			}
+			else if(f_ir <= f_set){
+				v_Mode_CoolFan_Disable();
+			}
+
 			// First moment the plate stops being above the setpoint. From here on
 			// the reading belongs to ordinary regulation, so the residual heat is
 			// spent and the elapsed time is what the user waited for it.
@@ -1994,6 +2009,10 @@ static void v_Mode_ForceOn(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t* 
 		}
 		v_Mode_MoveNext(px_work);
 		v_Mode_Heater_Off();
+		// Hand the fan back off the way it arrived. SLEEP never touches the cool
+		// fan, so one left running here would keep running with nothing to stop
+		// it; FORCE_DOWN starts its own when it needs one.
+		v_Mode_CoolFan_Disable();
 		//i_MP3_ForceStop(); // allow audio to finish during mode transition
 	}
 
