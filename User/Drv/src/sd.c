@@ -563,6 +563,9 @@ static bool b_log_file_open(uint32_t u32_firstSeq){
 }
 
 
+static void v_log_idx_add(const char* pc_dir, const char* pc_name,
+		uint32_t u32_boot, uint32_t u32_idx, uint32_t u32_size, uint8_t u8_unknown);
+
 /*
  * brief	: end the current file so the next sample starts a fresh one
  * note
@@ -572,14 +575,53 @@ static bool b_log_file_open(uint32_t u32_firstSeq){
  * - Does not clear the record buffer. A flush that failed leaves the batch in
  *   RAM on purpose, and the new file re-records it from the start.
  */
+/*
+ * brief	: close the open file, register it, and move to the next index
+ * note
+ * - Every way a file ends comes through here -- rotation and a failed write --
+ *   so the registration cannot be added to one path and forgotten in the other.
+ * - The index is otherwise built once, by the boot scan, which leaves a file
+ *   closed mid-session out of reqLogFiles and out of backfill until the next
+ *   reset. That is exactly the data someone wants back after a dropout.
+ * - Registration goes through v_log_idx_add, the routine the scan itself calls:
+ *   it re-reads the header for firstSeq and derives the count from the file
+ *   size rather than trusting counters this path would have to keep in step.
+ *   A short file left by a failed write therefore indexes the records it does
+ *   hold, which is the case where recovering them matters most.
+ */
+static void v_log_close_and_index(void){
+	char c_dev[13];
+	char c_dir[SD_LOG_PATH_MAX];
+	char c_name[24];
+	uint32_t u32_boot = u32_Flash_Cfg_Get_BootId();
+	uint32_t u32_size = (uint32_t)f_size(&logFile);
+
+	f_close(&logFile);
+	b_logOpen = false;
+
+	v_log_devid_dir(c_dev);
+	snprintf(c_dir, sizeof(c_dir), "%s/%s", SD_LOG_DIR, c_dev);
+	snprintf(c_name, sizeof(c_name), "%08lX_%04lX.psa",
+			(unsigned long)u32_boot, (unsigned long)u32_logFileIdx);
+	v_log_idx_add(c_dir, c_name, u32_boot, u32_logFileIdx, u32_size,
+			(strcmp(c_dev, "UNKNOWN") == 0) ? 1U : 0U);
+
+	// The count, not a success flag: v_log_idx_add drops a file that is too
+	// short to hold a record or that would overflow the table, and it says so
+	// by not moving this. It has to step by one here and match what reqLogFiles
+	// then reports -- which is the whole check, without a card reader.
+	LOG_INFO("SD_LOG", "closed %s size=%u indexed=%u", c_name,
+			(unsigned)u32_size, (unsigned)u16_SD_Log_Idx_Count());
+
+	u32_logFileIdx++;				// after the entry, which names the old index
+}
+
 static void v_log_rotate(const char* pc_reason){
 	if(!b_logOpen) return;
 
 	v_SD_Log_Flush();				// on failure this already closed and bumped
 	if(b_logOpen){
-		f_close(&logFile);
-		b_logOpen = false;
-		u32_logFileIdx++;
+		v_log_close_and_index();
 	}
 	LOG_INFO("SD_LOG", "rotate (%s) -> fileIndex=%u",
 			pc_reason, (unsigned)u32_logFileIdx);
@@ -750,9 +792,7 @@ void v_SD_Log_Flush(){
 	u16_logWrErr++;
 	LOG_ERROR("SD_LOG", "write %u/%u res=%d, rotating",
 			(unsigned)bw, (unsigned)u16_logBufIdx, (int)e_res);
-	f_close(&logFile);
-	b_logOpen = false;
-	u32_logFileIdx++;
+	v_log_close_and_index();		// the salvageable part stays reachable
 	u32_logFlushRef = u32_Tim_1msGet();
 }
 
