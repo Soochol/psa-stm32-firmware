@@ -78,6 +78,13 @@
 // 85 is confirmed by the safety owner as the ceiling above the highest legitimate
 // operating point (healing 80; intensity setpoints 72 / 64 / 54). It changes
 // nothing in normal operation — every value the ESP32 sends is below it.
+//
+// This bounds the setpoint, not the temperature reached. The ramp overshoots the
+// setpoint by the IR sensor's refresh interval times the rise rate — measured at
+// +1.0 C on the healing ramp (set 80, reached 81.0 in 3588 ms), so a setpoint of
+// 85 would reach about 86. That is accepted, and the ceiling stays 85: the
+// heater is switched off at the crossing, so the excess is overshoot rather than
+// runaway. Do not lower this to absorb the overshoot.
 #define MODE_TEMP_ABS_MAX	85.0f
 
 #define MODE_TEMP_MAX		70.0f
