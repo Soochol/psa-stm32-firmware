@@ -606,6 +606,13 @@ static void v_log_close_and_index(void){
 	v_log_idx_add(c_dir, c_name, u32_boot, u32_logFileIdx, u32_size,
 			(strcmp(c_dev, "UNKNOWN") == 0) ? 1U : 0U);
 
+	// The count, not a success flag: v_log_idx_add drops a file that is too
+	// short to hold a record or that would overflow the table, and it says so
+	// by not moving this. It has to step by one here and match what reqLogFiles
+	// then reports -- which is the whole check, without a card reader.
+	LOG_INFO("SD_LOG", "closed %s size=%u indexed=%u", c_name,
+			(unsigned)u32_size, (unsigned)u16_SD_Log_Idx_Count());
+
 	u32_logFileIdx++;				// after the entry, which names the old index
 }
 
@@ -616,11 +623,8 @@ static void v_log_rotate(const char* pc_reason){
 	if(b_logOpen){
 		v_log_close_and_index();
 	}
-	// indexed= is how the registration above is checked without a card reader:
-	// it has to step by one here and match what reqLogFiles then reports.
-	LOG_INFO("SD_LOG", "rotate (%s) -> fileIndex=%u indexed=%u",
-			pc_reason, (unsigned)u32_logFileIdx,
-			(unsigned)u16_SD_Log_Idx_Count());
+	LOG_INFO("SD_LOG", "rotate (%s) -> fileIndex=%u",
+			pc_reason, (unsigned)u32_logFileIdx);
 }
 
 static const char* pc_log_rotate_reason(void){
