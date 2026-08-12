@@ -22,6 +22,7 @@
 #include "sk6812_platform.h"	//led
 #include "sam_m10q_platform.h"	//gps (v_GPS_Init / e_GPS_Ready)
 #include "flash_cfg.h"			//non-volatile volume storage
+#include "sd.h"					//sensor log flush/close on power-off
 //tilt
 //#include "quaternion_mahony.h"
 #include "lib_log.h"
@@ -218,23 +219,52 @@ float f_Mode_Get_Temp_ForceUp(){
 }
 
 
+// What the link last asked for, before f_max was applied. Kept so a setpoint that
+// arrived while f_max was still at its default is not stranded low: the sender has
+// no way to learn it was clamped, so the value would silently stay wrong for the
+// whole session.
+static float f_tempReqSleep   = MODE_TEMP_SLEEP;
+static float f_tempReqWaiting = MODE_TEMP_WAITING;
+static float f_tempReqForceUp = MODE_TEMP_FORCE_UP;
+
+static float f_Mode_Temp_Clamp(float f_temp, const char* pc_what){
+	if(f_temp > MODE_TEMP_ABS_MAX){
+		LOG_WARN("MODE", "%s %d.%d C over absolute limit, clamped to %d C",
+				pc_what, (int)f_temp, (int)((f_temp - (int)f_temp) * 10),
+				(int)MODE_TEMP_ABS_MAX);
+		return MODE_TEMP_ABS_MAX;
+	}
+	return f_temp;
+}
+
+/* Re-derives the setpoints from what was requested, for a new f_max. */
+static void v_Mode_Temp_Reapply(void){
+	float f_max = x_modeTempLmt.f_max;
+	x_modeTempLmt.f_sleep   = (f_tempReqSleep   > f_max) ? f_max : f_tempReqSleep;
+	x_modeTempLmt.f_waiting = (f_tempReqWaiting > f_max) ? f_max : f_tempReqWaiting;
+	x_modeTempLmt.f_forceUp = (f_tempReqForceUp > f_max) ? f_max : f_tempReqForceUp;
+}
+
 void v_Mode_Set_Temp_Max(float f_temp){
-	x_modeTempLmt.f_max = f_temp;
+	x_modeTempLmt.f_max = f_Mode_Temp_Clamp(f_temp, "temp limit");
+	// Raising f_max lifts anything that was clamped against the old one. Without
+	// this the result depends on the order 0x14 and 0x12 happen to arrive in.
+	v_Mode_Temp_Reapply();
 }
 
 void v_Mode_Set_Temp_Sleep(float f_temp){
-	if(f_temp > x_modeTempLmt.f_max){f_temp = x_modeTempLmt.f_max;}
-	x_modeTempLmt.f_sleep = f_temp;
+	f_tempReqSleep = f_Mode_Temp_Clamp(f_temp, "sleep temp");
+	v_Mode_Temp_Reapply();
 }
 
 void v_Mode_Set_Temp_Waiting(float f_temp){
-	if(f_temp > x_modeTempLmt.f_max){f_temp = x_modeTempLmt.f_max;}
-	x_modeTempLmt.f_waiting = f_temp;
+	f_tempReqWaiting = f_Mode_Temp_Clamp(f_temp, "waiting temp");
+	v_Mode_Temp_Reapply();
 }
 
 void v_Mode_Set_Temp_ForceUp(float f_temp){
-	if(f_temp > x_modeTempLmt.f_max){f_temp = x_modeTempLmt.f_max;}
-	x_modeTempLmt.f_forceUp = f_temp;
+	f_tempReqForceUp = f_Mode_Temp_Clamp(f_temp, "forceup temp");
+	v_Mode_Temp_Reapply();
 }
 
 
@@ -1364,6 +1394,11 @@ static void v_Mode_Booting(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t* 
 			tilt = 1;
 			//esp send
 			v_ESP_Send_InitStart();
+			// BOOTING can hold indefinitely (tilt centring, sensor init) while
+			// sampling is stopped, so without this the ESP32 sees seq stall with
+			// no way to tell it apart from a fault. This is the gating value
+			// that matters most in the health report.
+			v_ESP_Send_EvtModeChange(ESP_EVT_MODE_BOOTING);
 			// gps init kicker (non-blocking, arms async state machine).
 			// Placed here (NOT in main.c) so GPS init only runs when mode is
 			// BOOTING — avoids race condition with v_Mode_Off()'s I2C3 pin
@@ -1650,6 +1685,9 @@ static void v_Mode_Healing(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t* 
 			tout = MODE_HEALING_INITIAL_TOUT;
 			//temperature condition renew
 			px_pub->i_tempRenew = 1;
+			// Healing samples but never reported a mode, so its ~10 records had
+			// no deviceMode code. Now HEALING(7).
+			v_ESP_Send_EvtModeChange(ESP_EVT_MODE_HEALING);
 		}
 		else{
 
@@ -1789,13 +1827,25 @@ static void v_Mode_ForceUp(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t* 
 		}
 	}
 	if(px_work->cr.bit.b1_on){
+		// Both exits report the IR reading and how long the ramp took. Which exit
+		// was taken matters: reaching the setpoint and running out of time look the
+		// same downstream, but only the second means the actuator never got there.
+		int ir  = (int)(f_IR_Temp_Get() * 10);
+		int set = (int)(f_Mode_Get_Temp_ForceUp() * 10);
+		unsigned ms = (unsigned)(u32_Tim_1msGet() - px_pub->u32_timToutRef);
+
 		if(_b_Tim_Is_OVR(u32_Tim_1msGet(), px_pub->u32_timToutRef, tout)){
+			LOG_INFO("FORCE", "UP timeout ir=%d.%d set=%d.%d after %ums -> ON",
+					ir/10, ir%10 < 0 ? -(ir%10) : ir%10,
+					set/10, set%10, ms);
 			v_Mode_SetNext(modeFORCE_ON);
 		}
 
 		int temp = i_Mode_Is_TempHeater_Over(&px_pub->i_tempRenew, f_Mode_Get_Temp_ForceUp());
 		if(temp > 0){
-			LOG_INFO("FORCE", "UP temp reached -> ON");
+			LOG_INFO("FORCE", "UP reached ir=%d.%d set=%d.%d in %ums -> ON",
+					ir/10, ir%10 < 0 ? -(ir%10) : ir%10,
+					set/10, set%10, ms);
 			v_Mode_Heater_Off();
 			v_Mode_SetNext(modeFORCE_ON);
 		}
@@ -2071,6 +2121,23 @@ static int i_Mode_Is_Off(){
 	return i_mode_off;
 }
 
+uint8_t u8_Mode_Get_ProtoMode(void){
+	switch(e_Mode_Get_CurrID()){
+	case modeSLEEP:			return ESP_EVT_MODE_SLEEP;
+	case modeWAITING:		return ESP_EVT_MODE_WAITING;
+	case modeFORCE_UP:		return ESP_EVT_MODE_FORCE_UP;
+	case modeFORCE_ON:		return ESP_EVT_MODE_FORCE_ON;
+	case modeFORCE_DOWN:	return ESP_EVT_MODE_FORCE_DOWN;
+	case modeTEST:			return ESP_EVT_MODE_TEST;
+	case modeERROR:			return ESP_EVT_MODE_ERROR;
+	case modeHEALING:		return ESP_EVT_MODE_HEALING;
+	case modeBOOTING:		return ESP_EVT_MODE_BOOTING;
+	case modeWAKE_UP:		return ESP_EVT_MODE_WAKE_UP;
+	case modeOFF:			return ESP_EVT_MODE_OFF;
+	default:				return 0xFF;	// unknown, never silently mapped to 0
+	}
+}
+
 void v_Mode_Off(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t* px_pub){
 	if(e_id != px_work->guide.e_curr){return;}
 	static int pwr_off, low_pwr;
@@ -2087,6 +2154,14 @@ void v_Mode_Off(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t* px_pub){
 			//pwr_off = 1;
 			//sensor stop..
 			i_mode_off = 1;
+			// Tell the ESP32 this is a deliberate power-down before the link goes
+			// quiet. STOP follows ~1.1 s later and kills UART entirely, so without
+			// this the silence is indistinguishable from a dead link.
+			v_ESP_Send_EvtModeChange(ESP_EVT_MODE_OFF);
+			// Sampling has just stopped, so commit whatever is still buffered.
+			// This is the last point with a running main loop before STOP entry
+			// (~1.1 s later) and the file is not closed anywhere else.
+			v_SD_Log_Close();
 			// LOW: Removed unused commented code
 			pwr_off = low_pwr = 0;
 		}
@@ -2137,6 +2212,14 @@ void v_Mode_Off(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t* px_pub){
 				v_IO_PWR_WakeUp_Disable();
 				v_Key_Power_Init();
 
+				// Re-arm. The wake pin fires on any press, but only a long press
+				// (1500 ms) leaves modeOFF, so a short press or a knock used to
+				// leave the device awake in run mode with no way back to STOP —
+				// "switched off" to the user while the battery drains. Clearing
+				// low_pwr lets the condition above fire again after
+				// MODE_LOWPWR_ENTRY_DELAY; a held key keeps refreshing
+				// u32_timToutRef below, so a genuine long press is not cut short.
+				low_pwr = 0;
 				px_pub->u32_timToutRef = u32_Tim_1msGet();
 			}
 		}

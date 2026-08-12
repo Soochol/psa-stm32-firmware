@@ -52,7 +52,11 @@ DMA_HandleTypeDef* p_dmaUart4Tx = &hdma_uart4_tx;
 //	- ESP
 /****************************************/
 //define
-#define UART_ESP_TX_ARR_SIZE	(256)
+// Must stay a power of two (_RING_VAR_DEF masks with cnt-1).
+// 256 B is only ~22 ms of line time at 115200 8N1, so any SD access that blocks
+// the main loop longer than that leaves the DMA idle with nothing queued behind
+// it. 2 KB covers ~178 ms, which is past the worst case in SD_TIMEOUT_BUSY.
+#define UART_ESP_TX_ARR_SIZE	(2048)
 
 
 //function
@@ -208,10 +212,17 @@ void v_Uart_ESP_EnableIT(){
  * - create	: 25.04.28
  * - modify	: -
  */
-void v_Uart_ESP_Out(uint8_t* pu8_arr, uint16_t u16_cnt){
+bool b_Uart_ESP_Out(uint8_t* pu8_arr, uint16_t u16_cnt){
 	// CRITICAL: Validate pointer parameters to prevent hard fault
 	if(pu8_arr == NULL || u16_cnt == 0){
-		return;
+		return false;
+	}
+
+	// The ring drops its oldest bytes on overflow rather than refusing, which
+	// would corrupt a frame already in flight. Refuse instead, and let the caller
+	// record that this frame never made it out.
+	if(((uint32_t)uartEspTx->u16_cnt + u16_cnt) > ((uint32_t)uartEspTx->u16_mask + 1U)){
+		return false;
 	}
 
 	// HIGH: Protect ring buffer access from ISR race condition
@@ -221,17 +232,8 @@ void v_Uart_ESP_Out(uint8_t* pu8_arr, uint16_t u16_cnt){
 	uartEspTx->fn.v_PutArr(uartEspTx, pu8_arr, u16_cnt);
 	__set_PRIMASK(primask);
 
-	if((e_espTx == COMM_STAT_DONE || e_espTx == COMM_STAT_READY) && uartEspTx->u16_cnt){
-		e_espTx = COMM_STAT_BUSY;
-		uartEspTx->fn.b_GetArr(uartEspTx, u8_txEsp_arr, u16_cnt);
-#if UART_CACHE_ENABLED
-		SCB_CleanDCache_by_Addr((uint32_t*)u8_txEsp_arr, UART_ESP_TX_ARR_SIZE);//after multiple calculation
-#endif
-		// HIGH: Check return value to detect DMA transmit start failure
-		if(HAL_UART_Transmit_DMA(p_uart1, u8_txEsp_arr, u16_cnt) != HAL_OK){
-			e_espTx = COMM_STAT_ERR;
-		}
-	}
+	v_Uart_ESP_TxPump();
+	return true;
 }
 
 /*
@@ -240,7 +242,26 @@ void v_Uart_ESP_Out(uint8_t* pu8_arr, uint16_t u16_cnt){
  * - create	: 25.04.28
  * - modify	: -
  */
-static void v_Uart_ESP_Handler(){
+/*
+ * brief	: start the next TX DMA if one is queued and the line is free
+ * date
+ * - create	: 26.08.11
+ * note
+ * - Transmit-only on purpose. HAL_UART_TxCpltCallback only flags completion, so
+ *   without this being called the queued bytes sit until the main loop comes
+ *   back around — which is exactly what does not happen while an SD access
+ *   blocks. v_SD_BusyWait_Yield() calls this from inside those waits.
+ * - Must NOT touch the receive path. It runs nested inside f_read/f_write, and
+ *   dispatching a received command there could re-enter FatFs, which is built
+ *   with _FS_REENTRANT = 0.
+ */
+uint16_t u16_Uart_ESP_TxFree(){
+	uint32_t u32_cap = (uint32_t)uartEspTx->u16_mask + 1U;
+	uint32_t u32_use = (uint32_t)uartEspTx->u16_cnt;
+	return (u32_use >= u32_cap) ? 0U : (uint16_t)(u32_cap - u32_use);
+}
+
+void v_Uart_ESP_TxPump(){
 	if(uartEspTx->u16_cnt && (e_espTx == COMM_STAT_DONE || e_espTx == COMM_STAT_READY)){
 		e_espTx = COMM_STAT_BUSY;
 		uint16_t len = uartEspTx->u16_cnt;
@@ -253,6 +274,10 @@ static void v_Uart_ESP_Handler(){
 			e_espTx = COMM_STAT_ERR;
 		}
 	}
+}
+
+static void v_Uart_ESP_Handler(){
+	v_Uart_ESP_TxPump();
 	v_ESP_Handler();
 }
 

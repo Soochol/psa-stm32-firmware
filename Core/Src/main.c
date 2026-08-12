@@ -28,6 +28,7 @@
 #include "i2c.h"
 #include "uart.h"
 #include "sd.h"
+#include "flash_cfg.h"
 #include "adc.h"
 #include "key.h"
 #include "mode.h"
@@ -307,6 +308,13 @@ int main(void)
   MX_TIM1_Init();
   SEGGER_RTT_printf(0, "[P]RTC\r\n");
   MX_RTC_Init();  // Note: May fail on some boards - see RTC_Init 0 for graceful handling
+  // MUST stay ahead of MX_IWDG1_Init(). This may erase the config sector, which
+  // stalls the CPU for 1-4 s on this single-bank part — past the 2 s watchdog,
+  // and the refresh cannot be interleaved because instructions cannot be fetched
+  // from flash while it erases. Running before the watchdog starts removes the
+  // conflict rather than working around it.
+  SEGGER_RTT_printf(0, "[P]CFG\r\n");
+  v_Flash_Cfg_Init();
   SEGGER_RTT_printf(0, "[P]IWDG\r\n");
   MX_IWDG1_Init();
   SEGGER_RTT_printf(0, "[RTT] Peripherals init done\r\n");
@@ -359,7 +367,8 @@ int main(void)
   if(b_MountSD())	{v_Mode_Set_MP3_Play(1);}
   else				{v_Mode_Set_MP3_Play(0);}
 #endif
-  b_SD_Log_Open();          // sensor.bin + sensor_fmt.txt
+  b_SD_Log_Init();          // arm .psa logging; files are created on first sample
+  v_SD_Log_Scan();          // index existing .psa files for reqLogFiles(0x45)
   SEGGER_RTT_printf(0, "[RTT] === Init complete, entering main loop ===\r\n");
   /* USER CODE END 2 */
 
@@ -383,6 +392,7 @@ int main(void)
 
 	  v_ADC_Handler();
 	  v_Uart_Handler();
+	  v_SD_Log_Media_Handler();  // card insert/remove, remount; rate limits itself
 	  v_Key_Handler();
 	  v_GPS_Handler();
 	  v_GPS_Tout_Handler();  // GPS I2C timeout monitoring

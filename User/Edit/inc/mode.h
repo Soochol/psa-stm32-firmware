@@ -67,6 +67,26 @@
 //////////////////////////////////
 
 //Operation Temperature (unit : 1 degree)
+// Hard ceiling for any temperature arriving over UART.
+//
+// The mode setpoints ARE the thermal cut-off — i_Mode_Is_TempHeater_Over compares
+// the IR reading against the setpoint and switches the heater off there. Nothing
+// else guards the actuator, and f_max is only a clamp on what a setpoint may be
+// set to, so without this a bad value on the link becomes the temperature the SMA
+// is driven to.
+//
+// 85 is confirmed by the safety owner as the ceiling above the highest legitimate
+// operating point (healing 80; intensity setpoints 72 / 64 / 54). It changes
+// nothing in normal operation — every value the ESP32 sends is below it.
+//
+// This bounds the setpoint, not the temperature reached. The ramp overshoots the
+// setpoint by the IR sensor's refresh interval times the rise rate — measured at
+// +1.0 C on the healing ramp (set 80, reached 81.0 in 3588 ms), so a setpoint of
+// 85 would reach about 86. That is accepted, and the ceiling stays 85: the
+// heater is switched off at the crossing, so the excess is overshoot rather than
+// runaway. Do not lower this to absorb the overshoot.
+#define MODE_TEMP_ABS_MAX	85.0f
+
 #define MODE_TEMP_MAX		70.0f
 #define MODE_TEMP_SLEEP		38.0f	//35 -> 38
 #define MODE_TEMP_WAITING	38.0f
@@ -185,6 +205,12 @@ typedef enum {
 } e_modeERR_t;
 void v_Mode_Set_Error(e_modeERR_t e_type);
 e_modeERR_t e_Mode_Get_Error(void);
+
+// Current mode as a protocol code (e_ESP_EVT_MODE_t), for the SD record's
+// deviceMode field and the reqLogStatus(0x43) response. The internal e_modeID_t
+// uses different numbers and must never be sent as-is — internal modeWAITING is
+// 2, which the protocol reads as FORCE_UP.
+uint8_t u8_Mode_Get_ProtoMode(void);
 void v_Mode_Error_LED_Test(e_modeERR_t test_error);  // LED 에러 패턴 테스트 함수
 
 

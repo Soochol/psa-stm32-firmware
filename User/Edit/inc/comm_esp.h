@@ -24,6 +24,13 @@
 #define ESP_TEMP_DECIMAL_DIV		10		// Temperature conversion divisor
 #define ESP_TEMP_TO_INT_MULT		100		// Temperature to integer multiplier
 
+// Protocol mode codes. Distinct numbering from the internal e_modeID_t — the two
+// must always be converted, never assigned across (internal modeWAITING is 2,
+// which is FORCE_UP here). See SD logging spec v1.3 section 7.1.
+//
+// 7-10 were added for the SD log deviceMode field. Only 0-5 and 7 can ever
+// appear in a record: the rest are modes where sampling is stopped, so they show
+// up in reqLogStatus(0x43) responses only.
 typedef enum {
 	ESP_EVT_MODE_SLEEP=0,
 	ESP_EVT_MODE_WAITING,
@@ -32,6 +39,10 @@ typedef enum {
 	ESP_EVT_MODE_FORCE_DOWN,
 	ESP_EVT_MODE_TEST,
 	ESP_EVT_MODE_ERROR,
+	ESP_EVT_MODE_HEALING,
+	ESP_EVT_MODE_BOOTING,
+	ESP_EVT_MODE_WAKE_UP,
+	ESP_EVT_MODE_OFF,
 } e_ESP_EVT_MODE_t;
 
 typedef enum {
@@ -55,6 +66,14 @@ void v_ESP_Send_Sensing(int16_t* pi16_imu_left, int16_t* pi16_imu_right,\
 
 void v_ESP_Tout_Handler();
 void v_ESP_Send_Error(uint16_t u16_error);
+
+// Drains a pending SD logging fault into evtLogError(0x84). Called from
+// v_ESP_Handler, so it goes out within one main loop pass of the fault.
+void v_ESP_LogError_Handler();
+
+// Streams statLogChunk(0x71) while a backfill request is running. Also called
+// from v_ESP_Handler.
+void v_ESP_Backfill_Handler();
 void v_ESP_Send_Warning(uint8_t u8_warn_type);
 
 #endif

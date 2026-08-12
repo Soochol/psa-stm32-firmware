@@ -9,6 +9,7 @@
 #include "minimp3_platform.h"
 #include "lib_log.h"
 #include "sd.h"
+#include "flash_cfg.h"
 
 
 //STX	| LEN	| DIR	| CMD	| DATA	| CHK	| ETX
@@ -40,6 +41,7 @@ typedef enum {
 	ESP_CMD_INIT_GYRO_REL		=0x20,
 	ESP_CMD_INIT_MODE			=0x21,
 	ESP_CMD_INIT_PWM_BLOWFAN	=0x22,
+	ESP_CMD_INIT_LOG_IDENTITY	=0x23,	//SD logging spec 6.1
 	//REQUEST
 	ESP_CMD_REQ_TEMP_SLEEP		=0x30,
 	ESP_CMD_REQ_TEMP_WAITING	=0x31,
@@ -54,6 +56,9 @@ typedef enum {
 	ESP_CMD_REQ_GYRO_REL		=0x40,
 	ESP_CMD_REQ_MODE			=0x41,
 	ESP_CMD_REQ_PWM_BLOWFAN		=0x42,
+	ESP_CMD_REQ_LOG_STATUS		=0x43,	//SD logging spec 6.2
+	ESP_CMD_REQ_LOG_READ		=0x44,	//SD logging spec 6.4
+	ESP_CMD_REQ_LOG_FILES		=0x45,	//SD logging spec 6.3
 	//CONTROL
 	ESP_CMD_CTRL_RST			=0x50,
 	ESP_CMD_CTRL_MODE			=0x51,	//add
@@ -61,16 +66,43 @@ typedef enum {
 	ESP_CMD_CTRL_BLOWFAN_ON		=0x53,
 	ESP_CMD_CTRL_SPK_PLAY		=0x54,
 	ESP_CMD_CTRL_COOLFAN_ON		=0x55,
+	ESP_CMD_CTRL_LOG_EN			=0x56,	//SD logging spec 6.6
 	//STATUS
 	ESP_CMD_STAT=0x70,
+	ESP_CMD_STAT_LOG_CHUNK=0x71,	//SD logging spec 6.5
 	//EVENT
 	ESP_CMD_EVT_INIT_START=0x80,
     ESP_CMD_EVT_INIT_RESULT=0x81,
     ESP_CMD_EVT_MODE=0x82,
     ESP_CMD_EVT_WARN=0x83,
+	ESP_CMD_EVT_LOG_ERR=0x84,	//SD logging spec 6.7
 	//ERROR
 	ESP_CMD_ERR=0x90,
 } e_ESP_CMD_t;
+
+
+// Category bounds of the ESP32 command map. The parser accepts a whole category
+// rather than stopping at the last command implemented here, so a newly assigned
+// code reaches its handler instead of being discarded before the checksum check
+// (which also drops the receiver into byte-by-byte resync).
+//
+// Bounds are deliberately NOT derived from the enum above: using the last
+// defined command as the upper bound is what made the parser reject every code
+// the SD logging extension assigns (0x23 / 0x43 / 0x44 / 0x45 / 0x56 / 0x71 /
+// 0x84). Codes inside a category with no case in their handler are ACKed
+// without action.
+#define ESP_CMD_INIT_MIN	(0x10)
+#define ESP_CMD_INIT_MAX	(0x29)
+#define ESP_CMD_REQ_MIN		(0x30)
+#define ESP_CMD_REQ_MAX		(0x49)
+#define ESP_CMD_CTRL_MIN	(0x50)
+#define ESP_CMD_CTRL_MAX	(0x69)
+#define ESP_CMD_STAT_MIN	(0x70)
+#define ESP_CMD_STAT_MAX	(0x79)
+#define ESP_CMD_EVT_MIN		(0x80)
+#define ESP_CMD_EVT_MAX		(0x89)
+#define ESP_CMD_ERR_MIN		(0x90)
+#define ESP_CMD_ERR_MAX		(0x99)
 
 
 
@@ -79,15 +111,20 @@ typedef enum {
 
 #define ESP_RX_ARR_SIZE		(128)
 
+// One statLogChunk DATA frame, and the room kept free ahead of it so the live
+// STAT frame (70 B) never has to queue behind a burst of them.
+#define ESP_BF_FRAME_SIZE	(6 + 81)
+#define ESP_BF_TX_RESERVE	(128)
+
 
 //function
-static void v_ESP_Transmit(uint8_t u8_dir, uint8_t u8_cmd, uint8_t* pu8_data, uint16_t u16_len);
+static bool b_ESP_Transmit(uint8_t u8_dir, uint8_t u8_cmd, uint8_t* pu8_data, uint16_t u16_len);
 static void v_ESP_RxHandler();
 static void v_ESP_RxProc(uint8_t u8_cmd, uint8_t* pu8_data, uint8_t u8_len);
 static void v_ESP_RxAck(uint8_t u8_cmd, uint8_t* pu8_data, uint8_t u8_len);
 
 static void v_ESP_InitProc(uint8_t u8_cmd, uint8_t* pu8_data, uint8_t u8_len);
-static void v_ESP_ReqProc(uint8_t u8_cmd);
+static void v_ESP_ReqProc(uint8_t u8_cmd, uint8_t* pu8_data, uint8_t u8_len);
 static void v_ESP_CtrlProc(uint8_t u8_cmd, uint8_t* pu8_data, uint8_t u8_len);
 static void v_ESP_StatProc(uint8_t u8_cmd, uint8_t* pu8_data, uint8_t u8_len);
 
@@ -102,6 +139,74 @@ static int i_toutAct;
 
 void v_ESP_Handler(){
 	v_ESP_RxHandler();
+	v_ESP_LogError_Handler();
+	v_ESP_Backfill_Handler();
+}
+
+/*
+ * brief	: stream statLogChunk(0x71) frames while a backfill is running
+ * date
+ * - create	: 26.08.11
+ * note
+ * - Live STAT keeps priority (spec section 9.3) by reservation rather than by
+ *   preemption: chunks stop once the TX ring drops below ESP_BF_TX_RESERVE, so
+ *   the sensing tick always finds room for its 70 B frame. Nothing has to be
+ *   cut mid-stream, which is what "interrupt at a frame boundary" needs anyway.
+ * - No ACK per data chunk (spec section 9.2). A round trip per record would cost
+ *   more than the record; gaps are found by seq continuity and re-requested.
+ */
+void v_ESP_Backfill_Handler(){
+	uint8_t u8_chunk[1 + 80];
+	uint8_t u8_result = 0;
+
+	if(!b_SD_Log_Backfill_Active()) return;
+
+	while(u16_Uart_ESP_TxFree() >= (ESP_BF_FRAME_SIZE + ESP_BF_TX_RESERVE)){
+		u8_chunk[0] = 0x01;						// DATA chunk
+		if(!b_SD_Log_Backfill_Next(&u8_chunk[1], &u8_result)){
+			uint32_t u32_last = u32_SD_Log_Backfill_LastSent();
+			uint8_t  u8_end[6];
+			u8_end[0] = 0x00;					// END chunk
+			u8_end[1] = u8_result;
+			u8_end[2] = (uint8_t)(u32_last >> 24);
+			u8_end[3] = (uint8_t)(u32_last >> 16);
+			u8_end[4] = (uint8_t)(u32_last >> 8);
+			u8_end[5] = (uint8_t)(u32_last);
+			b_ESP_Transmit(ESP_DIR_REQ, ESP_CMD_STAT_LOG_CHUNK, u8_end, 6);
+			LOG_INFO("COMM_ESP", "backfill end result=%u lastSeqSent=%u",
+					u8_result, (unsigned)u32_last);
+			return;
+		}
+		if(!b_ESP_Transmit(ESP_DIR_REQ, ESP_CMD_STAT_LOG_CHUNK, u8_chunk, 1 + 80)){
+			// Should not happen given the reserve, but a dropped chunk must not
+			// be silently skipped: end the stream so the PC re-requests from
+			// lastSeqSent + 1 rather than seeing a hole it cannot explain.
+			v_SD_Log_Backfill_Abort(4);
+			return;
+		}
+	}
+}
+
+/*
+ * brief	: forward a pending SD logging fault as evtLogError(0x84)
+ * date
+ * - create	: 26.08.11
+ * note
+ * - Pushed as soon as it happens rather than waiting for the next reqLogStatus
+ *   poll, which is a minute away (spec section 6.7).
+ */
+void v_ESP_LogError_Handler(){
+	uint8_t  u8_reason;
+	uint16_t u16_detail;
+
+	if(!b_SD_Log_Get_Error(&u8_reason, &u16_detail)) return;
+
+	uint8_t data[3];
+	data[0] = u8_reason;
+	data[1] = (uint8_t)(u16_detail >> 8);
+	data[2] = (uint8_t)(u16_detail);
+	b_ESP_Transmit(ESP_DIR_REQ, ESP_CMD_EVT_LOG_ERR, data, 3);
+	LOG_WARN("COMM_ESP", "evtLogError reason=%u detail=%u", u8_reason, u16_detail);
 }
 
 /*
@@ -125,12 +230,12 @@ void v_ESP_Recive(uint8_t u8_rx){
  * - pu8_data	: data array
  * - u16_len	: data length
  */
-static void v_ESP_Transmit(uint8_t u8_dir, uint8_t u8_cmd, uint8_t* pu8_data, uint16_t u16_len){
+static bool b_ESP_Transmit(uint8_t u8_dir, uint8_t u8_cmd, uint8_t* pu8_data, uint16_t u16_len){
 	// CRITICAL: Validate buffer size to prevent stack overflow
 	// fmt[64] = STX(1) + LEN(1) + DIR(1) + CMD(1) + DATA(u16_len) + CHK(1) + ETX(1)
 	// Maximum safe data length: 64 - 6 = 58 bytes
 	if(u16_len > (ESP_TX_FMT_BUF_SIZE - 6)){
-		return;  // Prevent buffer overflow
+		return false;  // Prevent buffer overflow
 	}
 
 	uint8_t fmt[ESP_TX_FMT_BUF_SIZE];
@@ -160,7 +265,7 @@ static void v_ESP_Transmit(uint8_t u8_dir, uint8_t u8_cmd, uint8_t* pu8_data, ui
 	//ETX
 	fmt[cnt++] = ESP_FMT_ETX;	//etx
 
-	v_Uart_ESP_Out(fmt, cnt);
+	return b_Uart_ESP_Out(fmt, cnt);
 }
 
 /*
@@ -170,12 +275,12 @@ static void v_ESP_Transmit(uint8_t u8_dir, uint8_t u8_cmd, uint8_t* pu8_data, ui
  * - modify	: 25.04.29
  */
 bool b_ESP_CmdCompare(uint8_t u8_cmd){
-	if(u8_cmd == ESP_CMD_STAT\
-	||(u8_cmd >= ESP_CMD_INIT_TEMP_SLEEP && u8_cmd <= ESP_CMD_INIT_PWM_BLOWFAN)\
-	||(u8_cmd >= ESP_CMD_REQ_TEMP_SLEEP && u8_cmd <= ESP_CMD_REQ_PWM_BLOWFAN)\
-	||(u8_cmd >= ESP_CMD_CTRL_RST && u8_cmd <= ESP_CMD_CTRL_COOLFAN_ON)\
-	||(u8_cmd >= ESP_CMD_EVT_INIT_START && u8_cmd <= ESP_CMD_EVT_WARN)\
-	||(u8_cmd == ESP_CMD_ERR)){
+	if((u8_cmd >= ESP_CMD_INIT_MIN && u8_cmd <= ESP_CMD_INIT_MAX)\
+	||(u8_cmd >= ESP_CMD_REQ_MIN && u8_cmd <= ESP_CMD_REQ_MAX)\
+	||(u8_cmd >= ESP_CMD_CTRL_MIN && u8_cmd <= ESP_CMD_CTRL_MAX)\
+	||(u8_cmd >= ESP_CMD_STAT_MIN && u8_cmd <= ESP_CMD_STAT_MAX)\
+	||(u8_cmd >= ESP_CMD_EVT_MIN && u8_cmd <= ESP_CMD_EVT_MAX)\
+	||(u8_cmd >= ESP_CMD_ERR_MIN && u8_cmd <= ESP_CMD_ERR_MAX)){
 		return true;
 	}
 	else{
@@ -297,20 +402,27 @@ static void v_ESP_RxHandler(){
  * - modify	: -
  */
 static void v_ESP_RxProc(uint8_t u8_cmd, uint8_t* pu8_data, uint8_t u8_len){
-	if(u8_cmd >= ESP_CMD_CTRL_RST && u8_cmd <= ESP_CMD_CTRL_COOLFAN_ON){
+	if(u8_cmd >= ESP_CMD_CTRL_MIN && u8_cmd <= ESP_CMD_CTRL_MAX){
 		//CTRL
 		v_ESP_CtrlProc(u8_cmd, pu8_data, u8_len);
 	}
-	else if(u8_cmd >= ESP_CMD_INIT_TEMP_SLEEP && u8_cmd <= ESP_CMD_INIT_PWM_BLOWFAN){
+	else if(u8_cmd >= ESP_CMD_INIT_MIN && u8_cmd <= ESP_CMD_INIT_MAX){
 		//INIT
 		v_ESP_InitProc(u8_cmd, pu8_data, u8_len);
 	}
-	else if(u8_cmd >= ESP_CMD_REQ_TEMP_SLEEP && u8_cmd <= ESP_CMD_REQ_PWM_BLOWFAN){
+	else if(u8_cmd >= ESP_CMD_REQ_MIN && u8_cmd <= ESP_CMD_REQ_MAX){
 		//REQ
-		v_ESP_ReqProc(u8_cmd);
+		v_ESP_ReqProc(u8_cmd, pu8_data, u8_len);
 	}
 }
 
+/*
+ * note
+ * - ACKs for STM->ESP messages we do not track yet (evtWarn, evtLogError...)
+ *   fall through here on purpose. The frame is still consumed correctly because
+ *   b_ESP_CmdCompare accepts the whole category; only the reaction is missing.
+ *   Add a case together with the command that needs its ACK observed.
+ */
 static void v_ESP_RxAck(uint8_t u8_cmd, uint8_t* pu8_data, uint8_t u8_len){
 	if(u8_cmd == ESP_CMD_STAT){
 		v_ESP_StatProc(u8_cmd, pu8_data, u8_len);
@@ -395,9 +507,21 @@ static void v_ESP_InitProc(uint8_t u8_cmd, uint8_t* pu8_data, uint8_t u8_len){
 	case ESP_CMD_INIT_PWM_BLOWFAN:
 		v_Mode_Set_BlowFan_Now(pu8_data[0]);
 		break;
+	case ESP_CMD_INIT_LOG_IDENTITY:
+		// Stored non-volatile so the next boot can name its directory before the
+		// ESP32 says anything. Any file already open keeps the name it was created
+		// with — spec 6.1 forbids rewriting a header after the fact — so the new
+		// id first appears at the next rotation.
+		if(u8_len >= FLASH_CFG_DEVID_LEN){
+			v_Flash_Cfg_Set_DeviceId(pu8_data);
+			LOG_INFO("COMM_ESP", "deviceId %02X%02X%02X%02X%02X%02X",
+					pu8_data[0], pu8_data[1], pu8_data[2],
+					pu8_data[3], pu8_data[4], pu8_data[5]);
+		}
+		break;
 	}
 	//ack
-	v_ESP_Transmit(ESP_DIR_ACK, u8_cmd, NULL, 0);
+	b_ESP_Transmit(ESP_DIR_ACK, u8_cmd, NULL, 0);
 }
 
 
@@ -411,8 +535,9 @@ static void v_ESP_InitProc(uint8_t u8_cmd, uint8_t* pu8_data, uint8_t u8_len){
  * note
  * - response parameter
  */
-static void v_ESP_ReqProc(uint8_t u8_cmd){
-	static uint8_t data[32];
+static void v_ESP_ReqProc(uint8_t u8_cmd, uint8_t* pu8_data, uint8_t u8_len){
+	// 0x45 answers with up to 2 + 14*6 = 86 B, past the 32 the older commands need.
+	static uint8_t data[90];
 	float temp;
 	double integ, dot;
 	uint16_t len=0;
@@ -484,9 +609,89 @@ static void v_ESP_ReqProc(uint8_t u8_cmd){
 	case ESP_CMD_REQ_PWM_BLOWFAN:
 		data[len++] = u16_Mode_Get_BlowFan_Now();
 		break;
+	case ESP_CMD_REQ_LOG_FILES:
+	{
+		// startIndex paginates; the wire limit of 90 B caps a page at 6 entries.
+		uint16_t u16_total = u16_SD_Log_Idx_Count();
+		uint8_t  u8_start  = (u8_len >= 1) ? pu8_data[0] : 0;
+		uint8_t  u8_ret    = 0;
+
+		data[len++] = (u16_total > 255) ? 255 : (uint8_t)u16_total;
+		len++;								// returnedCount, filled in below
+		for(uint8_t i = 0; i < 6; i++){
+			uint32_t u32_boot, u32_first, u32_last;
+			uint16_t u16_idx;
+			if(!b_SD_Log_Idx_Get((uint16_t)(u8_start + i), &u32_boot, &u32_first,
+					&u32_last, &u16_idx)) break;
+			data[len++] = u32_boot >> 24;  data[len++] = u32_boot >> 16;
+			data[len++] = u32_boot >> 8;   data[len++] = u32_boot;
+			data[len++] = u32_first >> 24; data[len++] = u32_first >> 16;
+			data[len++] = u32_first >> 8;  data[len++] = u32_first;
+			data[len++] = u32_last >> 24;  data[len++] = u32_last >> 16;
+			data[len++] = u32_last >> 8;   data[len++] = u32_last;
+			data[len++] = u16_idx >> 8;    data[len++] = u16_idx;
+			u8_ret++;
+		}
+		data[1] = u8_ret;
+		break;
+	}
+	case ESP_CMD_REQ_LOG_READ:
+	{
+		// ACK first, then the chunk stream (spec 6.4). A refusal is reported as an
+		// END chunk rather than in the ACK, so the PC has one place to look.
+		if(u8_len < 10) break;
+		uint32_t u32_boot  = ((uint32_t)pu8_data[0] << 24) | ((uint32_t)pu8_data[1] << 16)
+		                   | ((uint32_t)pu8_data[2] << 8)  |  (uint32_t)pu8_data[3];
+		uint32_t u32_start = ((uint32_t)pu8_data[4] << 24) | ((uint32_t)pu8_data[5] << 16)
+		                   | ((uint32_t)pu8_data[6] << 8)  |  (uint32_t)pu8_data[7];
+		uint16_t u16_cnt   = (uint16_t)(((uint16_t)pu8_data[8] << 8) | pu8_data[9]);
+
+		uint8_t u8_res = u8_SD_Log_Backfill_Start(u32_boot, u32_start, u16_cnt);
+		LOG_INFO("COMM_ESP", "reqLogRead boot=%u seq=%u cnt=%u -> %u",
+				(unsigned)u32_boot, (unsigned)u32_start, u16_cnt, u8_res);
+		if(u8_res != 0xFF){
+			b_ESP_Transmit(ESP_DIR_ACK, u8_cmd, NULL, 0);
+			uint8_t u8_end[6] = {0x00, u8_res, 0, 0, 0, 0};
+			uint32_t u32_last = u32_SD_Log_Backfill_LastSent();
+			u8_end[2] = (uint8_t)(u32_last >> 24); u8_end[3] = (uint8_t)(u32_last >> 16);
+			u8_end[4] = (uint8_t)(u32_last >> 8);  u8_end[5] = (uint8_t)(u32_last);
+			b_ESP_Transmit(ESP_DIR_REQ, ESP_CMD_STAT_LOG_CHUNK, u8_end, 6);
+			return;						// ACK already sent
+		}
+		break;
+	}
+	case ESP_CMD_REQ_LOG_STATUS:
+	{
+		// 21 B, spec 6.2. currentTickMs is read here rather than carried from
+		// elsewhere: it is the anchor the merge tool pairs with absolute time, and
+		// pairing is only tight if it is sampled as the reply is built.
+		uint32_t u32_bootId  = u32_Flash_Cfg_Get_BootId();
+		uint32_t u32_lastSeq = u32_SD_Log_Get_FlushedSeq();
+		uint32_t u32_tick    = u32_Tim_1msGet();
+		uint32_t u32_fileIdx = u32_SD_Log_Get_FileIndex();
+		uint16_t u16_free    = u16_SD_Log_Get_FreeMB();
+		uint16_t u16_wrErr   = u16_SD_Log_Get_WriteErrCnt();
+
+		data[len++] = u8_SD_Log_Get_State();
+		data[len++] = u32_bootId >> 24;   data[len++] = u32_bootId >> 16;
+		data[len++] = u32_bootId >> 8;    data[len++] = u32_bootId;
+		data[len++] = u32_lastSeq >> 24;  data[len++] = u32_lastSeq >> 16;
+		data[len++] = u32_lastSeq >> 8;   data[len++] = u32_lastSeq;
+		data[len++] = u32_tick >> 24;     data[len++] = u32_tick >> 16;
+		data[len++] = u32_tick >> 8;      data[len++] = u32_tick;
+		data[len++] = u16_free >> 8;      data[len++] = u16_free;
+		// fileIndex is uint32 in the file header but uint16 on the wire; clamp
+		// rather than wrap, so a saturated value reads as "at least this many".
+		if(u32_fileIdx > 0xFFFFU) u32_fileIdx = 0xFFFFU;
+		data[len++] = u32_fileIdx >> 8;   data[len++] = u32_fileIdx;
+		data[len++] = u16_wrErr >> 8;     data[len++] = u16_wrErr;
+		data[len++] = 1;                  // formatVersion
+		data[len++] = u8_Mode_Get_ProtoMode();
+		break;
+	}
 	}
 	//ack
-	v_ESP_Transmit(ESP_DIR_ACK, u8_cmd, data, len);
+	b_ESP_Transmit(ESP_DIR_ACK, u8_cmd, data, len);
 }
 
 
@@ -546,9 +751,17 @@ static void v_ESP_CtrlProc(uint8_t u8_cmd, uint8_t* pu8_data, uint8_t u8_len){
 			v_Mode_CoolFan_Disable();
 		}
 		break;
+	case ESP_CMD_CTRL_LOG_EN:
+		// 0 = stop (flush + close, card safe to pull), 1 = start.
+		// Length checked because a malformed frame reaching here would otherwise
+		// read past the data the sender actually sent.
+		if(u8_len >= 1){
+			v_SD_Log_SetEnabled(pu8_data[0] != 0);
+		}
+		break;
 	}
 	//ack
-	v_ESP_Transmit(ESP_DIR_ACK, u8_cmd, NULL, 0);
+	b_ESP_Transmit(ESP_DIR_ACK, u8_cmd, NULL, 0);
 }
 
 
@@ -559,11 +772,11 @@ static void v_ESP_StatProc(uint8_t u8_cmd, uint8_t* pu8_data, uint8_t u8_len){
 }
 
 void v_ESP_Send_InitStart(){
-	v_ESP_Transmit(ESP_DIR_REQ, ESP_CMD_EVT_INIT_START, NULL, 0);
+	b_ESP_Transmit(ESP_DIR_REQ, ESP_CMD_EVT_INIT_START, NULL, 0);
 }
 
 void v_ESP_Send_InitEnd(){
-	v_ESP_Transmit(ESP_DIR_REQ, ESP_CMD_EVT_INIT_RESULT, NULL, 0);
+	b_ESP_Transmit(ESP_DIR_REQ, ESP_CMD_EVT_INIT_RESULT, NULL, 0);
 }
 
 
@@ -574,7 +787,7 @@ void v_ESP_Send_InitEnd(){
  * - modify	: -
  */
 void v_ESP_Send_EvtModeChange(uint8_t u8_mode){
-	v_ESP_Transmit(ESP_DIR_REQ, ESP_CMD_EVT_MODE, &u8_mode, 1);
+	b_ESP_Transmit(ESP_DIR_REQ, ESP_CMD_EVT_MODE, &u8_mode, 1);
 }
 
 void v_ESP_Send_Sensing(int16_t* pi16_imu_left, int16_t* pi16_imu_right,\
@@ -703,10 +916,12 @@ void v_ESP_Send_Sensing(int16_t* pi16_imu_left, int16_t* pi16_imu_right,\
 		}
 	}
 
-	v_ESP_Transmit(ESP_DIR_REQ, ESP_CMD_STAT, data, cnt);
+	bool b_txOk = b_ESP_Transmit(ESP_DIR_REQ, ESP_CMD_STAT, data, cnt);
 
-	// SD sensor log
-	v_SD_Log_Write(data, cnt);
+	// SD sensor log. deviceMode and errorMask are read here rather than inside the
+	// driver so sd.c stays a driver — it has no business reaching up into mode.
+	v_SD_Log_Write(data, cnt, u8_Mode_Get_ProtoMode(),
+			(uint16_t)e_Mode_Get_Error(), b_txOk);
 
 	if(i_toutAct == 0){
 		i_toutAct = 1;
@@ -732,11 +947,11 @@ void v_ESP_Send_Error(uint16_t u16_error){
 	uint8_t error[4];
 	error[0] = u16_error >> 8;
 	error[1] = u16_error;	//fixed ->
-	v_ESP_Transmit(ESP_DIR_REQ, ESP_CMD_ERR, error, 2);
+	b_ESP_Transmit(ESP_DIR_REQ, ESP_CMD_ERR, error, 2);
 }
 
 void v_ESP_Send_Warning(uint8_t u8_warn_type){
-	v_ESP_Transmit(ESP_DIR_REQ, ESP_CMD_EVT_WARN, &u8_warn_type, 1);
+	b_ESP_Transmit(ESP_DIR_REQ, ESP_CMD_EVT_WARN, &u8_warn_type, 1);
 }
 
 

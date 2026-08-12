@@ -38,7 +38,21 @@
  * in case of errors in either BSP_SD_ReadCpltCallback() or BSP_SD_WriteCpltCallback()
  * the value by default is as defined in the BSP platform driver otherwise 30 secs
  */
-#define SD_TIMEOUT 30 * 1000
+/*
+ * A single 30 s timeout used to cover three waits with very different natural
+ * durations. IWDG is 2 s and is only refreshed from the main loop, so a wedged
+ * card resets the device long before FatFs ever gives up — taking posture
+ * control with it. Split by role so the worst case of one access
+ * (READY + XFER + BUSY = 900 ms) stays inside the watchdog period without
+ * refreshing it from inside the wait.
+ *
+ * Starting values; to be confirmed by the scenario 8 measurement (false-timeout
+ * rate on healthy cards). BUSY is the one that matters: SD spec allows 250 ms
+ * for a block write, and cheap cards stall longer during wear levelling.
+ */
+#define SD_TIMEOUT_READY   200   /* card ready before an access begins */
+#define SD_TIMEOUT_XFER    100   /* DMA completion; a 512 B block is ~26 us */
+#define SD_TIMEOUT_BUSY    600   /* card back to TRANSFER after an access */
 
 #define SD_DEFAULT_BLOCK_SIZE 512
 
@@ -112,6 +126,28 @@ const Diskio_drvTypeDef  SD_Driver =
 /* USER CODE BEGIN beforeFunctionSection */
 /* can be used to modify / undefine following code or add new code */
 __attribute__((weak)) void v_SD_BusyWait_Yield(void) { }
+
+/*
+ * Fault injection for scenario 13-15 (write failure -> file rotation).
+ *
+ * Deliberately keyed on a symbol that no build configuration defines — not on
+ * DEBUG. This repository has two build systems, and the CubeIDE side defines
+ * DEBUG while having no Release configuration, so units can be flashed from a
+ * DEBUG build. Defaulting to 0 here means forgetting the flag fails safe.
+ *
+ * To exercise it: pio run -e stm32_debug -DPSA_FAULT_INJECT=1, then set
+ * u8_sd_fault_inject_write = N from the debugger. The Nth following SD_write
+ * fails and the flag clears itself. Failing a later write inside a multi-sector
+ * f_write is what produces a genuine partial write, which is the case the
+ * rotation rule exists for.
+ */
+#ifndef PSA_FAULT_INJECT
+#define PSA_FAULT_INJECT 0
+#endif
+
+#if PSA_FAULT_INJECT
+volatile uint8_t u8_sd_fault_inject_write;
+#endif
 /* USER CODE END beforeFunctionSection */
 
 /* Private functions ---------------------------------------------------------*/
@@ -200,7 +236,7 @@ DRESULT SD_read(BYTE lun, BYTE *buff, DWORD sector, UINT count)
   * ensure the SDCard is ready for a new operation
   */
 
-  if (SD_CheckStatusWithTimeout(SD_TIMEOUT) < 0)
+  if (SD_CheckStatusWithTimeout(SD_TIMEOUT_READY) < 0)
   {
     return res;
   }
@@ -216,7 +252,7 @@ DRESULT SD_read(BYTE lun, BYTE *buff, DWORD sector, UINT count)
       ReadStatus = 0;
       /* Wait that the reading process is completed or a timeout occurs */
       timeout = HAL_GetTick();
-      while((ReadStatus == 0) && ((HAL_GetTick() - timeout) < SD_TIMEOUT))
+      while((ReadStatus == 0) && ((HAL_GetTick() - timeout) < SD_TIMEOUT_XFER))
       {
         v_SD_BusyWait_Yield();
       }
@@ -230,7 +266,7 @@ DRESULT SD_read(BYTE lun, BYTE *buff, DWORD sector, UINT count)
         ReadStatus = 0;
         timeout = HAL_GetTick();
 
-        while((HAL_GetTick() - timeout) < SD_TIMEOUT)
+        while((HAL_GetTick() - timeout) < SD_TIMEOUT_BUSY)
         {
           v_SD_BusyWait_Yield();
           if (BSP_SD_GetCardState() == SD_TRANSFER_OK)
@@ -263,7 +299,7 @@ DRESULT SD_read(BYTE lun, BYTE *buff, DWORD sector, UINT count)
           /* wait until the read is successful or a timeout occurs */
 
           timeout = HAL_GetTick();
-          while((ReadStatus == 0) && ((HAL_GetTick() - timeout) < SD_TIMEOUT))
+          while((ReadStatus == 0) && ((HAL_GetTick() - timeout) < SD_TIMEOUT_XFER))
           {
             v_SD_BusyWait_Yield();
           }
@@ -319,12 +355,19 @@ DRESULT SD_write(BYTE lun, const BYTE *buff, DWORD sector, UINT count)
   int i;
 #endif
 
+#if PSA_FAULT_INJECT
+  if (u8_sd_fault_inject_write)
+  {
+    if (--u8_sd_fault_inject_write == 0) return RES_ERROR;
+  }
+#endif
+
    WriteStatus = 0;
 #if (ENABLE_SD_DMA_CACHE_MAINTENANCE == 1)
   uint32_t alignedAddr;
 #endif
 
-  if (SD_CheckStatusWithTimeout(SD_TIMEOUT) < 0)
+  if (SD_CheckStatusWithTimeout(SD_TIMEOUT_READY) < 0)
   {
     return res;
   }
@@ -350,8 +393,9 @@ DRESULT SD_write(BYTE lun, const BYTE *buff, DWORD sector, UINT count)
       /* Wait that writing process is completed or a timeout occurs */
 
       timeout = HAL_GetTick();
-      while((WriteStatus == 0) && ((HAL_GetTick() - timeout) < SD_TIMEOUT))
+      while((WriteStatus == 0) && ((HAL_GetTick() - timeout) < SD_TIMEOUT_XFER))
       {
+        v_SD_BusyWait_Yield();
       }
       /* in case of a timeout return error */
       if (WriteStatus == 0)
@@ -363,13 +407,14 @@ DRESULT SD_write(BYTE lun, const BYTE *buff, DWORD sector, UINT count)
         WriteStatus = 0;
         timeout = HAL_GetTick();
 
-        while((HAL_GetTick() - timeout) < SD_TIMEOUT)
+        while((HAL_GetTick() - timeout) < SD_TIMEOUT_BUSY)
         {
           if (BSP_SD_GetCardState() == SD_TRANSFER_OK)
           {
             res = RES_OK;
             break;
           }
+          v_SD_BusyWait_Yield();
         }
       }
     }
@@ -397,8 +442,9 @@ DRESULT SD_write(BYTE lun, const BYTE *buff, DWORD sector, UINT count)
         if (ret == MSD_OK) {
           /* wait for a message from the queue or a timeout */
           timeout = HAL_GetTick();
-          while((WriteStatus == 0) && ((HAL_GetTick() - timeout) < SD_TIMEOUT))
+          while((WriteStatus == 0) && ((HAL_GetTick() - timeout) < SD_TIMEOUT_XFER))
           {
+            v_SD_BusyWait_Yield();
           }
           if (WriteStatus == 0)
           {
