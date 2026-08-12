@@ -1898,15 +1898,6 @@ static void v_Mode_ForceOn_Led(){
 static void v_Mode_ForceOn(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t* px_pub){
 	if(e_id != px_work->guide.e_curr){return;}
 	static uint32_t tout;
-	// Entering above the setpoint means the previous cycle's heat has not drained
-	// yet, and the user gets that temperature instead of the one they selected.
-	// The heater is already off in that state, so this measures how long the wait
-	// is, not whether it is safe. fan= is here because the cool fan is disabled on
-	// FORCE_UP entry and FORCE_ON never re-enables it, which is what makes the
-	// drain a natural one; the field separates the two cases once that changes.
-	static uint32_t u32_settleRef;
-	static float    f_settleFrom;
-	static int      i_settlePend;
 	if(px_work->cr.bit.b1_upd){
 		px_work->cr.bit.b1_upd = 0;
 
@@ -1915,10 +1906,6 @@ static void v_Mode_ForceOn(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t* 
 			//timeout
 			px_pub->u32_timToutRef = u32_Tim_1msGet();
 			tout = u32_Mode_Get_ForceOn_Tout() * MODE_TOUT_TO_MS_MULT;
-			//residual heat
-			f_settleFrom  = f_IR_Temp_Get();
-			u32_settleRef = u32_Tim_1msGet();
-			i_settlePend  = (f_settleFrom > f_Mode_Get_Temp_ForceUp());
 			if(i_Mode_Get_MP3_Play())	{px_pub->i_sound = 1;}
 			else						{px_pub->i_sound = 0;}
 			//led
@@ -1954,36 +1941,6 @@ static void v_Mode_ForceOn(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t* 
 			else if(temp < 0){
 				f_Mode_Heater_PID_Handler(f_Mode_Get_Temp_ForceUp());
 			}
-
-			// FORCE_UP turns the cool fan off on entry so the ramp can heat, and
-			// nothing turned it back on here, so residual heat used to drain by
-			// natural cooling alone. Run the fan while the plate is far enough
-			// above the setpoint to mean draining rather than regulating, and
-			// stop once it arrives. The two thresholds are deliberately apart:
-			// switching on and off at the same reading would chatter.
-			float f_ir  = f_IR_Temp_Get();
-			float f_set = f_Mode_Get_Temp_ForceUp();
-			if(f_ir > (f_set + MODE_TEMP_RESIDUAL_MARGIN)){
-				v_Mode_CoolFan_Enable();
-			}
-			else if(f_ir <= f_set){
-				v_Mode_CoolFan_Disable();
-			}
-
-			// First moment the plate stops being above the setpoint. From here on
-			// the reading belongs to ordinary regulation, so the residual heat is
-			// spent and the elapsed time is what the user waited for it.
-			if(i_settlePend && temp <= 0){
-				i_settlePend = 0;
-				int from = (int)(f_settleFrom * 10);
-				int ir   = (int)(f_IR_Temp_Get() * 10);
-				int set  = (int)(f_Mode_Get_Temp_ForceUp() * 10);
-				LOG_INFO("FORCE", "ON settled from=%d.%d ir=%d.%d set=%d.%d after %ums fan=%d",
-						from/10, from%10, ir/10, ir%10 < 0 ? -(ir%10) : ir%10,
-						set/10, set%10,
-						(unsigned)(u32_Tim_1msGet() - u32_settleRef),
-						i_Mode_Is_CoolFan_Act());
-			}
 #if !MODE_MP3_PLAYING
 			if(i_Mode_Get_MP3_Play()){
 				i_MP3_Playing();
@@ -1992,27 +1949,8 @@ static void v_Mode_ForceOn(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t* 
 		}
 	}
 	else if(px_work->cr.bit.b1_off){
-		// FORCE_ON runs for 60 s and the drain is estimated at 96 s, so leaving
-		// while still above the setpoint is the expected outcome, not an error.
-		// Reporting it is the point: a settle that never happens inside the mode
-		// is the case that says the wait outlasts the treatment.
-		if(i_settlePend){
-			i_settlePend = 0;
-			int from = (int)(f_settleFrom * 10);
-			int ir   = (int)(f_IR_Temp_Get() * 10);
-			int set  = (int)(f_Mode_Get_Temp_ForceUp() * 10);
-			LOG_INFO("FORCE", "ON unsettled from=%d.%d ir=%d.%d set=%d.%d after %ums fan=%d",
-					from/10, from%10, ir/10, ir%10 < 0 ? -(ir%10) : ir%10,
-					set/10, set%10,
-					(unsigned)(u32_Tim_1msGet() - u32_settleRef),
-					i_Mode_Is_CoolFan_Act());
-		}
 		v_Mode_MoveNext(px_work);
 		v_Mode_Heater_Off();
-		// Hand the fan back off the way it arrived. SLEEP never touches the cool
-		// fan, so one left running here would keep running with nothing to stop
-		// it; FORCE_DOWN starts its own when it needs one.
-		v_Mode_CoolFan_Disable();
 		//i_MP3_ForceStop(); // allow audio to finish during mode transition
 	}
 

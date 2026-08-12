@@ -357,18 +357,6 @@ void v_Mode_BlowFan_Disable();
 // Temperature hysteresis offset to prevent oscillation
 #define MODE_TEMP_HYSTERESIS_OFFSET	1.5f	//unit : degree Celsius
 
-// How far above the setpoint FORCE_ON reads as the previous cycle's heat still
-// draining, rather than as ordinary regulation. Entering a lower intensity
-// before the plate has cooled leaves the user waiting at the old temperature,
-// and the cool fan is the only thing that shortens that wait.
-//
-// The value has to clear regulation and stay under an intensity step. Normal
-// FORCE_ON stays within the 1.5 hysteresis band, and the ramp overshoots by at
-// most 1.2 (measured; see MODE_TEMP_ABS_MAX), so anything above ~3 never fires
-// during regulation. The setpoints are 80 / 72 / 64 / 54, so the smallest drop
-// that can strand residual heat is 8. 4 sits clear of both.
-#define MODE_TEMP_RESIDUAL_MARGIN	4.0f	//unit : degree Celsius
-
 /////////////////////////////////
 //	TIMING INTERVALS
 /////////////////////////////////
