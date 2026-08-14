@@ -990,7 +990,11 @@ static void v_log_idx_add(const char* pc_dir, const char* pc_name,
 	// Full. The file stays on the card and keeps its records, but nothing can ask
 	// for it, so say so rather than dropping it quietly.
 	if(u16_logIdxCnt >= SD_LOG_IDX_MAX){
-		v_log_err_raise(SD_LOG_ERR_IDX_FULL, (uint16_t)u16_logIdxCnt);
+		// Detail is the card's file count, the same figure the boot scan sends
+		// and the same one reqLogStatus reports. Sending the index count here
+		// instead made the event say "full, nothing beyond it": that count is
+		// the cap by definition, so detail minus the cap was always zero.
+		v_log_err_raise(SD_LOG_ERR_IDX_FULL, u16_logFilesOnCard);
 		return;
 	}
 	if(u32_size < SD_LOG_HDR_SIZE + SD_LOG_REC_SIZE) return;	// header only, no record
