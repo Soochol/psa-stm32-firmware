@@ -700,6 +700,13 @@ static void v_ESP_ReqProc(uint8_t u8_cmd, uint8_t* pu8_data, uint8_t u8_len){
 		data[len++] = u16_wrErr >> 8;     data[len++] = u16_wrErr;
 		data[len++] = 1;                  // formatVersion
 		data[len++] = u8_Mode_Get_ProtoMode();
+		// filesOnCard, appended at 23 B (spec 6.2). It is the count and not a
+		// "full" flag so the reader can act before the cap rather than after:
+		// past it, files are already unreachable and reqLogFiles reports the cap
+		// either way. evtLogError(reason 6) says it happened; this says how it
+		// stands, which is what survives an ESP32 restart.
+		uint16_t u16_files = u16_SD_Log_Files_On_Card();
+		data[len++] = u16_files >> 8;     data[len++] = u16_files;
 		break;
 	}
 	}

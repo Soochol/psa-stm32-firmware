@@ -36,6 +36,13 @@ typedef enum {
 	SD_LOG_ERR_WRITE	= 3,	// write failed repeatedly, remount attempted
 	SD_LOG_ERR_FS		= 4,	// filesystem damaged; logging stops
 	SD_LOG_ERR_BACKFILL	= 5,	// backfill read failed; logging continues
+	// The index is full, so a file on the card is not in reqLogFiles and cannot
+	// be asked for. Logging is unaffected -- the records are written, they just
+	// have no way out. Detail carries the file count so the reader can see how
+	// far past the cap it is. This is reported because the alternative is a file
+	// that disappears from the listing with nothing said, which reads as "never
+	// recorded" and would only surface long after the fact.
+	SD_LOG_ERR_IDX_FULL	= 6,	// index cap reached; that file is unreachable
 } e_SD_LOG_ERR_t;
 
 // Card presence, remount and capacity. Call from the main loop; it rate-limits
@@ -54,6 +61,10 @@ uint16_t u16_SD_Log_Get_FreeMB();		// 0xFFFF when unmounted or not known
 // Files holding no record are excluded — reqLogFiles cannot express a lastSeq
 // for them.
 void     v_SD_Log_Scan();
+// Files on the card, against u16_SD_Log_Idx_Count() which stops at the cap.
+// The two are equal until the index fills; after that the difference is how
+// many files exist but cannot be listed or backfilled.
+uint16_t u16_SD_Log_Files_On_Card();
 uint16_t u16_SD_Log_Idx_Count();
 bool     b_SD_Log_Idx_Get(uint16_t u16_n, uint32_t* pu32_boot, uint32_t* pu32_first,
 		uint32_t* pu32_last, uint16_t* pu16_idx);
