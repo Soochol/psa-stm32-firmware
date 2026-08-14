@@ -61,6 +61,10 @@ uint16_t u16_SD_Log_Get_FreeMB();		// 0xFFFF when unmounted or not known
 // Files holding no record are excluded — reqLogFiles cannot express a lastSeq
 // for them.
 void     v_SD_Log_Scan();
+// Files on the card, against u16_SD_Log_Idx_Count() which stops at the cap.
+// The two are equal until the index fills; after that the difference is how
+// many files exist but cannot be listed or backfilled.
+uint16_t u16_SD_Log_Files_On_Card();
 uint16_t u16_SD_Log_Idx_Count();
 bool     b_SD_Log_Idx_Get(uint16_t u16_n, uint32_t* pu32_boot, uint32_t* pu32_first,
 		uint32_t* pu32_last, uint16_t* pu16_idx);

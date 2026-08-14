@@ -404,6 +404,11 @@ static uint32_t u32_logFlushRef;
 static uint32_t u32_logSeq;			// next sample number
 static uint32_t u32_logFlushedSeq;	// last seq actually on the card, for reqLogStatus
 static uint32_t u32_logFileIdx;
+// Files on the card, which is not the same as files in the index once the cap
+// is reached -- and the gap between the two is the only way a reader learns how
+// much has fallen out of reach. Counted by the boot scan, then kept current as
+// files are created, so reqLogStatus can answer without walking the card again.
+static uint16_t u16_logFilesOnCard;
 static uint32_t u32_logFileRef;		// tick when the current file was opened
 static uint32_t u32_logFileRec;		// records placed in the current file
 static uint16_t u16_logWrErr;		// reported as writeErrorCount in reqLogStatus(0x43)
@@ -555,6 +560,7 @@ static bool b_log_file_open(uint32_t u32_firstSeq){
 	f_sync(&logFile);
 
 	b_logOpen = true;
+	if(u16_logFilesOnCard < 0xFFFFU) u16_logFilesOnCard++;
 	u32_logFlushRef = u32_Tim_1msGet();
 	u32_logFileRef  = u32_logFlushRef;
 	u32_logFileRec  = 0;
@@ -1027,7 +1033,16 @@ static uint32_t u32_log_scan_dir(const char* pc_dir, uint8_t u8_unknown){
 
 	if(f_opendir(&x_logScanDir, pc_dir) != FR_OK) return 0;
 
-	while(u16_logIdxCnt < SD_LOG_IDX_MAX){
+	// Counting and indexing are separate on purpose. The walk used to stop at
+	// SD_LOG_IDX_MAX, which meant the count could never exceed the cap and so
+	// could never report how far past it the card was -- the one moment the
+	// number matters. Reading on costs a readdir step per file; the expensive
+	// part is the header read inside v_log_idx_add, and that is what stops.
+	//
+	// The resume check stays outside the cap for a harder reason: it is what
+	// keeps a new file from reusing an index this bootId already wrote. Skipping
+	// it past 128 would overwrite records instead of merely hiding them.
+	while(1){
 		if(f_readdir(&x_logScanDir, &x_logScanInfo) != FR_OK) break;
 		if(x_logScanInfo.fname[0] == 0) break;
 		if(x_logScanInfo.fattrib & AM_DIR) continue;
@@ -1103,7 +1118,13 @@ void v_SD_Log_Scan(){
 		v_log_err_raise(SD_LOG_ERR_IDX_FULL,
 				(u32_seen > 0xFFFFU) ? 0xFFFFU : (uint16_t)u32_seen);
 	}
-	LOG_INFO("SD_LOG", "indexed %u file(s)", (unsigned)u16_logIdxCnt);
+	u16_logFilesOnCard = (u32_seen > 0xFFFFU) ? 0xFFFFU : (uint16_t)u32_seen;
+	LOG_INFO("SD_LOG", "indexed %u of %u file(s) on card",
+			(unsigned)u16_logIdxCnt, (unsigned)u16_logFilesOnCard);
+}
+
+uint16_t u16_SD_Log_Files_On_Card(){
+	return u16_logFilesOnCard;
 }
 
 uint16_t u16_SD_Log_Idx_Count(){
