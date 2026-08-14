@@ -981,7 +981,12 @@ static void v_log_idx_add(const char* pc_dir, const char* pc_name,
 	FIL x_f;
 	UINT br = 0;
 
-	if(u16_logIdxCnt >= SD_LOG_IDX_MAX) return;
+	// Full. The file stays on the card and keeps its records, but nothing can ask
+	// for it, so say so rather than dropping it quietly.
+	if(u16_logIdxCnt >= SD_LOG_IDX_MAX){
+		v_log_err_raise(SD_LOG_ERR_IDX_FULL, (uint16_t)u16_logIdxCnt);
+		return;
+	}
 	if(u32_size < SD_LOG_HDR_SIZE + SD_LOG_REC_SIZE) return;	// header only, no record
 
 	uint32_t u32_rec = (u32_size - SD_LOG_HDR_SIZE) / SD_LOG_REC_SIZE;
@@ -1092,6 +1097,11 @@ void v_SD_Log_Scan(){
 	if(u32_seen > u16_logIdxCnt){
 		LOG_WARN("SD_LOG", "index %u of %u files (cap %u)",
 				(unsigned)u16_logIdxCnt, (unsigned)u32_seen, SD_LOG_IDX_MAX);
+		// Detail is what is on the card, not what fit: the gap against the cap is
+		// how many are already out of reach, and a reader that only sees 128 has
+		// no way to work that out.
+		v_log_err_raise(SD_LOG_ERR_IDX_FULL,
+				(u32_seen > 0xFFFFU) ? 0xFFFFU : (uint16_t)u32_seen);
 	}
 	LOG_INFO("SD_LOG", "indexed %u file(s)", (unsigned)u16_logIdxCnt);
 }
