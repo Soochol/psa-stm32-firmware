@@ -1127,6 +1127,64 @@ void v_SD_Log_Scan(){
 			(unsigned)u16_logIdxCnt, (unsigned)u16_logFilesOnCard);
 }
 
+/*
+ * brief	: remove one indexed file at the PC's request (spec 6.8)
+ * note
+ * - The caller decides *whether* a file may go: only the PC knows the records
+ *   reached it, passed CRC and merged, and neither this side nor the ESP32 can
+ *   see any of that. What is checked here is only whether removing it now would
+ *   break something in flight.
+ * - The index entry is dropped rather than the card rescanned. A scan costs a
+ *   header read per file and would say nothing this does not already know.
+ */
+uint8_t u8_SD_Log_Delete(uint32_t u32_boot, uint16_t u16_idx){
+	char c_dev[13];
+	char c_path[SD_LOG_PATH_MAX];
+	uint16_t i;
+
+	if(!b_SdMount) return 4;
+
+	// A backfill holds an open handle on a file it is part way through. Refusing
+	// is enough: the PC asks again once the transfer it started has finished.
+	if(b_SD_Log_Backfill_Active()) return 3;
+
+	// The file being written now. Deleting it would strand logFile on an entry
+	// that no longer exists, and this session's records with it.
+	if(b_logOpen && u32_boot == u32_Flash_Cfg_Get_BootId()
+			&& (uint32_t)u16_idx == u32_logFileIdx){
+		return 2;
+	}
+
+	for(i = 0; i < u16_logIdxCnt; i++){
+		if(x_logIdx[i].u32_bootId == u32_boot
+				&& x_logIdx[i].u16_fileIdx == u16_idx) break;
+	}
+	if(i >= u16_logIdxCnt) return 1;			// not listed, so not ours to delete
+
+	if(x_logIdx[i].u8_unknownDir) strcpy(c_dev, "UNKNOWN");
+	else                          v_log_devid_dir(c_dev);
+	snprintf(c_path, sizeof(c_path), "%s/%s/%08lX_%04lX.psa", SD_LOG_DIR, c_dev,
+			(unsigned long)u32_boot, (unsigned long)u16_idx);
+
+	if(f_unlink(c_path) != FR_OK){
+		v_log_err_raise(SD_LOG_ERR_BACKFILL, 0);
+		return 4;
+	}
+
+	// Close the gap rather than leaving a hole: b_bf_find walks this array in
+	// order and takes the last match, which only holds while it stays sorted.
+	for(uint16_t j = i; j + 1 < u16_logIdxCnt; j++){
+		x_logIdx[j] = x_logIdx[j + 1];
+	}
+	u16_logIdxCnt--;
+	if(u16_logFilesOnCard > 0) u16_logFilesOnCard--;
+
+	LOG_INFO("SD_LOG", "deleted %08lX_%04lX.psa indexed=%u onCard=%u",
+			(unsigned long)u32_boot, (unsigned long)u16_idx,
+			(unsigned)u16_logIdxCnt, (unsigned)u16_logFilesOnCard);
+	return 0;
+}
+
 uint16_t u16_SD_Log_Files_On_Card(){
 	return u16_logFilesOnCard;
 }

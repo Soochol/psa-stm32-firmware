@@ -64,6 +64,12 @@ void     v_SD_Log_Scan();
 // Files on the card, against u16_SD_Log_Idx_Count() which stops at the cap.
 // The two are equal until the index fills; after that the difference is how
 // many files exist but cannot be listed or backfilled.
+// Remove one indexed file, for ctrlLogDelete(0x57). The decision belongs to the
+// PC -- only it knows the records arrived, verified and merged -- so this checks
+// nothing about recovery, only that the file is not in use right now.
+// 0 deleted, 1 not indexed, 2 currently being written, 3 backfill running,
+// 4 filesystem error.
+uint8_t  u8_SD_Log_Delete(uint32_t u32_boot, uint16_t u16_idx);
 uint16_t u16_SD_Log_Files_On_Card();
 uint16_t u16_SD_Log_Idx_Count();
 bool     b_SD_Log_Idx_Get(uint16_t u16_n, uint32_t* pu32_boot, uint32_t* pu32_first,

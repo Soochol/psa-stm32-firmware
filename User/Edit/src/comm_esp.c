@@ -67,6 +67,7 @@ typedef enum {
 	ESP_CMD_CTRL_SPK_PLAY		=0x54,
 	ESP_CMD_CTRL_COOLFAN_ON		=0x55,
 	ESP_CMD_CTRL_LOG_EN			=0x56,	//SD logging spec 6.6
+	ESP_CMD_CTRL_LOG_DEL		=0x57,	//SD logging spec 6.8
 	//STATUS
 	ESP_CMD_STAT=0x70,
 	ESP_CMD_STAT_LOG_CHUNK=0x71,	//SD logging spec 6.5
@@ -779,6 +780,27 @@ static void v_ESP_CtrlProc(uint8_t u8_cmd, uint8_t* pu8_data, uint8_t u8_len){
 			v_SD_Log_SetEnabled(pu8_data[0] != 0);
 		}
 		break;
+	case ESP_CMD_CTRL_LOG_DEL:
+	{
+		// bootId(4) + fileIndex(2), the same pair reqLogFiles(0x45) reports, so
+		// the request names a file the PC has already been shown.
+		//
+		// Whether the file may go is the PC's call: only it knows the records
+		// arrived, held their CRC and merged. Nothing about that is visible from
+		// here, so the driver checks only what would break if the file vanished
+		// this instant, and the reply says which of those it was.
+		uint8_t u8_res = 4;
+		if(u8_len >= 6){
+			uint32_t u32_boot = ((uint32_t)pu8_data[0] << 24) | ((uint32_t)pu8_data[1] << 16)
+			                  | ((uint32_t)pu8_data[2] << 8)  |  (uint32_t)pu8_data[3];
+			uint16_t u16_idx  = (uint16_t)(((uint16_t)pu8_data[4] << 8) | pu8_data[5]);
+			u8_res = u8_SD_Log_Delete(u32_boot, u16_idx);
+			LOG_INFO("COMM_ESP", "ctrlLogDelete boot=%u file=%u -> %u",
+					(unsigned)u32_boot, (unsigned)u16_idx, u8_res);
+		}
+		b_ESP_Transmit(ESP_DIR_ACK, u8_cmd, &u8_res, 1);
+		return;						// ACK already sent, with the result in it
+	}
 	}
 	//ack
 	b_ESP_Transmit(ESP_DIR_ACK, u8_cmd, NULL, 0);
