@@ -246,9 +246,13 @@ void v_ESP_Recive(uint8_t u8_rx){
  */
 static bool b_ESP_Transmit(uint8_t u8_dir, uint8_t u8_cmd, uint8_t* pu8_data, uint16_t u16_len){
 	// CRITICAL: Validate buffer size to prevent stack overflow
-	// fmt[64] = STX(1) + LEN(1) + DIR(1) + CMD(1) + DATA(u16_len) + CHK(1) + ETX(1)
-	// Maximum safe data length: 64 - 6 = 58 bytes
-	if(u16_len > (ESP_TX_FMT_BUF_SIZE - 6)){
+	// fmt = STX + LEN + DIR + CMD + DATA(u16_len) + CHK + ETX, so the bound on
+	// DATA is the buffer less the ESP_FMT_SIZE_MIN framing bytes.
+	// Written against the macros rather than as numbers: this comment was cloned
+	// from v_ESP_Transmit_toRx, whose buffer really is 64, and kept saying 58
+	// after this one grew to 96 -- which read as though reqLogFiles' 86 B were
+	// already over the limit.
+	if(u16_len > (ESP_TX_FMT_BUF_SIZE - ESP_FMT_SIZE_MIN)){
 		return false;  // Prevent buffer overflow
 	}
 
@@ -320,7 +324,7 @@ static void v_ESP_RxHandler(){
 	uint8_t* p_arr = espRx->p_arr;
 	uint8_t data_len;
 	uint8_t cmd, dir;
-	uint8_t data[32];
+	uint8_t data[ESP_RX_DATA_BUF_SIZE];
 
 	//STX
 	if(p_arr[out] != ESP_FMT_STX){
@@ -348,8 +352,9 @@ static void v_ESP_RxHandler(){
 	chk ^= p_arr[out];
 	out = (out + 1) & mask;
 	data_len = len;
-	// CRITICAL FIX: Validate data_len to prevent buffer overflow
-	if(data_len > 32){
+	// CRITICAL FIX: Validate data_len to prevent buffer overflow. Named after the
+	// buffer it guards so the two cannot drift; equality fits exactly.
+	if(data_len > ESP_RX_DATA_BUF_SIZE){
 		v_Uart_ESP_DisableIT();
 		espRx->fn.b_Jmp(espRx, 1);
 		v_Uart_ESP_EnableIT();
@@ -1013,9 +1018,9 @@ void v_ESP_Send_Warning(uint8_t u8_warn_type){
 
 static void v_ESP_Transmit_toRx(uint8_t u8_dir, uint8_t u8_cmd, uint8_t* pu8_data, uint16_t u16_len){
 	// CRITICAL: Validate buffer size to prevent stack overflow
-	// fmt[64] = STX(1) + LEN(1) + DIR(1) + CMD(1) + DATA(u16_len) + CHK(1) + ETX(1)
-	// Maximum safe data length: 64 - 6 = 58 bytes
-	if(u16_len > (ESP_TX_TO_RX_BUF_SIZE - 6)){
+	// fmt = STX + LEN + DIR + CMD + DATA(u16_len) + CHK + ETX, so the bound on
+	// DATA is the buffer less the ESP_FMT_SIZE_MIN framing bytes.
+	if(u16_len > (ESP_TX_TO_RX_BUF_SIZE - ESP_FMT_SIZE_MIN)){
 		return;  // Prevent buffer overflow
 	}
 
