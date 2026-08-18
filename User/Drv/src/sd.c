@@ -1193,6 +1193,10 @@ uint16_t u16_SD_Log_Idx_Count(){
 	return u16_logIdxCnt;
 }
 
+uint16_t u16_SD_Log_Idx_Capacity(){
+	return SD_LOG_IDX_MAX;
+}
+
 bool b_SD_Log_Idx_Get(uint16_t u16_n, uint32_t* pu32_boot, uint32_t* pu32_first,
 		uint32_t* pu32_last, uint16_t* pu16_idx){
 	if(u16_n >= u16_logIdxCnt) return false;

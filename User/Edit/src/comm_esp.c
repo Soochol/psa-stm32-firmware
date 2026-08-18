@@ -676,7 +676,7 @@ static void v_ESP_ReqProc(uint8_t u8_cmd, uint8_t* pu8_data, uint8_t u8_len){
 	}
 	case ESP_CMD_REQ_LOG_STATUS:
 	{
-		// 21 B, spec 6.2. currentTickMs is read here rather than carried from
+		// 25 B, spec 6.2. currentTickMs is read here rather than carried from
 		// elsewhere: it is the anchor the merge tool pairs with absolute time, and
 		// pairing is only tight if it is sampled as the reply is built.
 		uint32_t u32_bootId  = u32_Flash_Cfg_Get_BootId();
@@ -708,6 +708,15 @@ static void v_ESP_ReqProc(uint8_t u8_cmd, uint8_t* pu8_data, uint8_t u8_len){
 		// stands, which is what survives an ESP32 restart.
 		uint16_t u16_files = u16_SD_Log_Files_On_Card();
 		data[len++] = u16_files >> 8;     data[len++] = u16_files;
+		// indexCapacity, appended at 25 B (spec 6.2). filesOnCard only means
+		// anything against the cap, and the reader used to keep its own copy of
+		// it: the reduced build for the reason 6 test left the two disagreeing
+		// until both were edited by hand. The cap is a start-up blocking budget
+		// rather than a card limit, so it moves whenever that budget is retuned
+		// -- and the two sides are not reflashed together, which is why it has
+		// to travel with the count instead of being agreed once.
+		uint16_t u16_cap = u16_SD_Log_Idx_Capacity();
+		data[len++] = u16_cap >> 8;       data[len++] = u16_cap;
 		break;
 	}
 	}
