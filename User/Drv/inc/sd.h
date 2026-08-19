@@ -43,6 +43,13 @@ typedef enum {
 	// that disappears from the listing with nothing said, which reads as "never
 	// recorded" and would only surface long after the fact.
 	SD_LOG_ERR_IDX_FULL	= 6,	// index cap reached; that file is unreachable
+	// ctrlLogDelete could not remove the file. Detail carries the FRESULT rather
+	// than a flag, because the reader has to act differently on the two kinds:
+	// FR_DENIED or FR_LOCKED is that one file's problem and the rest of the card
+	// is fine, while FR_DISK_ERR or FR_NOT_READY says the card is. Anything not
+	// recognised is treated as the second -- a card fault shown as a per-file
+	// one invites a retry loop against failing media.
+	SD_LOG_ERR_DELETE	= 7,	// delete failed; detail = FRESULT
 } e_SD_LOG_ERR_t;
 
 // Card presence, remount and capacity. Call from the main loop; it rate-limits

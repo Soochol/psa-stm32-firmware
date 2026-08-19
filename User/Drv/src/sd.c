@@ -1166,8 +1166,13 @@ uint8_t u8_SD_Log_Delete(uint32_t u32_boot, uint16_t u16_idx){
 	snprintf(c_path, sizeof(c_path), "%s/%s/%08lX_%04lX.psa", SD_LOG_DIR, c_dev,
 			(unsigned long)u32_boot, (unsigned long)u16_idx);
 
-	if(f_unlink(c_path) != FR_OK){
-		v_log_err_raise(SD_LOG_ERR_BACKFILL, 0);
+	// The FRESULT travels rather than being flattened here: it is what lets the
+	// reader tell "that one file" from "this card", and this side cannot make
+	// that call for it. Reason 5 used to go out here, which named the backfill
+	// on a screen where nothing had been read.
+	FRESULT e_del = f_unlink(c_path);
+	if(e_del != FR_OK){
+		v_log_err_raise(SD_LOG_ERR_DELETE, (uint16_t)e_del);
 		return 4;
 	}
 
