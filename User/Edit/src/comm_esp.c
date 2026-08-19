@@ -10,6 +10,7 @@
 #include "lib_log.h"
 #include "sd.h"
 #include "flash_cfg.h"
+#include "version.h"
 
 
 //STX	| LEN	| DIR	| CMD	| DATA	| CHK	| ETX
@@ -59,6 +60,7 @@ typedef enum {
 	ESP_CMD_REQ_LOG_STATUS		=0x43,	//SD logging spec 6.2
 	ESP_CMD_REQ_LOG_READ		=0x44,	//SD logging spec 6.4
 	ESP_CMD_REQ_LOG_FILES		=0x45,	//SD logging spec 6.3
+	ESP_CMD_REQ_DEVICE_VERSION	=0x46,	//SPEC_PROPOSAL_reqDeviceVersion
 	//CONTROL
 	ESP_CMD_CTRL_RST			=0x50,
 	ESP_CMD_CTRL_MODE			=0x51,	//add
@@ -724,6 +726,12 @@ static void v_ESP_ReqProc(uint8_t u8_cmd, uint8_t* pu8_data, uint8_t u8_len){
 		data[len++] = u16_cap >> 8;       data[len++] = u16_cap;
 		break;
 	}
+	case ESP_CMD_REQ_DEVICE_VERSION:
+		// 16 B ASCII; strncpy zero-pads the remainder, which is exactly the
+		// wire format. Length is capped at build time in version.h.
+		strncpy((char*)&data[len], STM_FW_VERSION, 16);
+		len += 16;
+		break;
 	}
 	//ack
 	b_ESP_Transmit(ESP_DIR_ACK, u8_cmd, data, len);
