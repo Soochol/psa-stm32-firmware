@@ -10,6 +10,7 @@
 #include "lib_log.h"
 #include "sd.h"
 #include "flash_cfg.h"
+#include "version.h"
 
 
 //STX	| LEN	| DIR	| CMD	| DATA	| CHK	| ETX
@@ -59,6 +60,7 @@ typedef enum {
 	ESP_CMD_REQ_LOG_STATUS		=0x43,	//SD logging spec 6.2
 	ESP_CMD_REQ_LOG_READ		=0x44,	//SD logging spec 6.4
 	ESP_CMD_REQ_LOG_FILES		=0x45,	//SD logging spec 6.3
+	ESP_CMD_REQ_DEVICE_VERSION	=0x46,	//SPEC_PROPOSAL_reqDeviceVersion
 	//CONTROL
 	ESP_CMD_CTRL_RST			=0x50,
 	ESP_CMD_CTRL_MODE			=0x51,	//add
@@ -246,9 +248,13 @@ void v_ESP_Recive(uint8_t u8_rx){
  */
 static bool b_ESP_Transmit(uint8_t u8_dir, uint8_t u8_cmd, uint8_t* pu8_data, uint16_t u16_len){
 	// CRITICAL: Validate buffer size to prevent stack overflow
-	// fmt[64] = STX(1) + LEN(1) + DIR(1) + CMD(1) + DATA(u16_len) + CHK(1) + ETX(1)
-	// Maximum safe data length: 64 - 6 = 58 bytes
-	if(u16_len > (ESP_TX_FMT_BUF_SIZE - 6)){
+	// fmt = STX + LEN + DIR + CMD + DATA(u16_len) + CHK + ETX, so the bound on
+	// DATA is the buffer less the ESP_FMT_SIZE_MIN framing bytes.
+	// Written against the macros rather than as numbers: this comment was cloned
+	// from v_ESP_Transmit_toRx, whose buffer really is 64, and kept saying 58
+	// after this one grew to 96 -- which read as though reqLogFiles' 86 B were
+	// already over the limit.
+	if(u16_len > (ESP_TX_FMT_BUF_SIZE - ESP_FMT_SIZE_MIN)){
 		return false;  // Prevent buffer overflow
 	}
 
@@ -320,7 +326,7 @@ static void v_ESP_RxHandler(){
 	uint8_t* p_arr = espRx->p_arr;
 	uint8_t data_len;
 	uint8_t cmd, dir;
-	uint8_t data[32];
+	uint8_t data[ESP_RX_DATA_BUF_SIZE];
 
 	//STX
 	if(p_arr[out] != ESP_FMT_STX){
@@ -348,8 +354,9 @@ static void v_ESP_RxHandler(){
 	chk ^= p_arr[out];
 	out = (out + 1) & mask;
 	data_len = len;
-	// CRITICAL FIX: Validate data_len to prevent buffer overflow
-	if(data_len > 32){
+	// CRITICAL FIX: Validate data_len to prevent buffer overflow. Named after the
+	// buffer it guards so the two cannot drift; equality fits exactly.
+	if(data_len > ESP_RX_DATA_BUF_SIZE){
 		v_Uart_ESP_DisableIT();
 		espRx->fn.b_Jmp(espRx, 1);
 		v_Uart_ESP_EnableIT();
@@ -676,7 +683,7 @@ static void v_ESP_ReqProc(uint8_t u8_cmd, uint8_t* pu8_data, uint8_t u8_len){
 	}
 	case ESP_CMD_REQ_LOG_STATUS:
 	{
-		// 21 B, spec 6.2. currentTickMs is read here rather than carried from
+		// 25 B, spec 6.2. currentTickMs is read here rather than carried from
 		// elsewhere: it is the anchor the merge tool pairs with absolute time, and
 		// pairing is only tight if it is sampled as the reply is built.
 		uint32_t u32_bootId  = u32_Flash_Cfg_Get_BootId();
@@ -708,8 +715,23 @@ static void v_ESP_ReqProc(uint8_t u8_cmd, uint8_t* pu8_data, uint8_t u8_len){
 		// stands, which is what survives an ESP32 restart.
 		uint16_t u16_files = u16_SD_Log_Files_On_Card();
 		data[len++] = u16_files >> 8;     data[len++] = u16_files;
+		// indexCapacity, appended at 25 B (spec 6.2). filesOnCard only means
+		// anything against the cap, and the reader used to keep its own copy of
+		// it: the reduced build for the reason 6 test left the two disagreeing
+		// until both were edited by hand. The cap is a start-up blocking budget
+		// rather than a card limit, so it moves whenever that budget is retuned
+		// -- and the two sides are not reflashed together, which is why it has
+		// to travel with the count instead of being agreed once.
+		uint16_t u16_cap = u16_SD_Log_Idx_Capacity();
+		data[len++] = u16_cap >> 8;       data[len++] = u16_cap;
 		break;
 	}
+	case ESP_CMD_REQ_DEVICE_VERSION:
+		// 16 B ASCII; strncpy zero-pads the remainder, which is exactly the
+		// wire format. Length is capped at build time in version.h.
+		strncpy((char*)&data[len], STM_FW_VERSION, 16);
+		len += 16;
+		break;
 	}
 	//ack
 	b_ESP_Transmit(ESP_DIR_ACK, u8_cmd, data, len);
@@ -1004,9 +1026,9 @@ void v_ESP_Send_Warning(uint8_t u8_warn_type){
 
 static void v_ESP_Transmit_toRx(uint8_t u8_dir, uint8_t u8_cmd, uint8_t* pu8_data, uint16_t u16_len){
 	// CRITICAL: Validate buffer size to prevent stack overflow
-	// fmt[64] = STX(1) + LEN(1) + DIR(1) + CMD(1) + DATA(u16_len) + CHK(1) + ETX(1)
-	// Maximum safe data length: 64 - 6 = 58 bytes
-	if(u16_len > (ESP_TX_TO_RX_BUF_SIZE - 6)){
+	// fmt = STX + LEN + DIR + CMD + DATA(u16_len) + CHK + ETX, so the bound on
+	// DATA is the buffer less the ESP_FMT_SIZE_MIN framing bytes.
+	if(u16_len > (ESP_TX_TO_RX_BUF_SIZE - ESP_FMT_SIZE_MIN)){
 		return;  // Prevent buffer overflow
 	}
 

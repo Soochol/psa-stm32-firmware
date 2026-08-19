@@ -9,11 +9,9 @@
 /*******************************************/
 // Buffer sizes
 #define ESP_RX_DATA_BUF_SIZE		32		// Receive data buffer size
-#define ESP_RESP_DATA_BUF_SIZE		32		// Response data buffer size
 #define ESP_SENSING_DATA_BUF_SIZE	96		// Sensing data buffer size
 #define ESP_TX_FMT_BUF_SIZE			96		// Transmission format buffer size
 #define ESP_TX_TO_RX_BUF_SIZE		64		// Transmit to RX buffer size
-#define ESP_DATA_LEN_MAX			32		// Maximum data length for validation
 
 // Communication timing
 #define ESP_COMM_TIMEOUT			1000	// Communication timeout (ms)

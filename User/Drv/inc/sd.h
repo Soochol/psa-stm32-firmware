@@ -72,6 +72,10 @@ void     v_SD_Log_Scan();
 uint8_t  u8_SD_Log_Delete(uint32_t u32_boot, uint16_t u16_idx);
 uint16_t u16_SD_Log_Files_On_Card();
 uint16_t u16_SD_Log_Idx_Count();
+// The cap itself, reported so the reader does not have to hold a copy of it.
+// A reduced build used to leave the two sides disagreeing until both were
+// edited by hand; carrying it on the wire is what stops that.
+uint16_t u16_SD_Log_Idx_Capacity();
 bool     b_SD_Log_Idx_Get(uint16_t u16_n, uint32_t* pu32_boot, uint32_t* pu32_first,
 		uint32_t* pu32_last, uint16_t* pu16_idx);
 
