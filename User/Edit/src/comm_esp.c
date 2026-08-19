@@ -999,9 +999,17 @@ void v_ESP_Send_Sensing(int16_t* pi16_imu_left, int16_t* pi16_imu_right,\
  * - create	: 25.08.26
  */
 void v_ESP_Tout_Handler(){
-	if(i_toutAct && _b_Tim_Is_OVR(u32_Tim_1msGet(), u32_toutRef, 1000)){
+	if(i_toutAct && _b_Tim_Is_OVR(u32_Tim_1msGet(), u32_toutRef, ESP_COMM_TIMEOUT)){
 		i_toutAct = 0;
-		LOG_WARN("COMM_ESP", "ESP STAT response timeout - retrying");
+		// Nothing is resent. The flag drops here and the next STAT rearms it on
+		// its own 10 Hz schedule, so the old "retrying" read as a recovery
+		// mechanism that does not exist -- the ESP32 team had built on it.
+		//
+		// The window is also not one response's budget: v_ESP_Stat_Send only
+		// arms a clear timer, and any STAT-class receive clears it, so at 10 Hz
+		// this fires when nothing came back for a whole second rather than when
+		// a single reply ran long.
+		LOG_WARN("COMM_ESP", "no STAT response for %u ms", (unsigned)ESP_COMM_TIMEOUT);
 	}
 }
 

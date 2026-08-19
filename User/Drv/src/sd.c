@@ -1171,7 +1171,15 @@ uint8_t u8_SD_Log_Delete(uint32_t u32_boot, uint16_t u16_idx){
 	// that call for it. Reason 5 used to go out here, which named the backfill
 	// on a screen where nothing had been read.
 	FRESULT e_del = f_unlink(c_path);
-	if(e_del != FR_OK){
+
+	// Already gone is the state the caller asked for, so those two fall through
+	// to the cleanup below instead of out. Returning 4 here left the entry in
+	// the index, which put a file that does not exist back into reqLogFiles for
+	// the PC to pick again -- and it failed the same way every time until the
+	// next boot scan rebuilt the index from the card. No event is raised for
+	// them either: reason 7 beside result 0 would put "deleted" and "delete
+	// failed" on the same screen.
+	if(e_del != FR_OK && e_del != FR_NO_FILE && e_del != FR_NO_PATH){
 		v_log_err_raise(SD_LOG_ERR_DELETE, (uint16_t)e_del);
 		return 4;
 	}
@@ -1184,8 +1192,9 @@ uint8_t u8_SD_Log_Delete(uint32_t u32_boot, uint16_t u16_idx){
 	u16_logIdxCnt--;
 	if(u16_logFilesOnCard > 0) u16_logFilesOnCard--;
 
-	LOG_INFO("SD_LOG", "deleted %08lX_%04lX.psa indexed=%u onCard=%u",
+	LOG_INFO("SD_LOG", "deleted %08lX_%04lX.psa%s indexed=%u onCard=%u",
 			(unsigned long)u32_boot, (unsigned long)u16_idx,
+			(e_del == FR_OK) ? "" : " (was already gone)",
 			(unsigned)u16_logIdxCnt, (unsigned)u16_logFilesOnCard);
 	return 0;
 }
