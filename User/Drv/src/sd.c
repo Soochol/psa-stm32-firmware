@@ -930,6 +930,23 @@ uint8_t u8_SD_Log_Get_State(){
 // still recoverable by pulling it (spec section 6.3).
 #define SD_LOG_IDX_MAX		128
 
+// The reserve. The index fills in the order the directory walk reaches files,
+// which on FAT is broadly creation order -- so without a reserve the entries
+// that lose are the newest, and those are the ones an investigation asks for.
+// Splitting it keeps both: the front is the drain queue (a file has to be
+// listed before ctrlLogDelete will take it, so something must stay reachable
+// or the card can never be freed), the back always holds the newest files.
+//
+// 64 is paired to the drain cadence, not to memory: ~10-20 files a day with a
+// daily pull, so the reserve covers about three days of standing still. The
+// ratio costs nothing either way -- the list is SD_LOG_IDX_MAX entries whatever
+// the split, so a pull clears the same number of files per cycle.
+#define SD_LOG_IDX_RECENT	64
+#define SD_LOG_IDX_OLD		(SD_LOG_IDX_MAX - SD_LOG_IDX_RECENT)
+
+_Static_assert(SD_LOG_IDX_RECENT > 0 && SD_LOG_IDX_RECENT < SD_LOG_IDX_MAX,
+		"the reserve has to leave a drain queue in front of it");
+
 typedef struct {
 	uint32_t u32_bootId;
 	uint32_t u32_firstSeq;
@@ -944,6 +961,98 @@ static uint16_t    u16_logIdxCnt;
 // ~300 B each; kept off the stack because the scan runs from the start-up path.
 static DIR     x_logScanDir;
 static FILINFO x_logScanInfo;
+
+// Candidates for the reserved region, held by name alone. bootId and fileIndex
+// both come from the filename, so ranking a file costs no f_open -- only the
+// survivors get their header read. That is what keeps start-up at
+// SD_LOG_IDX_MAX header reads however many files the card holds.
+//
+// Kept sorted ascending, same order as the index, so the oldest candidate is
+// always slot 0 and eviction is a single comparison.
+typedef struct {
+	uint32_t u32_bootId;
+	uint32_t u32_size;
+	uint16_t u16_fileIdx;
+	uint8_t  u8_unknownDir;
+} x_log_cand_t;
+
+static x_log_cand_t x_logCand[SD_LOG_IDX_RECENT];
+static uint16_t     u16_logCandCnt;
+
+static int i_log_key_cmp(uint32_t u32_bootA, uint16_t u16_idxA,
+		uint32_t u32_bootB, uint16_t u16_idxB){
+	if(u32_bootA != u32_bootB) return (u32_bootA < u32_bootB) ? -1 : 1;
+	if(u16_idxA  != u16_idxB)  return (u16_idxA  < u16_idxB)  ? -1 : 1;
+	return 0;
+}
+
+/*
+ * brief	: offer a file to the reserved region, by name only
+ * note
+ * - The newest SD_LOG_IDX_RECENT files on the card always survive this, whatever
+ *   order the walk hands them over: a file only loses its slot to a newer one,
+ *   and at most SD_LOG_IDX_RECENT - 1 files anywhere are newer than a member of
+ *   that set. The front region's composition still follows walk order, but the
+ *   reserve's does not.
+ */
+static void v_log_cand_offer(uint32_t u32_boot, uint32_t u32_idx, uint32_t u32_size,
+		uint8_t u8_unknown){
+	// The same length contract v_log_idx_add applies, repeated here so a
+	// header-only file cannot hold a slot against a file that has records.
+	if(u32_size < SD_LOG_HDR_SIZE + SD_LOG_REC_SIZE) return;
+
+	if(u16_logCandCnt == SD_LOG_IDX_RECENT
+	&& i_log_key_cmp(u32_boot, (uint16_t)u32_idx,
+			x_logCand[0].u32_bootId, x_logCand[0].u16_fileIdx) <= 0){
+		return;						// older than everything already kept
+	}
+
+	if(u16_logCandCnt == SD_LOG_IDX_RECENT){
+		for(uint16_t i = 0; i + 1 < u16_logCandCnt; i++) x_logCand[i] = x_logCand[i + 1];
+		u16_logCandCnt--;
+	}
+
+	uint16_t u16_at = u16_logCandCnt;
+	while(u16_at > 0 && i_log_key_cmp(x_logCand[u16_at - 1].u32_bootId,
+			x_logCand[u16_at - 1].u16_fileIdx, u32_boot, (uint16_t)u32_idx) > 0){
+		x_logCand[u16_at] = x_logCand[u16_at - 1];
+		u16_at--;
+	}
+	x_logCand[u16_at].u32_bootId    = u32_boot;
+	x_logCand[u16_at].u32_size      = u32_size;
+	x_logCand[u16_at].u16_fileIdx   = (uint16_t)u32_idx;
+	x_logCand[u16_at].u8_unknownDir = u8_unknown;
+	u16_logCandCnt++;
+}
+
+/*
+ * brief	: read the surviving candidates into the index
+ * note
+ * - Runs once, after every directory has been walked: a file in /LOG/UNKNOWN can
+ *   be newer than anything in this device's own directory, so the two cannot be
+ *   ranked separately.
+ * - The path is rebuilt rather than kept: the name is a pure function of bootId
+ *   and fileIndex, which is what lets a candidate cost 12 bytes instead of a
+ *   whole path.
+ */
+static void v_log_cand_flush(void){
+	char c_dev[13];
+	char c_dir[SD_LOG_PATH_MAX];
+	char c_name[24];
+
+	for(uint16_t i = 0; i < u16_logCandCnt; i++){
+		if(x_logCand[i].u8_unknownDir) strcpy(c_dev, "UNKNOWN");
+		else                           v_log_devid_dir(c_dev);
+		snprintf(c_dir, sizeof(c_dir), "%s/%s", SD_LOG_DIR, c_dev);
+		snprintf(c_name, sizeof(c_name), "%08lX_%04lX.psa",
+				(unsigned long)x_logCand[i].u32_bootId,
+				(unsigned long)x_logCand[i].u16_fileIdx);
+		v_log_idx_add(c_dir, c_name, x_logCand[i].u32_bootId,
+				x_logCand[i].u16_fileIdx, x_logCand[i].u32_size,
+				x_logCand[i].u8_unknownDir);
+	}
+	u16_logCandCnt = 0;
+}
 
 static int i_hex_nib(char c){
 	if(c >= '0' && c <= '9') return c - '0';
@@ -987,16 +1096,6 @@ static void v_log_idx_add(const char* pc_dir, const char* pc_name,
 	FIL x_f;
 	UINT br = 0;
 
-	// Full. The file stays on the card and keeps its records, but nothing can ask
-	// for it, so say so rather than dropping it quietly.
-	if(u16_logIdxCnt >= SD_LOG_IDX_MAX){
-		// Detail is the card's file count, the same figure the boot scan sends
-		// and the same one reqLogStatus reports. Sending the index count here
-		// instead made the event say "full, nothing beyond it": that count is
-		// the cap by definition, so detail minus the cap was always zero.
-		v_log_err_raise(SD_LOG_ERR_IDX_FULL, u16_logFilesOnCard);
-		return;
-	}
 	if(u32_size < SD_LOG_HDR_SIZE + SD_LOG_REC_SIZE) return;	// header only, no record
 
 	uint32_t u32_rec = (u32_size - SD_LOG_HDR_SIZE) / SD_LOG_REC_SIZE;
@@ -1011,6 +1110,29 @@ static void v_log_idx_add(const char* pc_dir, const char* pc_name,
 	if(memcmp(&u8_hdr[SD_HDR_MAGIC], "PSA1", 4) != 0) return;
 	if(u16_CRC16_CCITT(u8_hdr, SD_HDR_CRC) !=
 			(uint16_t)((u8_hdr[SD_HDR_CRC] << 8) | u8_hdr[SD_HDR_CRC + 1])) return;
+
+	// Full. Every check above has passed, so this file is definitely going in --
+	// evicting only now is what keeps a header-only file (what a failed first
+	// flush leaves behind) from costing a good entry and adding nothing.
+	//
+	// The boot scan never reaches this: it indexes at most SD_LOG_IDX_OLD files
+	// directly and flushes at most SD_LOG_IDX_RECENT candidates, so the count
+	// cannot pass the cap. The caller here is v_log_close_and_index, and the file
+	// it brings always carries the highest (bootId, fileIndex) on the card -- so
+	// appending it at the end keeps the array sorted, which b_bf_find needs.
+	if(u16_logIdxCnt >= SD_LOG_IDX_MAX){
+		// Slot SD_LOG_IDX_OLD is the oldest entry outside the drain queue. The
+		// queue itself is never touched: a file has to stay listed to be deletable,
+		// and nothing else can free the card.
+		for(uint16_t i = SD_LOG_IDX_OLD; i + 1 < u16_logIdxCnt; i++){
+			x_logIdx[i] = x_logIdx[i + 1];
+		}
+		u16_logIdxCnt--;
+		// Detail is the card's file count, the same figure the boot scan sends and
+		// the same one reqLogStatus reports. u16_logFilesOnCard is deliberately NOT
+		// decremented: the evicted file is out of reach, not off the card.
+		v_log_err_raise(SD_LOG_ERR_IDX_FULL, u16_logFilesOnCard);
+	}
 
 	x_logIdx[u16_logIdxCnt].u32_bootId    = u32_boot;
 	x_logIdx[u16_logIdxCnt].u16_fileIdx   = (uint16_t)u32_idx;
@@ -1060,8 +1182,19 @@ static uint32_t u32_log_scan_dir(const char* pc_dir, uint8_t u8_unknown){
 			LOG_WARN("SD_LOG", "bootId %u already has files, resuming at #%u",
 					(unsigned)u32_boot, (unsigned)u32_logFileIdx);
 		}
-		v_log_idx_add(pc_dir, x_logScanInfo.fname, u32_boot, u32_idx,
-				(uint32_t)x_logScanInfo.fsize, u8_unknown);
+		// The front region takes the first SD_LOG_IDX_OLD files the walk reaches
+		// -- the drain queue, oldest first on FAT. Everything after that competes
+		// for the reserve by name only, so the header reads stay capped however
+		// many files the card holds. The resume check above stays outside this
+		// split on purpose, for the reason its own comment gives.
+		if(u16_logIdxCnt < SD_LOG_IDX_OLD){
+			v_log_idx_add(pc_dir, x_logScanInfo.fname, u32_boot, u32_idx,
+					(uint32_t)x_logScanInfo.fsize, u8_unknown);
+		}
+		else{
+			v_log_cand_offer(u32_boot, u32_idx, (uint32_t)x_logScanInfo.fsize,
+					u8_unknown);
+		}
 	}
 	f_closedir(&x_logScanDir);
 	return u32_seen;
@@ -1083,7 +1216,8 @@ void v_SD_Log_Scan(){
 	char c_dir[SD_LOG_PATH_MAX];
 	uint32_t u32_seen = 0;
 
-	u16_logIdxCnt = 0;
+	u16_logIdxCnt  = 0;
+	u16_logCandCnt = 0;				// the scan re-runs on every remount
 	if(!b_SdMount) return;
 
 	v_log_devid_dir(c_dev);
@@ -1099,6 +1233,10 @@ void v_SD_Log_Scan(){
 		}
 		u32_seen += u32_orphan;
 	}
+
+	// The reserve is read now, with every directory walked and ranked. It lands
+	// unsorted relative to the front region, which the sort below settles.
+	v_log_cand_flush();
 
 	// insertion sort: bootId, then fileIndex
 	for(uint16_t i = 1; i < u16_logIdxCnt; i++){
