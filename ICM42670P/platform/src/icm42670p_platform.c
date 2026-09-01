@@ -1766,11 +1766,26 @@ int i_IMU_Is_Available(){
 	return b_imu_available ? 1 : 0;
 }
 
+// Set to restart e_IMU_Ready's own progress on its next call. Needed because
+// that state machine keeps where it got to in statics: after a mid-session
+// failure `interface` still says the transport is configured, so a retry would
+// skip straight to b_IMU_Config on a bus that has just been reset out from
+// under it.
+static bool b_imu_ready_restart;
+
 e_COMM_STAT_t e_IMU_Ready(){
 	static uint32_t timRef, timItv;
 	static bool init = true;
 	static uint16_t mask;
 	static int interface;
+	if(b_imu_ready_restart){
+		b_imu_ready_restart = false;
+		timRef = 0;
+		timItv = 0;
+		init = true;
+		mask = 0;
+		interface = 0;
+	}
 	if(e_imu_config == COMM_STAT_READY){
 		if(_b_Tim_Is_OVR(u32_Tim_1msGet(), timRef, timItv)){
 			timRef = u32_Tim_1msGet();
@@ -1821,6 +1836,58 @@ e_COMM_STAT_t e_IMU_Ready(){
 		}
 	}
 	return e_imu_config;
+}
+
+
+// Re-initialize the IMU during a session.
+//
+// v_IMU_Tout_Handler gives up after 3 bus recoveries and sets e_imu_config back
+// to READY, but the only caller of e_IMU_Ready is BOOTING — so nothing acts on
+// that request and the angle getters stream 0 for the rest of the session.
+// Zero reads as "upright" downstream: ESP32's angle-driven FORCE_UP needs >35 deg
+// and can then never fire, which pushes every cycle onto the ToF-only path whose
+// release condition is the one that stalls (report #70).
+//
+// Retries do not stop, matching the unlimited-retry policy the other sensors
+// follow (bba945c); the interval is what keeps a dead IMU from flooding a bus
+// shared with the FSR. One attempt is capped so a half-finished handshake cannot
+// hold the session open until the next interval lands on top of it.
+#define IMU_REINIT_RETRY_ITV	10000	//ms, between attempts
+#define IMU_REINIT_ATTEMPT_TOUT	3000	//ms, cap on a single attempt
+
+static uint32_t u32_imu_reinitRef;
+static bool b_imu_reinit_act;
+
+void v_IMU_Reinit_Handler(void){
+	if(e_imu_config == COMM_STAT_DONE){
+		b_imu_reinit_act = false;
+		return;
+	}
+
+	if(!b_imu_reinit_act){
+		if(!_b_Tim_Is_OVR(u32_Tim_1msGet(), u32_imu_reinitRef, IMU_REINIT_RETRY_ITV)){return;}
+		b_imu_reinit_act = true;
+		u32_imu_reinitRef = u32_Tim_1msGet();
+		b_imu_ready_restart = true;		//rewind e_IMU_Ready's own progress
+		LOG_WARN("ICM42670P", "session re-init attempt");
+	}
+
+	if(e_IMU_Ready() == COMM_STAT_DONE){
+		b_imu_reinit_act = false;
+		u32_imu_reinitRef = u32_Tim_1msGet();
+		// Clears the recovery counter and rearms v_IMU_Handler's read cycle. The
+		// accel-tilt anchor is deliberately left alone: it is the boot reference
+		// every angle is measured against, and re-capturing it here would silently
+		// redefine what 0 deg means mid-session.
+		v_IMU_Reset_RetryCnt();
+		LOG_INFO("ICM42670P", "session re-init OK");
+	}
+	else if(_b_Tim_Is_OVR(u32_Tim_1msGet(), u32_imu_reinitRef, IMU_REINIT_ATTEMPT_TOUT)){
+		b_imu_reinit_act = false;
+		u32_imu_reinitRef = u32_Tim_1msGet();
+		LOG_WARN("ICM42670P", "session re-init timeout, retry in %u ms",
+				(unsigned)IMU_REINIT_RETRY_ITV);
+	}
 }
 
 

@@ -22,6 +22,9 @@ void v_IMU_WR_Done(uint8_t u8_addr);
 
 void v_IMU_Tout_Handler();
 void v_IMU_Reset_RetryCnt(void);
+// Retries e_IMU_Ready during a session. Must not run while BOOTING drives the
+// same state machine — see the call site in v_Mode_Handler.
+void v_IMU_Reinit_Handler(void);
 
 void v_IMU_Tilt_Center_Enable();
 void v_IMU_Tilt_Center_Disable();

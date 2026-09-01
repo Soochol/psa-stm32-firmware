@@ -2774,6 +2774,13 @@ void v_Mode_Handler(){
 	v_Temp_InOut_Tout_Handler();
 	v_Temp_IR_Tout_Handler();
 	v_ESP_Tout_Handler();
+#if MODE_IMU_USED
+	// BOOTING already runs e_IMU_Ready itself; two callers pushing one state
+	// machine would interleave their steps and neither would finish.
+	if(e_Mode_Get_CurrID() != modeBOOTING){
+		v_IMU_Reinit_Handler();
+	}
+#endif
 	//spkear
 	v_Mode_Volume_Cycle_Handler();   // SW2 → volume level cycle
 	v_Mode_Speaker_Vol_Handler();
