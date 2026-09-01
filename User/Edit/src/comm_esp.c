@@ -114,6 +114,9 @@ typedef enum {
 
 #define ESP_RX_ARR_SIZE		(128)
 
+// How often the receive-path damage counters may be logged.
+#define ESP_RX_HEALTH_ITV	(1000)
+
 // One statLogChunk DATA frame, and the room kept free ahead of it so the live
 // STAT frame (70 B) never has to queue behind a burst of them.
 //
@@ -135,7 +138,9 @@ typedef enum {
 
 //function
 static bool b_ESP_Transmit(uint8_t u8_dir, uint8_t u8_cmd, uint8_t* pu8_data, uint16_t u16_len);
-static void v_ESP_RxHandler();
+static void v_ESP_RxDrop(uint16_t u16_cnt);
+static bool b_ESP_RxHandler();
+static void v_ESP_RxHealth_Handler(void);
 static void v_ESP_RxProc(uint8_t u8_cmd, uint8_t* pu8_data, uint8_t u8_len);
 static void v_ESP_RxAck(uint8_t u8_cmd, uint8_t* pu8_data, uint8_t u8_len);
 
@@ -146,6 +151,18 @@ static void v_ESP_StatProc(uint8_t u8_cmd, uint8_t* pu8_data, uint8_t u8_len);
 
 //vairlabe
 _RING_VAR_DEF(espRx, uint8_t, ESP_RX_ARR_SIZE);
+
+// Health counters for the receive path. Both used to be invisible, which is why
+// ESP32 had to infer a lost frame from actuator temperature (their report #70).
+// - u32_rxOverflow : bytes the ring overwrote because it was full. The ring
+//   drops its OLDEST byte, so an overflow eats the frame that arrived first --
+//   exactly the "only the first of twelve went missing" symptom.
+// - u32_rxResync   : bytes discarded one at a time to find a frame boundary.
+//   Non-zero means a byte went astray somewhere upstream.
+// Written from the ISR (overflow) and the main loop (resync); single writer
+// each, read-only elsewhere, so no lock is needed.
+static volatile uint32_t u32_rxOverflow;
+static uint32_t u32_rxResync;
 static uint32_t u32_toutRef;
 static int i_toutAct;
 
@@ -154,9 +171,77 @@ static int i_toutAct;
 
 
 void v_ESP_Handler(){
-	v_ESP_RxHandler();
+	// Drain the ring instead of taking one frame per main loop.
+	//
+	// The old single call cost a whole main loop period (~26 ms, measured by
+	// ESP32 off their ACK timestamps) per frame -- and, once desynchronised,
+	// per DISCARDED BYTE, because every resync path drops exactly one byte and
+	// returns. A single stray byte therefore froze the parser for tens of
+	// milliseconds per byte while the ISR kept filling the 128 B ring, which
+	// then overwrote its oldest bytes and took a whole frame with it. That is
+	// how initTempLimit(0x14) disappeared in ESP32 report #70.
+	//
+	// The bound is one pass over the ring: b_ESP_RxHandler() consumes at least
+	// one byte whenever it returns true, so ESP_RX_ARR_SIZE iterations cannot
+	// spin, and it cannot process more than the ring held on entry -- new bytes
+	// arrive every ~87 us at 115200, far slower than the loop iterates. It also
+	// bounds the replies this can emit: the smallest frame is 6 B, so a full
+	// ring is at most 21 commands, well inside the 2 KB TX ring.
+	for(uint16_t i = 0; i < ESP_RX_ARR_SIZE; i++){
+		if(!b_ESP_RxHandler()){
+			break;
+		}
+	}
+	v_ESP_RxHealth_Handler();
 	v_ESP_LogError_Handler();
 	v_ESP_Backfill_Handler();
+}
+
+/*
+ * brief	: report receive-path damage once it stops changing
+ * date
+ * - create	: 26.09.01
+ * note
+ * - Rate limited and edge triggered: a burst of resync bytes is one line, not
+ *   one line per byte. Reported from the main loop because the overflow counter
+ *   is written in the USART ISR, where logging does not belong.
+ * - Any non-zero value here means the wire and the parser disagreed. ESP32 had
+ *   to infer that from actuator temperature (their report #70); this is so the
+ *   next occurrence has a number attached to it.
+ * - The counters are BYTES, not events: one desync walks the ring a byte at a
+ *   time, so a single incident can report resync=19.
+ * - They are cumulative from reset and deliberately not cleared at the boot
+ *   handshake, so line noise from before evtInitStart still shows up -- that
+ *   noise is a plausible trigger, not something to hide. What matters is
+ *   whether the numbers keep GROWING after the handshake.
+ */
+static void v_ESP_RxHealth_Handler(void){
+	static uint32_t timRef;
+	static uint32_t u32_ovfSeen;
+	static uint32_t u32_resSeen;
+	static uint32_t u32_errSeen;
+
+	if(!_b_Tim_Is_OVR(u32_Tim_1msGet(), timRef, ESP_RX_HEALTH_ITV)){return;}
+	timRef = u32_Tim_1msGet();
+
+	uint32_t ovf = u32_rxOverflow;
+	uint32_t res = u32_rxResync;
+	uint32_t err = u32_Uart_ESP_RxErr();
+	if(ovf == u32_ovfSeen && res == u32_resSeen && err == u32_errSeen){return;}
+
+	LOG_WARN("COMM_ESP", "rx damage: overflow=%lu resync=%lu uartErr=%lu",
+			(unsigned long)ovf, (unsigned long)res, (unsigned long)err);
+	u32_ovfSeen = ovf;
+	u32_resSeen = res;
+	u32_errSeen = err;
+}
+
+uint32_t u32_ESP_Get_RxOverflow(void){
+	return u32_rxOverflow;
+}
+
+uint32_t u32_ESP_Get_RxResync(void){
+	return u32_rxResync;
 }
 
 /*
@@ -232,6 +317,11 @@ void v_ESP_LogError_Handler(){
  * - modify	: -
  */
 void v_ESP_Recive(uint8_t u8_rx){
+	// v_Put overwrites the oldest byte when the ring is full and reports nothing.
+	// Count it here, before the put, because afterwards the evidence is gone.
+	if(espRx->u16_cnt > espRx->u16_mask){
+		u32_rxOverflow++;
+	}
 	espRx->fn.v_Put(espRx, u8_rx);
 }
 
@@ -310,15 +400,46 @@ bool b_ESP_CmdCompare(uint8_t u8_cmd){
 
 
 /*
+ * brief	: drop bytes from the head of the receive ring
+ * date
+ * - create	: 26.09.01
+ * note
+ * - This used to be HAL_UART_AbortReceive() / HAL_UART_Receive_IT() around the
+ *   jump. The only thing that actually races here is u16_cnt, which the RX ISR
+ *   also writes, so a PRIMASK critical section is the right size of lock --
+ *   aborting the receiver was both heavier and wrong. HAL_UART_AbortReceive()
+ *   ends with __HAL_UART_SEND_REQ(UART_RXDATA_FLUSH_REQUEST), which discards
+ *   whatever byte is sitting in RDR, and this ran on every frame consumed and
+ *   every resync byte. That is a frame-destroying path, reported by ESP32 as a
+ *   lost initTempLimit(0x14) in their report #70.
+ * - Removing the abort also removes the accidental re-arm that used to recover
+ *   the receiver after an overrun, so HAL_UART_ErrorCallback() in uart.c now
+ *   has to do that explicitly. The two changes belong together.
+ */
+static void v_ESP_RxDrop(uint16_t u16_cnt){
+	uint32_t primask = __get_PRIMASK();
+	__disable_irq();
+	espRx->fn.b_Jmp(espRx, u16_cnt);
+	__set_PRIMASK(primask);
+}
+
+/*
  * brief	: receive handler
  * date
  * - create	: 25.04.28
- * - modify	: 25.04.29
+ * - modify	: 26.09.01
+ * return
+ * - true	: the ring head moved (a frame was processed, or a byte was dropped
+ *            to resynchronise). The caller may run again immediately.
+ * - false	: nothing to do yet -- the ring holds less than one whole frame.
+ * note
+ * - One call still handles at most one frame. The drain loop in v_ESP_Handler()
+ *   is what removes the "one frame per main loop" ceiling; see the note there.
  */
-static void v_ESP_RxHandler(){
+static bool b_ESP_RxHandler(){
 	static uint8_t len;
 	//recursive check
-	if(espRx->u16_cnt < ESP_FMT_SIZE_MIN + len){return;}
+	if(espRx->u16_cnt < ESP_FMT_SIZE_MIN + len){return false;}
 	//	format compare	//
 	uint8_t chk = ESP_FMT_CHK_INIT;
 	uint16_t out = espRx->u16_out;
@@ -330,39 +451,38 @@ static void v_ESP_RxHandler(){
 
 	//STX
 	if(p_arr[out] != ESP_FMT_STX){
-		v_Uart_ESP_DisableIT();
-		espRx->fn.b_Jmp(espRx, 1);
-		v_Uart_ESP_EnableIT();
+		v_ESP_RxDrop(1);
+		u32_rxResync++;
 		len = 0;
-		return;
+		return true;
 	}
 	chk ^= p_arr[out];
 	out = (out + 1) & mask;
 	//LEN
+	// Bounded against the DATA buffer HERE, before the "wait for more" return
+	// below -- the order matters. This check used to sit after that return and
+	// accept any LEN up to the ring mask (127). A garbage LEN of 0x7F then asked
+	// for 129 bytes in a 128 B ring, which can never arrive; len is static, so
+	// the parser refused to look at anything else ever again while the ISR kept
+	// filling -- and silently overwriting -- the ring. Any LEN above 0x24 stalls
+	// it for as long as that many bytes take to arrive. ESP32 report #70.
 	len = p_arr[out];
-	if(len < ESP_FMT_LEN_MIN || len > mask){
-		v_Uart_ESP_DisableIT();
-		espRx->fn.b_Jmp(espRx, 1);
-		v_Uart_ESP_EnableIT();
+	if(len < ESP_FMT_LEN_MIN || len > (ESP_FMT_LEN_MIN + ESP_RX_DATA_BUF_SIZE)){
+		v_ESP_RxDrop(1);
+		u32_rxResync++;
 		len = 0;
-		return;
+		return true;
 	}
 	len -= ESP_FMT_LEN_MIN;
 	if(ESP_FMT_SIZE_MIN + len > espRx->u16_cnt){
-		return;
+		return false;
 	}
 	chk ^= p_arr[out];
 	out = (out + 1) & mask;
+	// Bounded by the LEN check above, so it always fits data[]: the largest LEN
+	// accepted is ESP_FMT_LEN_MIN + ESP_RX_DATA_BUF_SIZE, and equality fits
+	// exactly. The separate guard that used to stand here is what moved up.
 	data_len = len;
-	// CRITICAL FIX: Validate data_len to prevent buffer overflow. Named after the
-	// buffer it guards so the two cannot drift; equality fits exactly.
-	if(data_len > ESP_RX_DATA_BUF_SIZE){
-		v_Uart_ESP_DisableIT();
-		espRx->fn.b_Jmp(espRx, 1);
-		v_Uart_ESP_EnableIT();
-		len = 0;
-		return;
-	}
 	//DIR
 	dir = p_arr[out];
 	chk ^= p_arr[out];
@@ -370,11 +490,10 @@ static void v_ESP_RxHandler(){
 	//CMD
 	cmd = p_arr[out];
 	if(b_ESP_CmdCompare(cmd) == false){
-		v_Uart_ESP_DisableIT();
-		espRx->fn.b_Jmp(espRx, 1);
-		v_Uart_ESP_EnableIT();
+		v_ESP_RxDrop(1);
+		u32_rxResync++;
 		len = 0;
-		return;
+		return true;
 	}
 	chk ^= p_arr[out];
 	out = (out + 1) & mask;
@@ -386,25 +505,21 @@ static void v_ESP_RxHandler(){
 	}
 	//CHK
 	if(chk != p_arr[out]){
-		v_Uart_ESP_DisableIT();
-		espRx->fn.b_Jmp(espRx, 1);
-		v_Uart_ESP_EnableIT();
+		v_ESP_RxDrop(1);
+		u32_rxResync++;
 		len = 0;
-		return;
+		return true;
 	}
 	out = (out + 1) & mask;
 	//ETX
 	if(p_arr[out] != ESP_FMT_ETX){
-		v_Uart_ESP_DisableIT();
-		espRx->fn.b_Jmp(espRx, 1);
-		v_Uart_ESP_EnableIT();
+		v_ESP_RxDrop(1);
+		u32_rxResync++;
 		len = 0;
-		return;
+		return true;
 	}
 	//decrease count..
-	v_Uart_ESP_DisableIT();
-	espRx->fn.b_Jmp(espRx, ESP_FMT_SIZE_MIN + len);
-	v_Uart_ESP_EnableIT();
+	v_ESP_RxDrop(ESP_FMT_SIZE_MIN + len);
 	len = 0;
 	//receive process
 	if(dir == ESP_DIR_REQ){
@@ -413,6 +528,7 @@ static void v_ESP_RxHandler(){
 	else{
 		v_ESP_RxAck(cmd, data, data_len);
 	}
+	return true;
 }
 
 
@@ -542,7 +658,12 @@ static void v_ESP_InitProc(uint8_t u8_cmd, uint8_t* pu8_data, uint8_t u8_len){
 		break;
 	}
 	//ack
-	b_ESP_Transmit(ESP_DIR_ACK, u8_cmd, NULL, 0);
+	// The return value used to be discarded, which made a full TX ring look
+	// exactly like a command that was never received -- the same symptom ESP32
+	// spent report #70 chasing from the other end. Say so instead.
+	if(!b_ESP_Transmit(ESP_DIR_ACK, u8_cmd, NULL, 0)){
+		LOG_WARN("COMM_ESP", "ack tx dropped cmd=0x%02X (tx ring full)", u8_cmd);
+	}
 }
 
 

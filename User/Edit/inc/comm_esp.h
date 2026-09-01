@@ -52,6 +52,13 @@ void v_ESP_Recive(uint8_t u8_rx);
 void v_ESP_Handler();
 
 
+// Receive-path health. u32_ESP_Get_RxOverflow() counts bytes the RX ring
+// overwrote while full (it drops the OLDEST byte, so an overflow costs the
+// frame that arrived first); u32_ESP_Get_RxResync() counts bytes discarded to
+// re-find a frame boundary. Both should stay at zero on a healthy link.
+uint32_t u32_ESP_Get_RxOverflow(void);
+uint32_t u32_ESP_Get_RxResync(void);
+
 void v_ESP_Send_InitStart();
 void v_ESP_Send_InitEnd();
 void v_ESP_Send_EvtModeChange(uint8_t u8_mode);
