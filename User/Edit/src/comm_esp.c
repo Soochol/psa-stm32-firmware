@@ -79,6 +79,7 @@ typedef enum {
     ESP_CMD_EVT_MODE=0x82,
     ESP_CMD_EVT_WARN=0x83,
 	ESP_CMD_EVT_LOG_ERR=0x84,	//SD logging spec 6.7
+	ESP_CMD_EVT_POWER=0x85,	// DATA: operation(0 sleep/1 wake), token(LE16)
 	//ERROR
 	ESP_CMD_ERR=0x90,
 } e_ESP_CMD_t;
@@ -149,12 +150,69 @@ _RING_VAR_DEF(espRx, uint8_t, ESP_RX_ARR_SIZE);
 static uint32_t u32_toutRef;
 static int i_toutAct;
 
+static bool power_active, power_sleep, power_acked;
+static uint16_t power_token;
+static uint32_t power_start, power_sent;
+static uint32_t power_pulse_end;
+static enum { POWER_PULSE_IDLE, POWER_PULSE_DRAIN, POWER_PULSE_RECOVER } power_pulse;
+static int power_result = 1;
+
+void v_ESP_PowerBegin(bool sleep){
+	power_sleep = sleep;
+	power_active = true;
+	power_acked = false;
+	power_pulse = POWER_PULSE_IDLE;
+	power_result = 0;
+	++power_token;
+	power_start = u32_Tim_1msGet();
+	power_sent = power_start - 500U;
+}
+
+int i_ESP_PowerResult(void){ return power_result; }
+
+static void v_ESP_PowerHandler(void){
+	if(!power_active || power_result != 0) return;
+	uint32_t now = u32_Tim_1msGet();
+	if(power_acked){
+		power_result = 1;
+		if(!power_sleep) power_active = false;
+		return;
+	}
+	if((uint32_t)(now - power_start) >= 15000U){
+		power_result = -1;
+		if(!power_sleep) power_active = false;
+		return;
+	}
+	if(power_pulse == POWER_PULSE_DRAIN){
+		if(!b_Uart_ESP_TxIdle()) return;
+		power_pulse_end = now;
+		power_pulse = POWER_PULSE_RECOVER;
+	}
+	if(power_pulse == POWER_PULSE_RECOVER && (uint32_t)(now - power_pulse_end) < 20U) return;
+	if(power_pulse == POWER_PULSE_RECOVER || (uint32_t)(now - power_sent) >= 500U){
+		// Drain the disposable RX wake burst, then allow clocks/UART to
+		// recover before sending a valid frame (without blocking the loop).
+		uint8_t pulse[16] = {0};
+		uint8_t data[3] = {power_sleep ? 0 : 1, power_token & 0xff, power_token >> 8};
+		if(!power_sleep && power_pulse == POWER_PULSE_IDLE){
+			if(b_Uart_ESP_Out(pulse, sizeof(pulse))) power_pulse = POWER_PULSE_DRAIN;
+			return;
+		}
+		if(b_ESP_Transmit(ESP_DIR_REQ, ESP_CMD_EVT_POWER, data, sizeof(data))){
+			power_sent = now;
+			power_pulse = POWER_PULSE_IDLE;
+		}
+	}
+}
+
 
 
 
 
 void v_ESP_Handler(){
 	v_ESP_RxHandler();
+	v_ESP_PowerHandler();
+	if(power_active) return; // no background backfill/log traffic in OFF
 	v_ESP_LogError_Handler();
 	v_ESP_Backfill_Handler();
 }
@@ -247,6 +305,7 @@ void v_ESP_Recive(uint8_t u8_rx){
  * - u16_len	: data length
  */
 static bool b_ESP_Transmit(uint8_t u8_dir, uint8_t u8_cmd, uint8_t* pu8_data, uint16_t u16_len){
+	if(power_active && u8_cmd != ESP_CMD_EVT_POWER) return false;
 	// CRITICAL: Validate buffer size to prevent stack overflow
 	// fmt = STX + LEN + DIR + CMD + DATA(u16_len) + CHK + ETX, so the bound on
 	// DATA is the buffer less the ESP_FMT_SIZE_MIN framing bytes.
@@ -410,7 +469,7 @@ static void v_ESP_RxHandler(){
 	if(dir == ESP_DIR_REQ){
 		v_ESP_RxProc(cmd, data, data_len);
 	}
-	else{
+	else if(dir == ESP_DIR_ACK){
 		v_ESP_RxAck(cmd, data, data_len);
 	}
 }
@@ -423,6 +482,7 @@ static void v_ESP_RxHandler(){
  * - modify	: -
  */
 static void v_ESP_RxProc(uint8_t u8_cmd, uint8_t* pu8_data, uint8_t u8_len){
+	if(power_active) return; // reject late actuator/control commands during OFF
 	if(u8_cmd >= ESP_CMD_CTRL_MIN && u8_cmd <= ESP_CMD_CTRL_MAX){
 		//CTRL
 		v_ESP_CtrlProc(u8_cmd, pu8_data, u8_len);
@@ -445,6 +505,14 @@ static void v_ESP_RxProc(uint8_t u8_cmd, uint8_t* pu8_data, uint8_t u8_len){
  *   Add a case together with the command that needs its ACK observed.
  */
 static void v_ESP_RxAck(uint8_t u8_cmd, uint8_t* pu8_data, uint8_t u8_len){
+	if(u8_cmd == ESP_CMD_EVT_POWER && power_active && u8_len == 4 &&
+	   pu8_data[0] == (power_sleep ? 0 : 1) &&
+	   pu8_data[1] == (uint8_t)power_token && pu8_data[2] == (uint8_t)(power_token >> 8)){
+		if(pu8_data[3] == 0) power_acked = true;
+		else if(pu8_data[3] == 2 && power_sleep) return; // accepted, deferred; bounded retry continues
+		else { power_result = -1; if(!power_sleep) power_active = false; }
+		return;
+	}
 	if(u8_cmd == ESP_CMD_STAT){
 		v_ESP_StatProc(u8_cmd, pu8_data, u8_len);
 	}
@@ -1071,4 +1139,3 @@ static void v_ESP_Transmit_toRx(uint8_t u8_dir, uint8_t u8_cmd, uint8_t* pu8_dat
 		v_ESP_Recive(fmt[i]);
 	}
 }
-

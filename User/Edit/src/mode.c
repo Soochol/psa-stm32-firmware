@@ -30,6 +30,11 @@
 
 #define MODE_LOG_ENABLED	0
 
+extern TIM_HandleTypeDef htim7;
+extern TIM_HandleTypeDef htim4;
+extern ADC_HandleTypeDef hadc1;
+extern ADC_HandleTypeDef hadc3;
+
 typedef struct {
 	uint32_t u32_tim_ref;
 	uint32_t u32_timToutRef;
@@ -1376,6 +1381,7 @@ static void v_Mode_Booting(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t* 
 	static uint16_t tilt;
 	static uint32_t tout;
 	static int mp3_wait;
+	static bool power_wait;
 #if MODE_IMU_USED
 	static uint32_t timTiltRef;
 #endif
@@ -1393,6 +1399,8 @@ static void v_Mode_Booting(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t* 
 			//tilt
 			tilt = 1;
 			//esp send
+			v_ESP_PowerBegin(false);
+			power_wait = true;
 			v_ESP_Send_InitStart();
 			// BOOTING can hold indefinitely (tilt centring, sensor init) while
 			// sampling is stopped, so without this the ESP32 sees seq stall with
@@ -1418,6 +1426,14 @@ static void v_Mode_Booting(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t* 
 	}
 	if(px_work->cr.bit.b1_on){
 		//initialize
+		if(power_wait){
+			if(i_ESP_PowerResult() == 0) return;
+			power_wait = false;
+			// Legacy ESP firmware may time out; preserve its boot behavior.
+			px_pub->u32_timToutRef = u32_Tim_1msGet();
+			v_ESP_Send_InitStart();
+			v_ESP_Send_EvtModeChange(ESP_EVT_MODE_BOOTING);
+		}
 		if(ready_mask != modeCONFIG_CPLT){
 			e_COMM_STAT_t ret = COMM_STAT_OK;
 #if MODE_IMU_USED
@@ -2154,14 +2170,21 @@ void v_Mode_Off(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t* px_pub){
 			//pwr_off = 1;
 			//sensor stop..
 			i_mode_off = 1;
+			v_TIM2_Ch1_Out(0);
+			v_TIM2_Ch2_Out(0);
+			v_TIM2_Ch3_Out(0);
+			v_TIM2_Ch4_Out(0);
+			i_MP3_ForceStop();
 			// Tell the ESP32 this is a deliberate power-down before the link goes
-			// quiet. STOP follows ~1.1 s later and kills UART entirely, so without
+			// quiet. STOP follows the bounded handshake and kills UART, so without
 			// this the silence is indistinguishable from a dead link.
 			v_ESP_Send_EvtModeChange(ESP_EVT_MODE_OFF);
 			// Sampling has just stopped, so commit whatever is still buffered.
 			// This is the last point with a running main loop before STOP entry
-			// (~1.1 s later) and the file is not closed anywhere else.
+			// and the file is not closed anywhere else.
 			v_SD_Log_Close();
+			v_SD_Log_Backfill_Abort(3);
+			v_ESP_PowerBegin(true);
 			// LOW: Removed unused commented code
 			pwr_off = low_pwr = 0;
 		}
@@ -2176,6 +2199,8 @@ void v_Mode_Off(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t* px_pub){
 			if(pwr_off == 0){
 				pwr_off = 1;
 				v_IO_Disable_12V();
+				HAL_ADC_Stop_DMA(&hadc1);
+				HAL_ADC_Stop_DMA(&hadc3);
 				v_I2C_Deinit();
 				v_AUDIO_Init();					//low
 				v_I2C1_Pin_Deinit();
@@ -2183,7 +2208,6 @@ void v_Mode_Off(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t* px_pub){
 				v_I2C3_Pin_Deinit();
 				v_I2C4_Pin_Deinit();
 				v_I2C5_Pin_Deinit();
-				v_IO_PWR_WakeUp_Enable();
 
 				/*Configure GPIO pin Output Level */
 				HAL_GPIO_WritePin(GPIOC, DO_12VA_EN_Pin|DO_PAD_EN_Pin|DO_FAN_EN_Pin|DO_ACT_TOF1_SHUT_Pin, GPIO_PIN_RESET);
@@ -2199,16 +2223,44 @@ void v_Mode_Off(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t* px_pub){
 		}
 
 		if(_b_Tim_Is_OVR(u32_Tim_1msGet(), px_pub->u32_timToutRef, MODE_LOWPWR_ENTRY_DELAY)){
+			if(i_ESP_PowerResult() == 0) return;
+			if(!b_Uart_ESP_TxIdle()){
+				if(!_b_Tim_Is_OVR(u32_Tim_1msGet(), px_pub->u32_timLedRef, 16000)) return;
+				v_Uart_ESP_AbortTx();
+			}
 			if(low_pwr == 0){
 				low_pwr = 1;
+				uint32_t primask = __get_PRIMASK();
+				__disable_irq();
+				// Wake-up is disarmed after every return, so arm it for EVERY
+				// attempt, not only the first power-rail shutdown.
+				v_IO_PWR_WakeUp_Enable();
+				// The button may have changed since the debounced check. Keep
+				// IRQs masked through WFI so an edge cannot be consumed before
+				// sleep. A pending enabled EXTI still releases WFI with PRIMASK.
+				if(HAL_GPIO_ReadPin(EXTI14_PWR_GPIO_Port, EXTI14_PWR_Pin) == GPIO_PIN_RESET){
+					__set_PRIMASK(primask);
+					low_pwr = 0;
+					px_pub->u32_timToutRef = u32_Tim_1msGet();
+					return;
+				}
+				HAL_TIM_Base_Stop_IT(&htim7);
+				HAL_TIM_PWM_Stop_DMA(&htim4, TIM_CHANNEL_2);
+				HAL_NVIC_ClearPendingIRQ(TIM7_IRQn);
 				HAL_SuspendTick();
+				SCB->ICSR = SCB_ICSR_PENDSTCLR_Msk;
 				__HAL_PWR_CLEAR_FLAG(PWR_FLAG_STOP);
 				HAL_PWR_EnterSTOPMode(PWR_LOWPOWERREGULATOR_ON, PWR_STOPENTRY_WFI);
+				// WFI may return without reaching system STOP (pending IRQ).
+				// Restore the time base on both paths so the retry timer runs.
+				HAL_ResumeTick();
+				__set_PRIMASK(primask);
 
 				if(__HAL_PWR_GET_FLAG(PWR_FLAG_STOP)){
 					__HAL_PWR_CLEAR_FLAG(PWR_FLAG_STOP);
 					v_WakeUp_Clock_Config();
 				}
+				else HAL_TIM_Base_Start_IT(&htim7);
 				v_IO_PWR_WakeUp_Disable();
 				v_Key_Power_Init();
 
@@ -2762,9 +2814,8 @@ void v_Mode_Handler(){
 	v_Mode_TEST(modeTEST, &x_modeWork, &x_modePub);
 	v_Mode_WakeUp(modeWAKE_UP, &x_modeWork, &x_modePub);
 
-	if(i_Mode_Get_MP3_Play()){i_MP3_Playing();}
-
 	if(i_Mode_Is_Off()){return;}
+	if(i_Mode_Get_MP3_Play()){i_MP3_Playing();}
 	//tout
 	v_FSR_Tout_Handler();
 #if MODE_IMU_USED
@@ -2816,4 +2867,3 @@ void v_Mode_Error_LED_Test(e_modeERR_t test_error) {
 	       (pattern & 0b00010) ? 'O' : 'X',
 	       (pattern & 0b00001) ? 'O' : 'X');
 }
-
