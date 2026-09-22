@@ -73,6 +73,9 @@ static uint8_t u8_txEsp_arr[UART_ESP_TX_ARR_SIZE + 1] __attribute__((section(".m
 #endif
 //	RX	//
 static uint8_t u8_espRx;
+// Framing / noise / overrun errors seen on the ESP link, counted in
+// HAL_UART_ErrorCallback. Reported alongside the ring counters in comm_esp.c.
+static volatile uint32_t u32_espRxErr;
 
 static e_COMM_STAT_t e_espTx;
 static e_COMM_STAT_t e_espRx;
@@ -195,15 +198,37 @@ static void v_Uart_ESP_Init(){
 	}
 }
 
-void v_Uart_ESP_DisableIT(){
-	HAL_UART_AbortReceive(p_uart1);
+/*
+ * brief	: uart error callback - re-arm reception
+ * date
+ * - create	: 26.09.01
+ * note
+ * - MANDATORY companion to removing the AbortReceive/Receive_IT pair that used
+ *   to bracket every ring-index jump in comm_esp.c. The H7 HAL classifies an
+ *   overrun as a blocking error: HAL_UART_IRQHandler calls UART_EndRxTransfer()
+ *   and then this callback, leaving RXNEIE clear and RxState READY. Nothing in
+ *   the driver re-arms it. Until now that was survivable only by accident --
+ *   the parser kept chewing the backlog already in the ring and one of those
+ *   jumps called v_Uart_ESP_EnableIT(), which happened to re-arm the receiver.
+ *   With the abort gone, an overrun would have killed the ESP link until reset.
+ * - Errors are counted, not logged: this runs in the USART ISR.
+ */
+void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart){
+	if(huart == p_uart1){
+		u32_espRxErr++;
+		if(HAL_UART_Receive_IT(p_uart1, &u8_espRx, 1) != HAL_OK){
+			e_espRx = COMM_STAT_ERR;
+		}
+	}
+	else if(huart == p_uart4){
+		if(HAL_UART_Receive_IT(p_uart4, u8_dbgRxDR, 1) != HAL_OK){
+			e_dbgRx = COMM_STAT_ERR;
+		}
+	}
 }
 
-void v_Uart_ESP_EnableIT(){
-	// HIGH: Check return value to detect re-enable failure
-	if(HAL_UART_Receive_IT(p_uart1, &u8_espRx, 1) != HAL_OK){
-		e_espRx = COMM_STAT_ERR;
-	}
+uint32_t u32_Uart_ESP_RxErr(void){
+	return u32_espRxErr;
 }
 
 /*

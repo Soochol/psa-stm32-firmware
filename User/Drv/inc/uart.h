@@ -14,8 +14,9 @@ void v_Uart_Handler();
 /****************************************/
 //	UART1 - ESP							//
 /****************************************/
-void v_Uart_ESP_DisableIT();
-void v_Uart_ESP_EnableIT();
+// Framing / noise / overrun errors on the ESP link. Non-zero means bytes were
+// lost on the wire before the ring ever saw them.
+uint32_t u32_Uart_ESP_RxErr(void);
 
 // false when the ring has no room. The ring overwrites its oldest bytes rather
 // than refusing, which would corrupt a frame mid-flight, so the check happens
