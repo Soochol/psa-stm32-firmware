@@ -30,6 +30,8 @@ void v_Uart_ESP_TxPump(void);
 // Room left in the TX ring. Backfill uses it to leave headroom for the live
 // STAT frame, which must never queue behind a burst of log chunks.
 uint16_t u16_Uart_ESP_TxFree(void);
+bool b_Uart_ESP_TxIdle(void);
+void v_Uart_ESP_AbortTx(void);
 
 
 /****************************************/
@@ -48,5 +50,3 @@ void v_printf_poll(const char *fmt, ...);
 
 
 #endif
-
-

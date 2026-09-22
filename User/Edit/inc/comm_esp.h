@@ -51,6 +51,11 @@ void v_ESP_Recive(uint8_t u8_rx);
 
 void v_ESP_Handler();
 
+// UART-only power handshake (evtPower 0x85). Result: 0 pending, 1 ACK,
+// -1 timeout/refusal. Both images must implement this extension.
+void v_ESP_PowerBegin(bool sleep);
+int i_ESP_PowerResult(void);
+
 
 // Receive-path health. u32_ESP_Get_RxOverflow() counts bytes the RX ring
 // overwrote while full (it drops the OLDEST byte, so an overflow costs the
@@ -82,5 +87,4 @@ void v_ESP_Backfill_Handler();
 void v_ESP_Send_Warning(uint8_t u8_warn_type);
 
 #endif
-
 

@@ -222,8 +222,13 @@ int main(void)
 {
 
   /* USER CODE BEGIN 1 */
-  /* Enable debug connections in all D1 power modes (keeps CoreSight clocked) */
+  /* Opt in only while debugging STOP. Production/power measurements must not
+     retain the debugger clocks, including bits left set by a debug probe. */
+#if defined(KEEP_DEBUG_IN_STOP) && KEEP_DEBUG_IN_STOP
   SET_BIT(DBGMCU->CR, DBGMCU_CR_DBG_SLEEPD1 | DBGMCU_CR_DBG_STOPD1 | DBGMCU_CR_DBG_STANDBYD1);
+#else
+  CLEAR_BIT(DBGMCU->CR, DBGMCU_CR_DBG_SLEEPD1 | DBGMCU_CR_DBG_STOPD1 | DBGMCU_CR_DBG_STANDBYD1);
+#endif
   /* USER CODE END 1 */
 
   /* MPU Configuration--------------------------------------------------------*/
@@ -339,14 +344,23 @@ int main(void)
   // come up green directly when the rail powers on — eliminating the brief
   // OFF flash between SK6812 power-up artifact and v_Mode_Booting_Led's
   // first paint that the user observed previously.
-  v_RGB_Set_Top(MODE_BOOT_LED_R, MODE_BOOT_LED_G, MODE_BOOT_LED_B);
-  v_RGB_Set_Bot(MODE_BOOT_LED_R, MODE_BOOT_LED_G, MODE_BOOT_LED_B);
+  if(e_Mode_Get_CurrID() != modeOFF){
+    v_RGB_Set_Top(MODE_BOOT_LED_R, MODE_BOOT_LED_G, MODE_BOOT_LED_B);
+    v_RGB_Set_Bot(MODE_BOOT_LED_R, MODE_BOOT_LED_G, MODE_BOOT_LED_B);
+  } else {
+    v_RGB_Disable_Duty();
+    v_RGB_Clear();
+  }
   v_RGB_PWM_Out();    // encode buffer → u16_pwmArrOn
 
   SEGGER_RTT_printf(0, "[RTT] Sensors init done\r\n");
   //power enable
-  v_IO_Enable_12V();
-  LOG_INFO("POWER", "12V enabled at t=%u ms", HAL_GetTick());
+  if(e_Mode_Get_CurrID() != modeOFF){
+    v_IO_Enable_12V();
+    LOG_INFO("POWER", "12V enabled at t=%u ms", HAL_GetTick());
+  } else {
+    v_IO_Disable_12V();
+  }
 
 #if IWDG_USED
   HAL_IWDG_Refresh(&hiwdg1);
@@ -360,6 +374,7 @@ int main(void)
   // GPS init when mode == BOOTING (warm boot or OFF→WAKE_UP→BOOTING transition),
   // which is the only time GPS is actually needed.
 
+  if(e_Mode_Get_CurrID() != modeOFF){
 #if MP3_USE_FLASH
   v_Mode_Set_MP3_Play(1);  // Flash 내장 MP3: SD 카드 불필요
   b_MountSD();              // SD mount for sensor logging
@@ -369,6 +384,7 @@ int main(void)
 #endif
   b_SD_Log_Init();          // arm .psa logging; files are created on first sample
   v_SD_Log_Scan();          // index existing .psa files for reqLogFiles(0x45)
+  }
   SEGGER_RTT_printf(0, "[RTT] === Init complete, entering main loop ===\r\n");
   /* USER CODE END 2 */
 
@@ -390,16 +406,18 @@ int main(void)
 #endif
 	  v_Tim_1s_Test();
 
-	  v_ADC_Handler();
+	  if(e_Mode_Get_CurrID() != modeOFF) v_ADC_Handler();
 	  v_Uart_Handler();
-	  v_SD_Log_Media_Handler();  // card insert/remove, remount; rate limits itself
+	  if(e_Mode_Get_CurrID() != modeOFF) v_SD_Log_Media_Handler();
 	  v_Key_Handler();
-	  v_GPS_Handler();
-	  v_GPS_Tout_Handler();  // GPS I2C timeout monitoring
+	  if(e_Mode_Get_CurrID() != modeOFF){
+	      v_GPS_Handler();
+	      v_GPS_Tout_Handler();
+	  }
 	  v_Mode_Handler();
 	  v_RGB_PWM_Out();
 
-	  v_GPS_Test_Monitor();		//GPS debug output (2s interval)
+	  if(e_Mode_Get_CurrID() != modeOFF) v_GPS_Test_Monitor();
   }
   /* USER CODE END 3 */
 }

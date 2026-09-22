@@ -286,6 +286,21 @@ uint16_t u16_Uart_ESP_TxFree(){
 	return (u32_use >= u32_cap) ? 0U : (uint16_t)(u32_cap - u32_use);
 }
 
+bool b_Uart_ESP_TxIdle(void){
+	return uartEspTx->u16_cnt == 0 && e_espTx != COMM_STAT_BUSY &&
+	       __HAL_UART_GET_FLAG(p_uart1, UART_FLAG_TC);
+}
+
+void v_Uart_ESP_AbortTx(void){
+	// OFF fallback only; preserve RX so the next wake handshake can recover.
+	HAL_UART_AbortTransmit(p_uart1);
+	uint32_t primask = __get_PRIMASK();
+	__disable_irq();
+	uartEspTx->u16_cnt = uartEspTx->u16_in = uartEspTx->u16_out = 0;
+	e_espTx = COMM_STAT_READY;
+	__set_PRIMASK(primask);
+}
+
 void v_Uart_ESP_TxPump(){
 	if(uartEspTx->u16_cnt && (e_espTx == COMM_STAT_DONE || e_espTx == COMM_STAT_READY)){
 		e_espTx = COMM_STAT_BUSY;
@@ -458,6 +473,4 @@ void v_printf_poll(const char *fmt, ...){
 	while(e_dbgTx == COMM_STAT_DONE || e_dbgTx == COMM_STAT_READY);
 #endif
 }
-
-
 
