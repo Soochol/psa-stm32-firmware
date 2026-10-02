@@ -417,7 +417,7 @@ int main(void)
 	  v_Mode_Handler();
 	  v_RGB_PWM_Out();
 
-	  if(e_Mode_Get_CurrID() != modeOFF) v_GPS_Test_Monitor();
+	  if(e_Mode_Get_CurrID() != modeOFF && b_GPS_IsAvailable()) v_GPS_Test_Monitor();
   }
   /* USER CODE END 3 */
 }

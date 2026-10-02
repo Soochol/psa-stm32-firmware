@@ -625,6 +625,12 @@ static void v_ESP_RxAck(uint8_t u8_cmd, uint8_t* pu8_data, uint8_t u8_len){
 	   pu8_data[0] == (power_sleep ? 0 : 1) &&
 	   pu8_data[1] == (uint8_t)power_token && pu8_data[2] == (uint8_t)(power_token >> 8)){
 		if(pu8_data[3] == 0) power_acked = true;
+        else if(pu8_data[3] == 3 && power_sleep){
+            // ESP can sleep without a responsive LTE modem. This is a
+            // completion of the MCU handshake, not confirmation of RF OFF.
+            LOG_WARN("POWER", "ESP sleep ready; LTE RF state unconfirmed");
+            power_acked = true;
+        }
 		else if(pu8_data[3] == 2 && power_sleep) return; // accepted, deferred; bounded retry continues
 		else { power_result = -1; if(!power_sleep) power_active = false; }
 		return;

@@ -516,6 +516,20 @@ static volatile uint16_t u16_i2c4_rdCnt;
 static uint8_t u8_i2c4_wrArr[I2C4_WR_SIZE] __attribute__((section(".my_nocache_d3")));
 static uint8_t u8_i2c4_rdArr[I2C4_RD_SIZE] __attribute__((section(".my_nocache_d3")));
 
+void v_I2C3_Cancel(void){
+    // Invalidate the old address before aborting so late completion IRQs cannot
+    // deliver data to a new GPS attempt. GPS waits for HAL READY before retry.
+    uint32_t primask = __get_PRIMASK();
+    __disable_irq();
+    u8_i2c3_addr = 0;
+    u16_i2c3_rdCnt = 0;
+    memset(&i2c3_buf, 0, sizeof(i2c3_buf));
+    if(HAL_I2C_GetState(p_i2c3) != HAL_I2C_STATE_READY)
+        HAL_I2C_Master_Abort_IT(p_i2c3, ADDR_GPS);
+    e_comm_i2c3 = COMM_STAT_READY;
+    __set_PRIMASK(primask);
+}
+
 void v_I2C3_Set_Comm_Ready(){
 	e_comm_i2c3 = COMM_STAT_READY;
 }
@@ -942,7 +956,11 @@ void HAL_I2C_ErrorCallback(I2C_HandleTypeDef *hi2c){
 	else if(hi2c == p_i2c2){
 		e_comm_i2c2 = COMM_STAT_READY;
 	}
-	else if(hi2c == p_i2c4){
+	else if(hi2c == p_i2c3){
+        e_comm_i2c3 = COMM_STAT_READY;
+        v_GPS_ErrorHandler();
+    }
+    else if(hi2c == p_i2c4){
 		e_comm_i2c4 = COMM_STAT_READY;
 	}
 }

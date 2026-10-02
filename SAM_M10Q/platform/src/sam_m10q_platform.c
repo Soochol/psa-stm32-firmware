@@ -80,6 +80,7 @@ static uint8_t  u8_gps_cfg_buf[128];        // CFG-VALSET payload (built once in
                                             // The legacy 64-byte buffer was a latent overflow bug
                                             // that the new size-check (line ~150) finally surfaces.
 static uint16_t u16_gps_cfg_len;
+static uint32_t u32_gps_retry_start, u32_gps_retry_wait = 30000, u32_gps_retry_next = 30000;
 static uint32_t u32_gps_init_kick_time;     // anchor for elapsed-time logging (RTT verification)
 
 // Forward declarations of transport functions
@@ -88,6 +89,20 @@ static int i_GPS_Read(uint8_t u8_addr, uint16_t u16_reg, uint16_t u16_len);
 static int i_GPS_Bus(void);
 static uint32_t u32_GPS_GetTime(void);
 static void v_GPS_Init_StateMachine(void);
+
+// Main-loop only. ISR callbacks signal ERR; they never log or restart HAL.
+static void v_GPS_Fail(const char *reason) {
+    e_gps_init_state = GPS_INIT_FAIL;
+    e_gps_comm = COMM_STAT_READY;
+    v_I2C3_Cancel();
+    px_gps->b_pvtValid = false;
+    memset(&px_gps->x_pvt, 0, sizeof(px_gps->x_pvt));
+    u32_gps_retry_start = u32_Tim_1msGet();
+    u32_gps_retry_wait = u32_gps_retry_next;
+    u32_gps_retry_next = 60000;
+    LOG_WARN("GPS", "%s - continuing without GPS; retry in %lums",
+             reason, (unsigned long)u32_gps_retry_wait);
+}
 
 /*
  * brief: Initialize GPS module
@@ -98,6 +113,12 @@ static void v_GPS_Init_StateMachine(void);
  *       occupancy per iteration ~10us.
  */
 void v_GPS_Init(void) {
+    extern I2C_HandleTypeDef hi2c3;
+    // Never overlap a new transfer with an abort or its late completion IRQ.
+    if(HAL_I2C_GetState(&hi2c3) != HAL_I2C_STATE_READY) {
+        v_GPS_Fail("I2C3 not ready");
+        return;
+    }
     u32_gps_init_kick_time = u32_Tim_1msGet();
     LOG_INFO("GPS", "*** GPS INIT START (async state machine) ***");
 
@@ -126,7 +147,7 @@ void v_GPS_Init(void) {
     int ret = i_SAM_M10Q_Init(px_gps, &trans, SAM_M10Q_I2C_ADDR_DEFAULT);
     if(ret != SAM_M10Q_RET_OK) {
         LOG_ERROR("GPS", "Driver init failed (ret=%d) - skipping GPS for this session", ret);
-        e_gps_init_state = GPS_INIT_FAIL;
+        v_GPS_Fail("Driver/configuration preparation failed");
         return;
     }
     LOG_INFO("GPS", "Driver initialized (I2C3, addr=0x%02X)", SAM_M10Q_I2C_ADDR_DEFAULT);
@@ -142,7 +163,7 @@ void v_GPS_Init(void) {
                                       false); // Disable NMEA
     if(cfg_len < 0 || cfg_len > (int)sizeof(u8_gps_cfg_buf)) {
         LOG_ERROR("GPS", "Failed to build CFG-VALSET (cfg_len=%d) - skipping GPS", cfg_len);
-        e_gps_init_state = GPS_INIT_FAIL;
+        v_GPS_Fail("Driver/configuration preparation failed");
         return;
     }
     u16_gps_cfg_len = (uint16_t)cfg_len;
@@ -371,6 +392,9 @@ static void v_GPS_Init_StateMachine(void) {
 void v_GPS_Deinit(void) {
     e_gps_init_state = GPS_INIT_IDLE;
     e_gps_comm = COMM_STAT_READY;
+    v_I2C3_Cancel();
+    px_gps->b_pvtValid = false;
+    memset(&px_gps->x_pvt, 0, sizeof(px_gps->x_pvt));
 }
 
 /*
@@ -385,7 +409,7 @@ void v_GPS_Reset_Comm(void) {
  * brief: I2C write done callback
  */
 void v_GPS_Write_DoneHandler(uint8_t u8_addr) {
-    if(u8_addr == ADDR_GPS) {
+    if(u8_addr == ADDR_GPS && e_gps_comm == COMM_STAT_BUSY) {
         e_gps_comm = COMM_STAT_DONE;
     }
 }
@@ -394,7 +418,7 @@ void v_GPS_Write_DoneHandler(uint8_t u8_addr) {
  * brief: I2C read done callback
  */
 void v_GPS_Read_DoneHandler(uint8_t u8_addr, uint8_t* pu8_arr, uint16_t u16_len) {
-    if(u8_addr == ADDR_GPS) {
+    if(u8_addr == ADDR_GPS && e_gps_comm == COMM_STAT_BUSY) {
         // Check if this was reading available bytes or actual data
         if(u16_len == 2) {
             // Available bytes count (registers 0xFD, 0xFE) - big-endian
@@ -417,12 +441,20 @@ void v_GPS_Read_DoneHandler(uint8_t u8_addr, uint8_t* pu8_arr, uint16_t u16_len)
     }
 }
 
+void v_GPS_ErrorHandler(void) {
+    if(e_gps_comm == COMM_STAT_BUSY) e_gps_comm = COMM_STAT_ERR;
+}
+
+bool b_GPS_IsAvailable(void) {
+    return e_gps_init_state == GPS_INIT_DONE && e_gps_comm != COMM_STAT_ERR;
+}
+
 /*
- * brief: Initialization status query (called from v_Mode_Booting)
+ * brief: Initialization status query (diagnostics; never gates boot)
  *
  * Returns COMM_STAT_DONE for both successful init AND graceful skip (e.g.,
- * GPS not connected). The mode handler treats GPS as non-critical, mirroring
- * the IMU/Temp graceful-skip pattern. COMM_STAT_BUSY means the state machine
+ * GPS not connected). Availability is reported separately from completion.
+ * COMM_STAT_BUSY means the state machine
  * is still running.
  */
 e_COMM_STAT_t e_GPS_Ready(void) {
@@ -449,11 +481,27 @@ void v_GPS_Handler(void) {
     HAL_IWDG_Refresh(&hiwdg1);
 #endif
 
-    if(e_gps_init_state != GPS_INIT_DONE && e_gps_init_state != GPS_INIT_FAIL) {
+    const uint32_t now = u32_Tim_1msGet();
+    if(e_gps_init_state == GPS_INIT_IDLE) return;
+    if(e_gps_init_state == GPS_INIT_FAIL) {
+        extern I2C_HandleTypeDef hi2c3;
+        if((uint32_t)(now - u32_gps_retry_start) >= u32_gps_retry_wait &&
+           HAL_I2C_GetState(&hi2c3) == HAL_I2C_STATE_READY) v_GPS_Init();
+        return;
+    }
+    if(e_gps_comm == COMM_STAT_ERR) {
+        v_GPS_Fail("I2C error/no ACK");
+        return;
+    }
+    if(e_gps_init_state != GPS_INIT_DONE) {
+        if((uint32_t)(now - u32_gps_init_kick_time) >= 8000) {
+            v_GPS_Fail("Initialization deadline exceeded");
+            return;
+        }
         v_GPS_Init_StateMachine();
         return;
     }
-
+    u32_gps_retry_next = 30000;
     i_SAM_M10Q_Handler(px_gps);
 }
 
@@ -461,90 +509,33 @@ void v_GPS_Handler(void) {
  * brief: Timeout handler (1.2 second timeout for 1Hz Auto PVT)
  */
 void v_GPS_Tout_Handler(void) {
-    if((e_gps_comm == COMM_STAT_BUSY) &&
-       _b_Tim_Is_OVR(u32_Tim_1msGet(), u32_toutRef, 1200)) {
-        // Abort I2C transaction
-        extern I2C_HandleTypeDef hi2c3;
-        HAL_I2C_Master_Abort_IT(&hi2c3, ADDR_GPS);
-        e_gps_comm = COMM_STAT_READY;
-
-        // GPS timeout - log warning but don't enter ERROR mode
-        // This allows system to continue operating without GPS
-        LOG_WARN("GPS", "I2C timeout (no response)");
+    if(e_gps_comm == COMM_STAT_BUSY &&
+       (uint32_t)(u32_Tim_1msGet() - u32_toutRef) >= 1200) {
+        v_GPS_Fail("I2C completion timeout");
     }
 }
 
 // ========== Transport Layer Functions ==========
 
 static int i_GPS_Write(uint8_t u8_addr, uint16_t u16_reg, uint8_t* pu8_arr, uint16_t u16_len) {
-    // STEP 2: Add BUSY timeout recovery
-    static uint32_t busy_start = 0;
-
-    // Check if GPS state is stuck in BUSY
-    if(e_gps_comm == COMM_STAT_BUSY) {
-        uint32_t now = u32_Tim_1msGet();
-        if(busy_start == 0) {
-            busy_start = now;  // Start timeout timer
-        } else if((now - busy_start) > 1200) {  // 1.2 second timeout (1.2x nav rate)
-            LOG_WARN("GPS", "Write BUSY timeout - force READY recovery");
-            e_gps_comm = COMM_STAT_READY;
-            busy_start = 0;
-            // Allow this write to proceed after recovery
-        }
-    } else {
-        busy_start = 0;  // Reset timeout timer when not BUSY
-    }
-
+    (void)u8_addr;
+    if(e_gps_comm == COMM_STAT_BUSY) return COMM_STAT_BUSY;
     u32_toutRef = u32_Tim_1msGet();
     e_gps_comm = COMM_STAT_BUSY;
-
     int ret = i_I2C3_Write(ADDR_GPS, u16_reg, pu8_arr, u16_len);
-
-    // STEP 3: Improve error code handling
-    // COMM_STAT_FIFO_FULL (1) means transaction was successfully queued
-    // Only COMM_STAT_OK (1) and COMM_STAT_READY (0) are success codes
-    if(ret == COMM_STAT_OK || ret == COMM_STAT_FIFO_FULL) {
-        return 0;  // Success - transaction queued or started
-    }
-
-    // Actual errors (ret >= 2)
-    LOG_ERROR("GPS", "Write failed (reg=0x%02X, len=%d, ret=%d)", u16_reg, u16_len, ret);
+    if(ret == COMM_STAT_OK || ret == COMM_STAT_FIFO_FULL) return 0;
+    e_gps_comm = COMM_STAT_ERR;
     return ret;
 }
 
 static int i_GPS_Read(uint8_t u8_addr, uint16_t u16_reg, uint16_t u16_len) {
-    // STEP 2: Add BUSY timeout recovery
-    static uint32_t busy_start = 0;
-
-    // Check if GPS state is stuck in BUSY
-    if(e_gps_comm == COMM_STAT_BUSY) {
-        uint32_t now = u32_Tim_1msGet();
-        if(busy_start == 0) {
-            busy_start = now;  // Start timeout timer
-        } else if((now - busy_start) > 1200) {  // 1.2 second timeout (1.2x nav rate)
-            LOG_WARN("GPS", "Read BUSY timeout - force READY recovery");
-            e_gps_comm = COMM_STAT_READY;
-            busy_start = 0;
-            // Allow this read to proceed after recovery
-        }
-    } else {
-        busy_start = 0;  // Reset timeout timer when not BUSY
-    }
-
+    (void)u8_addr;
+    if(e_gps_comm == COMM_STAT_BUSY) return COMM_STAT_BUSY;
     u32_toutRef = u32_Tim_1msGet();
     e_gps_comm = COMM_STAT_BUSY;
-
     int ret = i_I2C3_Read(ADDR_GPS, u16_reg, u16_len);
-
-    // STEP 3: Improve error code handling
-    // COMM_STAT_FIFO_FULL (1) means transaction was successfully queued
-    // COMM_STAT_OK (1) and COMM_STAT_READY (0) are success codes
-    if(ret == COMM_STAT_OK || ret == COMM_STAT_FIFO_FULL || ret == COMM_STAT_READY) {
-        return 0;  // Success - transaction queued or started
-    }
-
-    // Actual errors (ret >= 2)
-    LOG_ERROR("GPS", "Read failed (reg=0x%02X, len=%d, ret=%d)", u16_reg, u16_len, ret);
+    if(ret == COMM_STAT_OK || ret == COMM_STAT_FIFO_FULL) return 0;
+    e_gps_comm = COMM_STAT_ERR;
     return ret;
 }
 

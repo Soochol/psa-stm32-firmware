@@ -35,6 +35,7 @@ run(r'''
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
+#define LOG_WARN(...) ((void)0)
 #define ESP_DIR_REQ 0x20
 #define ESP_CMD_EVT_POWER 0x85
 #define ESP_CMD_STAT 0x70
@@ -113,6 +114,14 @@ int main(void) {
     uint8_t onAck[]={1,6,0,0};
     v_ESP_RxAck(0x85,onAck,4); v_ESP_PowerHandler();
     assert(i_ESP_PowerResult()==1 && !power_active);
+    v_ESP_PowerBegin(true);
+    uint8_t unconfirmed[]={0,(uint8_t)power_token,(uint8_t)(power_token>>8),3};
+    v_ESP_RxAck(0x85,unconfirmed,4); v_ESP_PowerHandler();
+    assert(i_ESP_PowerResult()==1 && power_active);
+    v_ESP_PowerBegin(false);
+    unconfirmed[0]=1; unconfirmed[1]=(uint8_t)power_token;
+    v_ESP_RxAck(0x85,unconfirmed,4);
+    assert(i_ESP_PowerResult()==-1); // OFF-only status cannot acknowledge ON
     puts("PASS: STM wire, stale/empty ACK, wake burst/retry, wraparound, timeout, ACK/refusal");
 }
 ''')
@@ -156,6 +165,7 @@ static uint32_t u32_Tim_1msGet(void) { return now; }
 #define v_IO_Disable_12V NOOP
 #define HAL_ADC_Stop_DMA NOOP
 #define v_I2C_Deinit NOOP
+#define v_GPS_Deinit NOOP
 #define v_AUDIO_Init NOOP
 #define v_I2C1_Pin_Deinit NOOP
 #define v_I2C2_Pin_Deinit NOOP

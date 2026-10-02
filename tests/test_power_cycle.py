@@ -28,6 +28,7 @@ source = r'''
 #include <cstring>
 #include "lowPower.cpp"
 namespace stm {
+#define LOG_WARN(...) ((void)0)
 #define ESP_DIR_REQ 0x20
 #define ESP_CMD_EVT_POWER 0x85
 #define ESP_CMD_STAT 0x70
@@ -50,6 +51,7 @@ static bool b_ESP_Transmit(uint8_t, uint8_t, uint8_t *, uint16_t);
     'static void v_ESP_RxAck(uint8_t u8_cmd, uint8_t* pu8_data, uint8_t u8_len){'
 ) + r'''
 }
+static unsigned unconfirmedAcks;
 static void receiveAcks() {
     while(STMSerial.tx.size() >= 10) {
         auto &v = STMSerial.tx;
@@ -57,6 +59,7 @@ static void receiveAcks() {
         for(unsigned i=0;i<8;++i) checksum ^= v[i];
         assert(v[0]==2 && v[1]==8 && v[2]==2 && v[3]==0x85 &&
                v[8]==checksum && v[9]==3);
+        if(v[7]==3) ++unconfirmedAcks;
         stm::v_ESP_RxAck(v[3], v.data()+4, 4);
         v.erase(v.begin(),v.begin()+10);
     }
@@ -103,6 +106,24 @@ int main() {
     }
     assert(sleeps==2); // cold OFF -> ON -> OFF -> ON
 
+    modemSilent=true;
+    stm::v_ESP_PowerBegin(true); stm::v_ESP_PowerHandler();
+    try { normalReceive(); assert(false); } catch(Restart &) {}
+    uint32_t before=ticks;
+    unsigned beforeAcks=unconfirmedAcks;
+    try { lowPowerBoot(); assert(false); } catch(Restart &) {}
+    assert(ticks-before<3000 && unconfirmedAcks>beforeAcks && sleeps==3);
+    normalWake();
+
+    modemSilent=false; modemRadioOn=true;
+    stm::v_ESP_PowerBegin(true); stm::v_ESP_PowerHandler();
+    try { normalReceive(); assert(false); } catch(Restart &) {}
+    before=ticks; beforeAcks=unconfirmedAcks;
+    try { lowPowerBoot(); assert(false); } catch(Restart &) {}
+    assert(ticks-before<13000 && unconfirmedAcks>beforeAcks && sleeps==4);
+    normalWake();
+    modemRadioOn=false;
+
     otaBusy=true;
     stm::v_ESP_PowerBegin(true); stm::v_ESP_PowerHandler();
     normalReceive(); receiveAcks();
@@ -111,7 +132,7 @@ int main() {
     normalWake();
     otaBusy=false; lowPowerPoll();
     assert(!offMagic);
-    puts("PASS: two-MCU power wire cycle, software resets, deferred OFF cancelled by ON");
+    puts("PASS: two-MCU power wire cycle, silent/unconfirmed LTE, software resets, deferred OFF cancelled by ON");
 }
 '''
 

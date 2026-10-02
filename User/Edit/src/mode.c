@@ -1357,15 +1357,14 @@ typedef enum {
 #if MODE_FSR_USED
 	modeCONFIG_FSR		=0x20,
 #endif
-	modeCONFIG_GPS		=0x40,	// Async state machine driven by v_GPS_Handler
 #if MODE_IMU_USED && MODE_FSR_USED
-	modeCONFIG_CPLT		=0x7F,	// 0x3F | 0x40
+	modeCONFIG_CPLT		=0x3F,	// GPS is optional and prepares in background
 #elif MODE_IMU_USED
-	modeCONFIG_CPLT		=0x5F,	// 0x1F | 0x40
+	modeCONFIG_CPLT		=0x1F,
 #elif MODE_FSR_USED
-	modeCONFIG_CPLT		=0x7E,	// 0x3E | 0x40
+	modeCONFIG_CPLT		=0x3E,
 #else
-	modeCONFIG_CPLT		=0x5E,	// 0x1E | 0x40
+	modeCONFIG_CPLT		=0x1E,
 #endif
 } e_modeCONFIG_t;
 
@@ -1411,8 +1410,7 @@ static void v_Mode_Booting(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t* 
 			// Placed here (NOT in main.c) so GPS init only runs when mode is
 			// BOOTING — avoids race condition with v_Mode_Off()'s I2C3 pin
 			// deinit on the cold-boot → modeOFF path. v_GPS_Handler() in main
-			// loop advances the state machine; e_GPS_Ready() reports DONE
-			// when finished, polled in the GPS sub-state below.
+			// loop advances it without gating the required sensor mask.
 			v_GPS_Init();
 			//announce wait
 			if(i_Mode_Get_MP3_Play()){
@@ -1558,19 +1556,6 @@ static void v_Mode_Booting(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t* 
 					}
 				}
 			}
-			// GPS sub-state — independent of the IMU/FSR/TEMP/TOF chain so it
-			// can complete in parallel without gating IR_TEMP. State machine was
-			// kicked off in the b1_upd block above; v_GPS_Handler() in main.c
-			// advances it every iteration. e_GPS_Ready() returns COMM_STAT_DONE
-			// for both successful init and graceful skip (GPS not connected).
-			if(!(ready_mask & modeCONFIG_GPS)){
-				e_COMM_STAT_t ret = e_GPS_Ready();
-				if(ret == COMM_STAT_DONE){
-					ready_mask |= modeCONFIG_GPS;
-					SEGGER_RTT_printf(0, "[B]GPS OK m=0x%02X\r\n", ready_mask);
-				}
-				// BUSY → keep polling. No error path: GPS is non-critical.
-			}
 		}
 		else{
 			if(tilt){
@@ -1615,12 +1600,13 @@ static void v_Mode_Booting(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t* 
 #if MODE_IMU_USED
 			if(!(ready_mask & modeCONFIG_IMU))    LOG_WARN("MODE", "  - IMU (non-fatal)");
 #endif
+#if MODE_FSR_USED
 			if(!(ready_mask & modeCONFIG_FSR))    LOG_ERROR("MODE", "  - FSR");
+#endif
 			if(!(ready_mask & modeCONFIG_AUDIO))  LOG_ERROR("MODE", "  - Audio Codec");
 			if(!(ready_mask & modeCONFIG_TEMP_OUT)) LOG_WARN("MODE", "  - Temp Sensor (non-fatal)");
 			if(!(ready_mask & modeCONFIG_TOF))    LOG_ERROR("MODE", "  - TOF Sensor");
 			if(!(ready_mask & modeCONFIG_IR_TEMP)) LOG_ERROR("MODE", "  - IR Temp");
-			if(!(ready_mask & modeCONFIG_GPS))    LOG_WARN("MODE", "  - GPS (non-fatal)");
 
 			e_modeERR_t err=0;
 #if MODE_IMU_USED
@@ -1635,10 +1621,6 @@ static void v_Mode_Booting(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t* 
 			if(!(ready_mask & modeCONFIG_TEMP_OUT)){
 				LOG_WARN("MODE", "  Temp sensor init timeout - disabled for this session");
 				ready_mask |= modeCONFIG_TEMP_OUT;  // Non-fatal: mark as handled
-			}
-			if(!(ready_mask & modeCONFIG_GPS)){
-				LOG_WARN("MODE", "  GPS init timeout - disabled for this session");
-				ready_mask |= modeCONFIG_GPS;  // Non-fatal: mirrors IMU/Temp pattern
 			}
 #if MODE_FSR_USED
 			if(!(ready_mask & modeCONFIG_FSR)){err |= modeERR_FSR;}
@@ -2184,6 +2166,7 @@ void v_Mode_Off(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t* px_pub){
 			// and the file is not closed anywhere else.
 			v_SD_Log_Close();
 			v_SD_Log_Backfill_Abort(3);
+			v_GPS_Deinit();
 			v_ESP_PowerBegin(true);
 			// LOW: Removed unused commented code
 			pwr_off = low_pwr = 0;
