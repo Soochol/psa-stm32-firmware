@@ -16,6 +16,7 @@ float f_IR_Temp_Get();
 
 void v_Temp_IR_WR_Done();
 void v_Temp_IR_RD_Done(uint8_t* pu8, uint16_t u16_cnt);
+void v_Temp_IR_Comm_Error(void);
 
 void v_Temp_IR_Test();
 
