@@ -1,6 +1,7 @@
 #include "io.h"
 #include "vl53l0x_platform.h"
 #include "lib_log.h"
+#include "i2c4_diag.h"
 
 static void v_IO_LED_Disable();
 
@@ -21,10 +22,12 @@ void v_IO_Check_12V(){
  */
 void v_IO_Enable_12V(){
 	HAL_GPIO_WritePin(DO_12VA_EN_GPIO_Port, DO_12VA_EN_Pin, GPIO_PIN_SET);
+	v_I2C4_Diag_Event(IRD_POWER_ON, 0);
 }
 
 void v_IO_Disable_12V(){
 	HAL_GPIO_WritePin(DO_12VA_EN_GPIO_Port, DO_12VA_EN_Pin, GPIO_PIN_RESET);
+	v_I2C4_Diag_Event(IRD_POWER_OFF, 0);
 }
 
 /*
@@ -219,7 +222,9 @@ int i_I2C_ProbeDevice(void* p_i2c_handle, uint8_t bus_num, uint8_t dev_addr, con
 	LOG_DEBUG("I2C", "I2C%d_PROBE: Checking %s (addr=0x%02X)...", bus_num, dev_name, dev_addr >> 1);
 
 	// dev_addr already in 8-bit format, use as-is
+	if(bus_num == 4){v_I2C4_Diag_Begin('P', dev_addr, 0, 0);}
 	HAL_StatusTypeDef ret = HAL_I2C_IsDeviceReady(p_i2c, dev_addr, 3, 100);
+	if(bus_num == 4){v_I2C4_Diag_End(ret);}
 
 	if(ret == HAL_OK) {
 		LOG_DEBUG("I2C", "I2C%d:%s ACK", bus_num, dev_name);

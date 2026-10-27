@@ -1534,14 +1534,28 @@ static void v_Mode_Booting(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t* 
 				SEGGER_RTT_printf(0, "[B]TOF skip m=0x%02X\r\n", ready_mask);
 #endif
 			}
-			// I2C4 is dedicated to IR. Initialize it independently so a slow
-			// TOF/IMU cannot leave IR untested and falsely report an IR fault.
-			if(!(ready_mask & modeCONFIG_IR_TEMP)){
-				e_COMM_STAT_t ret = e_IR_Temp_Ready();
-				if(ret == COMM_STAT_DONE)		{ready_mask |= modeCONFIG_IR_TEMP; SEGGER_RTT_printf(0, "[B]IR OK m=0x%02X\r\n", ready_mask);}
-				else if(ret == COMM_STAT_ERR)	{
-					LOG_ERROR("MODE", "IR Temperature init FAILED on I2C4 after recovery retries");
-					v_Mode_Set_Error(modeERR_TEMP_IR);
+			{
+				uint16_t ir_prereq = modeCONFIG_AUDIO | modeCONFIG_TEMP_OUT | modeCONFIG_TOF;
+#if MODE_IMU_USED
+				ir_prereq |= modeCONFIG_IMU;
+#endif
+				if((ready_mask & ir_prereq) == ir_prereq){
+					if(!(ready_mask & modeCONFIG_IR_TEMP)){
+						// Probe MLX90640 IR camera ONCE before initialization
+						static bool b_mlx_probed = false;
+						if(!b_mlx_probed){
+							extern I2C_HandleTypeDef hi2c4;
+							i_I2C_ProbeDevice(&hi2c4, 4, ADDR_IR_TEMP, "MLX90640");
+							b_mlx_probed = true;
+						}
+
+						e_COMM_STAT_t ret = e_IR_Temp_Ready();
+						if(ret == COMM_STAT_DONE)		{ready_mask |= modeCONFIG_IR_TEMP; SEGGER_RTT_printf(0, "[B]IR OK m=0x%02X\r\n", ready_mask);}
+						else if(ret == COMM_STAT_ERR)	{
+							LOG_ERROR("MODE", "IR Temperature init FAILED on I2C4 - MLX90640 issue");
+							v_Mode_Set_Error(modeERR_TEMP_IR);
+						}
+					}
 				}
 			}
 			// GPS sub-state — independent of the IMU/FSR/TEMP/TOF chain so it
