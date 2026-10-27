@@ -450,9 +450,7 @@ int i_I2C4_Read(uint8_t u8_addr, uint16_t u16_reg, uint8_t* pu8_data, uint16_t u
 #if I2C4_CHG
 	HAL_StatusTypeDef ret = HAL_I2C_Mem_Read_DMA(p_i2c4, u8_addr, u16_reg, I2C_MEMADD_SIZE_16BIT, pu8_data, u16_len);
 #else
-	// Includes the 1664-byte EEPROM read; bound a stalled boot transfer so
-	// the caller can recover the bus and the main loop can refresh the watchdog.
-	HAL_StatusTypeDef ret = HAL_I2C_Mem_Read(p_i2c4, u8_addr, u16_reg, I2C_MEMADD_SIZE_16BIT, pu8_data, u16_len * 2, 500);
+	HAL_StatusTypeDef ret = HAL_I2C_Mem_Read(p_i2c4, u8_addr, u16_reg, I2C_MEMADD_SIZE_16BIT, pu8_data, u16_len * 2, HAL_MAX_DELAY);
 #endif
 	if(ret == HAL_OK)		{e_comm_i2c4 = COMM_STAT_OK;}
 	else{
@@ -946,7 +944,6 @@ void HAL_I2C_ErrorCallback(I2C_HandleTypeDef *hi2c){
 	}
 	else if(hi2c == p_i2c4){
 		e_comm_i2c4 = COMM_STAT_READY;
-		v_Temp_IR_Comm_Error();
 	}
 }
 
