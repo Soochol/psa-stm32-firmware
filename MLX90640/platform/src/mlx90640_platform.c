@@ -35,6 +35,7 @@ int MLX90640_I2CGeneralReset(void){
 
 int MLX90640_I2CRead(uint8_t slaveAddr,uint16_t startAddress, uint16_t nMemAddressRead, uint16_t *data){
 	int ret = i_I2C4_Read(slaveAddr, startAddress, (uint8_t*)data, nMemAddressRead);
+	if(ret != COMM_STAT_OK){return -1;}
 
 	uint8_t msb, lsb;
 	uint8_t* p = (uint8_t*)data;
@@ -45,12 +46,7 @@ int MLX90640_I2CRead(uint8_t slaveAddr,uint16_t startAddress, uint16_t nMemAddre
 		data[i] |= (lsb & 0x00FF);
 	}
 
-	if(ret == COMM_STAT_OK){
-		return 0;
-	}
-	else{
-		return -1;
-	}
+	return 0;
 }
 
 
@@ -75,17 +71,17 @@ void MLX90640_I2CFreqSet(int freq){
 }
 
 
-static e_COMM_STAT_t e_tempIR_evt;
+static volatile e_COMM_STAT_t e_tempIR_evt;
 static uint16_t u16_rdBuf[100];
 static uint32_t u32_toutRef;
 uint32_t u32_tempIR_ErrCnt;
 
 void v_Temp_IR_WR_Done(){
-	e_tempIR_evt = COMM_STAT_DONE;
+	if(e_tempIR_evt == COMM_STAT_BUSY){e_tempIR_evt = COMM_STAT_DONE;}
 }
 
 void v_Temp_IR_RD_Done(uint8_t* pu8, uint16_t u16_cnt){
-	e_tempIR_evt = COMM_STAT_DONE;
+	if(e_tempIR_evt != COMM_STAT_BUSY){return;}
 
 	uint8_t msb, lsb;
 	uint8_t* p = (uint8_t*)pu8;
@@ -96,6 +92,11 @@ void v_Temp_IR_RD_Done(uint8_t* pu8, uint16_t u16_cnt){
 		u16_rdBuf[i] = (msb << 8) & 0xFF00;
 		u16_rdBuf[i] |= (lsb & 0x00FF);
 	}
+	e_tempIR_evt = COMM_STAT_DONE;
+}
+
+void v_Temp_IR_Comm_Error(void){
+	if(e_tempIR_evt == COMM_STAT_BUSY){e_tempIR_evt = COMM_STAT_ERR;}
 }
 
 int i_Temp_IR_Write_DMA(uint8_t u8_addr, uint16_t u16_memAddr, uint16_t* pu16, uint16_t u16_cnt){
@@ -105,40 +106,67 @@ int i_Temp_IR_Write_DMA(uint8_t u8_addr, uint16_t u16_memAddr, uint16_t* pu16, u
 		u8_wr[i*2] = pu16[i] >> 8;
 		u8_wr[i*2 + 1] = pu16[i];
 	}
-	return i_I2C4_Write_DMA(u8_addr, u16_memAddr, u8_wr, u16_cnt << 1);
+	int ret = i_I2C4_Write_DMA(u8_addr, u16_memAddr, u8_wr, u16_cnt << 1);
+	if(ret != COMM_STAT_OK){e_tempIR_evt = COMM_STAT_ERR;}
+	return ret;
 }
 
 int i_Temp_IR_Read_DMA(uint8_t u8_addr, uint16_t u16_memAddr, uint16_t u16_cnt){
 	e_tempIR_evt = COMM_STAT_BUSY;
 	u32_toutRef = u32_Tim_1msGet();
-	return i_I2C4_Read_DMA(u8_addr, u16_memAddr, u16_cnt << 1);
+	int ret = i_I2C4_Read_DMA(u8_addr, u16_memAddr, u16_cnt << 1);
+	if(ret != COMM_STAT_OK){e_tempIR_evt = COMM_STAT_ERR;}
+	return ret;
 }
 
+#define IR_I2C_RECOVERY_LIMIT 3
+#define IR_INIT_RETRY_DELAY_MS 100
+#define IR_TRANSFER_TIMEOUT_MS 2000
+
 static uint8_t u8_ir_i2c4_retry_cnt;
+static uint8_t u8_ir_init_retry_cnt;
+static uint32_t u32_ir_init_retry_ref;
 static volatile bool b_tempIR_handler_reset;
 
+static void v_Temp_IR_Recover_Bus(void){
+	// Preserve the short-test recovery: SCL pulses + STOP, then restore GPIO/DMA.
+	HAL_I2C_Master_Abort_IT(&hi2c4, ADDR_IR_TEMP);
+	v_I2C4_Bus_Recovery_FastMode();
+	HAL_I2C_DeInit(&hi2c4);
+	hi2c4.State = HAL_I2C_STATE_RESET;
+	hi2c4.ErrorCode = HAL_I2C_ERROR_NONE;
+	if(HAL_I2C_Init(&hi2c4) != HAL_OK){
+		LOG_ERROR("MLX90640", "I2C4 re-init failed");
+	}
+	v_I2C4_Reset_CommState();
+	e_tempIR_evt = COMM_STAT_READY;
+	u32_toutRef = u32_Tim_1msGet();
+	u32_tempIR_ErrCnt = 0;
+	memset(u16_rdBuf, 0, sizeof(u16_rdBuf));
+	// Discard the interrupted read on EVERY recovery, before accepting new data.
+	b_tempIR_handler_reset = true;
+}
+
 void v_Temp_IR_Tout_Handler(){
-	if(u32_tempIR_ErrCnt > 10 || ((e_tempIR_evt == COMM_STAT_BUSY) && _b_Tim_Is_OVR(u32_Tim_1msGet(), u32_toutRef, 2000))){
+	// Boot retries are owned by e_IR_Temp_Ready; do not race its initialization.
+	if(e_tempIR_config != COMM_STAT_DONE){return;}
+	// Keep the original 2 s fault window, including explicit DMA/HAL errors:
+	// a brief short must not consume all recovery attempts in a few loop turns.
+	if(u32_tempIR_ErrCnt > 10 ||
+	   ((e_tempIR_evt == COMM_STAT_BUSY || e_tempIR_evt == COMM_STAT_ERR) &&
+	    _b_Tim_Is_OVR(u32_Tim_1msGet(), u32_toutRef, IR_TRANSFER_TIMEOUT_MS))){
 		if(u32_tempIR_ErrCnt > 10) {
 			LOG_ERROR("MLX90640", "Error count exceeded: %lu", u32_tempIR_ErrCnt);
+		} else if(e_tempIR_evt == COMM_STAT_ERR) {
+			LOG_ERROR("MLX90640", "I2C4 transfer failed ErrorCode=0x%08lX", hi2c4.ErrorCode);
 		} else {
 			LOG_ERROR("MLX90640", "I2C4 timeout (addr=0x%02X) ErrorCode=0x%08lX",
 				ADDR_IR_TEMP, hi2c4.ErrorCode);
 		}
 
-		// Full I2C4 recovery
-		HAL_I2C_Master_Abort_IT(&hi2c4, ADDR_IR_TEMP);
-		v_I2C4_Bus_Recovery_FastMode();
-		HAL_I2C_DeInit(&hi2c4);
-		hi2c4.State = HAL_I2C_STATE_RESET;
-		hi2c4.ErrorCode = HAL_I2C_ERROR_NONE;
-		HAL_I2C_Init(&hi2c4);
-		v_I2C4_Reset_CommState();
-		e_tempIR_evt = COMM_STAT_READY;
-		u32_toutRef = u32_Tim_1msGet();
-		u32_tempIR_ErrCnt = 0;
-		if(u8_ir_i2c4_retry_cnt < 3){
+		if(u8_ir_i2c4_retry_cnt < IR_I2C_RECOVERY_LIMIT){
 			u8_ir_i2c4_retry_cnt++;
+			v_Temp_IR_Recover_Bus();
 			LOG_WARN("MLX90640", "IR recovery %u/3", (unsigned)u8_ir_i2c4_retry_cnt);
 		} else {
 			e_tempIR_config = COMM_STAT_ERR;
@@ -250,30 +278,54 @@ void v_IR_TEMP_Test(){
 
 void v_TempIR_Deinit(){
 	e_tempIR_config = COMM_STAT_READY;
+	e_tempIR_evt = COMM_STAT_READY;
+	u8_ir_init_retry_cnt = 0;
+	u8_ir_i2c4_retry_cnt = 0;
+	u32_tempIR_ErrCnt = 0;
+	b_tempIR_handler_reset = true;
 }
 
 e_COMM_STAT_t e_IR_Temp_Ready(){
+	if(e_tempIR_config == COMM_STAT_BUSY){
+		if(!_b_Tim_Is_OVR(u32_Tim_1msGet(), u32_ir_init_retry_ref, IR_INIT_RETRY_DELAY_MS)){
+			return COMM_STAT_BUSY;
+		}
+		e_tempIR_config = COMM_STAT_READY;
+	}
 	if(e_tempIR_config == COMM_STAT_READY){
-		if(MLX90640_SetRefreshRate(ADDR_IR_TEMP, MLX90640_CTRL_IR_REFRESH_RATE_16HZ) != MLX90640_NO_ERROR){
-			return e_tempIR_config = COMM_STAT_ERR;
+		const char* step = "refresh rate";
+		int status = MLX90640_SetRefreshRate(ADDR_IR_TEMP, MLX90640_CTRL_IR_REFRESH_RATE_16HZ);
+		if(status == MLX90640_NO_ERROR){
+			step = "interleaved mode";
+			status = MLX90640_SetInterleavedMode(ADDR_IR_TEMP);
 		}
-#if 0
-		if(MLX90640_SetChessMode(ADDR_IR_TEMP) != MLX90640_NO_ERROR){
-			return e_tempIR_config = COMM_STAT_ERR;
+		if(status == MLX90640_NO_ERROR){
+			step = "EEPROM read";
+			status = MLX90640_DumpEE(ADDR_IR_TEMP, eeMLX90640);
 		}
-#endif
-		if(MLX90640_SetInterleavedMode(ADDR_IR_TEMP) != MLX90640_NO_ERROR){
-			return e_tempIR_config = COMM_STAT_ERR;
+		if(status == MLX90640_NO_ERROR){
+			step = "EEPROM parameters";
+			status = MLX90640_ExtractParameters(eeMLX90640, &mlx90640);
 		}
-		if(MLX90640_DumpEE(ADDR_IR_TEMP, eeMLX90640) != MLX90640_NO_ERROR){
-			return e_tempIR_config = COMM_STAT_ERR;
-		}
-		if(MLX90640_ExtractParameters(eeMLX90640, &mlx90640) != MLX90640_NO_ERROR){
-			return e_tempIR_config = COMM_STAT_ERR;
+		(void)step; // Logs may be compiled out.
+		if(status != MLX90640_NO_ERROR){
+			if(u8_ir_init_retry_cnt >= IR_I2C_RECOVERY_LIMIT){
+				LOG_ERROR("MLX90640", "Init failed at %s (%d) after 3 recoveries", step, status);
+				return e_tempIR_config = COMM_STAT_ERR;
+			}
+			u8_ir_init_retry_cnt++;
+			LOG_WARN("MLX90640", "Init %s failed (%d), recovery %u/3", step, status, (unsigned)u8_ir_init_retry_cnt);
+			v_Temp_IR_Recover_Bus();
+			u32_ir_init_retry_ref = u32_Tim_1msGet();
+			return e_tempIR_config = COMM_STAT_BUSY;
 		}
 
 		//i_I2C4_Config_1MHz();
 		e_tempIR_config = COMM_STAT_DONE;
+		e_tempIR_evt = COMM_STAT_READY;
+		u8_ir_init_retry_cnt = 0;
+		u8_ir_i2c4_retry_cnt = 0;
+		b_tempIR_handler_reset = true;
 
 		v_I2C4_Set_Comm_Ready();
 	}
@@ -436,7 +488,7 @@ void v_Temp_IR_Data_Handler(){
 	}
 
 	if(e_tempIR_config != COMM_STAT_DONE){return;}
-	if(e_tempIR_evt == COMM_STAT_BUSY){return;}
+	if(e_tempIR_evt == COMM_STAT_BUSY || e_tempIR_evt == COMM_STAT_ERR){return;}
 	if(!_b_Tim_Is_OVR(u32_Tim_1msGet(), timRef, timItv)){return;}
 	if(timItv){
 		timRef = u32_Tim_1msGet();
