@@ -1,6 +1,7 @@
 #include "main.h"
 #include "mlx90640_platform.h"
 #include "i2c.h"
+#include "i2c4_diag.h"
 #include "tim.h"
 #include "mode.h"
 #include "comm_esp.h"   // for v_ESP_Send_Error
@@ -119,6 +120,7 @@ static volatile bool b_tempIR_handler_reset;
 
 void v_Temp_IR_Tout_Handler(){
 	if(u32_tempIR_ErrCnt > 10 || ((e_tempIR_evt == COMM_STAT_BUSY) && _b_Tim_Is_OVR(u32_Tim_1msGet(), u32_toutRef, 2000))){
+		v_I2C4_Diag_Event(IRD_TIMEOUT, (int)u32_tempIR_ErrCnt);
 		if(u32_tempIR_ErrCnt > 10) {
 			LOG_ERROR("MLX90640", "Error count exceeded: %lu", u32_tempIR_ErrCnt);
 		} else {
@@ -134,6 +136,7 @@ void v_Temp_IR_Tout_Handler(){
 		hi2c4.ErrorCode = HAL_I2C_ERROR_NONE;
 		HAL_I2C_Init(&hi2c4);
 		v_I2C4_Reset_CommState();
+		v_I2C4_Diag_Event(IRD_RECOVERED, 0);
 		e_tempIR_evt = COMM_STAT_READY;
 		u32_toutRef = u32_Tim_1msGet();
 		u32_tempIR_ErrCnt = 0;
@@ -254,7 +257,9 @@ void v_TempIR_Deinit(){
 
 e_COMM_STAT_t e_IR_Temp_Ready(){
 	if(e_tempIR_config == COMM_STAT_READY){
+		v_I2C4_Diag_Event(IRD_INIT_RATE, 0);
 		if(MLX90640_SetRefreshRate(ADDR_IR_TEMP, MLX90640_CTRL_IR_REFRESH_RATE_16HZ) != MLX90640_NO_ERROR){
+			v_I2C4_Diag_Event(IRD_INIT_FAIL, -1);
 			return e_tempIR_config = COMM_STAT_ERR;
 		}
 #if 0
@@ -262,13 +267,19 @@ e_COMM_STAT_t e_IR_Temp_Ready(){
 			return e_tempIR_config = COMM_STAT_ERR;
 		}
 #endif
+		v_I2C4_Diag_Event(IRD_INIT_MODE, 0);
 		if(MLX90640_SetInterleavedMode(ADDR_IR_TEMP) != MLX90640_NO_ERROR){
+			v_I2C4_Diag_Event(IRD_INIT_FAIL, -1);
 			return e_tempIR_config = COMM_STAT_ERR;
 		}
+		v_I2C4_Diag_Event(IRD_INIT_EEPROM, 0);
 		if(MLX90640_DumpEE(ADDR_IR_TEMP, eeMLX90640) != MLX90640_NO_ERROR){
+			v_I2C4_Diag_Event(IRD_INIT_FAIL, -1);
 			return e_tempIR_config = COMM_STAT_ERR;
 		}
+		v_I2C4_Diag_Event(IRD_INIT_PARAMS, 0);
 		if(MLX90640_ExtractParameters(eeMLX90640, &mlx90640) != MLX90640_NO_ERROR){
+			v_I2C4_Diag_Event(IRD_INIT_FAIL, -1);
 			return e_tempIR_config = COMM_STAT_ERR;
 		}
 
@@ -276,6 +287,7 @@ e_COMM_STAT_t e_IR_Temp_Ready(){
 		e_tempIR_config = COMM_STAT_DONE;
 
 		v_I2C4_Set_Comm_Ready();
+		v_I2C4_Diag_Event(IRD_INIT_DONE, 0);
 	}
 	return e_tempIR_config;
 }
@@ -501,6 +513,7 @@ void v_Temp_IR_Data_Handler(){
 			}
 			else{
 				timItv = 62;	//return
+				if(u32_tempIR_ErrCnt == 0){v_I2C4_Diag_Event(IRD_BAD_AUX, -MLX90640_FRAME_DATA_ERROR);}
 				u32_tempIR_ErrCnt++;
 			}
 		}
@@ -520,6 +533,7 @@ void v_Temp_IR_Data_Handler(){
 			}
 			else{
 				timItv = 62;
+				if(u32_tempIR_ErrCnt == 0){v_I2C4_Diag_Event(IRD_BAD_FRAME, -MLX90640_FRAME_DATA_ERROR);}
 				u32_tempIR_ErrCnt++;
 			}
 		}
@@ -545,6 +559,7 @@ void v_Temp_IR_Data_Handler(){
 		}
 		f_ir_temp_maxTemp = max_temp;
 		timItv = 62;
+		v_I2C4_Diag_FrameGood();
 		u32_tempIR_ErrCnt = 0;
 		if(u8_ir_i2c4_retry_cnt) u8_ir_i2c4_retry_cnt = 0;
 		break;

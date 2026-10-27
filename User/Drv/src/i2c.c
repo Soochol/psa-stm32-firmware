@@ -1,4 +1,5 @@
 #include "i2c.h"
+#include "i2c4_diag.h"
 #include "string.h"
 #include "lib_commbuf.h"
 #include "tim.h"
@@ -425,11 +426,13 @@ int i_I2C4_Write(uint8_t u8_addr, uint16_t u16_reg, uint8_t* pu8_data, uint16_t 
 		return COMM_STAT_ERR;
 	}
 
+	v_I2C4_Diag_Begin('W', u8_addr, u16_reg, u16_len * 2);
 #if I2C4_CHG
 	HAL_StatusTypeDef ret = HAL_I2C_Mem_Write_DMA(p_i2c4, u8_addr, u16_reg, I2C_MEMADD_SIZE_16BIT, pu8_data, u16_len);
 #else
 	HAL_StatusTypeDef ret = HAL_I2C_Mem_Write(p_i2c4, u8_addr, u16_reg, I2C_MEMADD_SIZE_16BIT, pu8_data, u16_len * 2, 10);
 #endif
+	v_I2C4_Diag_End(ret);
 	if(ret == HAL_OK)		{e_comm_i2c4 = COMM_STAT_OK;}
 	else{
 		if(ret == HAL_BUSY)	{e_comm_i2c4 = COMM_STAT_BUSY;}
@@ -447,11 +450,13 @@ int i_I2C4_Read(uint8_t u8_addr, uint16_t u16_reg, uint8_t* pu8_data, uint16_t u
 		return COMM_STAT_ERR;
 	}
 
+	v_I2C4_Diag_Begin('R', u8_addr, u16_reg, u16_len * 2);
 #if I2C4_CHG
 	HAL_StatusTypeDef ret = HAL_I2C_Mem_Read_DMA(p_i2c4, u8_addr, u16_reg, I2C_MEMADD_SIZE_16BIT, pu8_data, u16_len);
 #else
 	HAL_StatusTypeDef ret = HAL_I2C_Mem_Read(p_i2c4, u8_addr, u16_reg, I2C_MEMADD_SIZE_16BIT, pu8_data, u16_len * 2, HAL_MAX_DELAY);
 #endif
+	v_I2C4_Diag_End(ret);
 	if(ret == HAL_OK)		{e_comm_i2c4 = COMM_STAT_OK;}
 	else{
 		if(ret == HAL_BUSY)	{e_comm_i2c4 = COMM_STAT_BUSY;}
@@ -582,7 +587,9 @@ int i_I2C4_Write_DMA(uint8_t u8_addr, uint16_t u16_reg, uint8_t* pu8_arr, uint16
 		if(u16_len + 1 < I2C4_WR_SIZE){
 			u8_i2c4_addr = u8_addr;
 			memcpy(u8_i2c4_wrArr, pu8_arr, u16_len);
+			v_I2C4_Diag_Begin('w', u8_addr, u16_reg, u16_len);
 			HAL_StatusTypeDef ret = HAL_I2C_Mem_Write_DMA(p_i2c4, u8_i2c4_addr, u16_reg, I2C_MEMADD_SIZE_16BIT, u8_i2c4_wrArr, u16_len);
+			v_I2C4_Diag_End(ret);
 			if(ret == HAL_OK)		{e_comm_i2c4 = COMM_STAT_OK;}
 			else{
 				if(ret == HAL_BUSY)	{e_comm_i2c4 = COMM_STAT_BUSY;}
@@ -602,7 +609,9 @@ int i_I2C4_Read_DMA(uint8_t u8_addr, uint16_t u16_reg, uint16_t u16_len){
 		if(I2C4_WR_SIZE > 0 && I2C4_RD_SIZE >= u16_len){
 			u8_i2c4_addr = u8_addr;
 			u16_i2c4_rdCnt = u16_len;
+			v_I2C4_Diag_Begin('r', u8_addr, u16_reg, u16_len);
 			HAL_StatusTypeDef ret = HAL_I2C_Mem_Read_DMA(p_i2c4, u8_i2c4_addr, u16_reg, I2C_MEMADD_SIZE_16BIT, u8_i2c4_rdArr, u16_len);
+			v_I2C4_Diag_End(ret);
 			if(ret == HAL_OK)		{e_comm_i2c4 = COMM_STAT_OK;}
 			else{
 				if(ret == HAL_BUSY)	{e_comm_i2c4 = COMM_STAT_BUSY;}
@@ -943,6 +952,7 @@ void HAL_I2C_ErrorCallback(I2C_HandleTypeDef *hi2c){
 		e_comm_i2c2 = COMM_STAT_READY;
 	}
 	else if(hi2c == p_i2c4){
+		v_I2C4_Diag_Event(IRD_IRQ_ERROR, HAL_ERROR);
 		e_comm_i2c4 = COMM_STAT_READY;
 	}
 }

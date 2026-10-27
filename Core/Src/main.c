@@ -26,6 +26,7 @@
 #include "io.h"
 #include "tim.h"
 #include "i2c.h"
+#include "i2c4_diag.h"
 #include "uart.h"
 #include "sd.h"
 #include "flash_cfg.h"
@@ -415,6 +416,7 @@ int main(void)
 	      v_GPS_Tout_Handler();
 	  }
 	  v_Mode_Handler();
+	  v_I2C4_Diag_Poll();
 	  v_RGB_PWM_Out();
 
 	  if(e_Mode_Get_CurrID() != modeOFF) v_GPS_Test_Monitor();
