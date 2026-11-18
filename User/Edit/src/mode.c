@@ -1039,7 +1039,7 @@ static int i_Mode_TempHeater_FB(){
 		u32_heaterFB = tick;
 		//100ms x tick
 		if(tick > MODE_HEATER_LMT_TOUT){
-			//10s over
+			//~7 s over (MODE_HEATER_LMT_TOUT)
 			v_Mode_Set_Error(modeERR_HEATER_CURR);
 			v_Mode_SetNext(modeERROR);
 		}
