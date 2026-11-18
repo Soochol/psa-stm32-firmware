@@ -322,7 +322,7 @@ void v_Mode_BlowFan_Disable();
 //	HEATER
 /////////////////////////////////
 #define MODE_HEATER_LMT_CURRENT	10.0f
-#define MODE_HEATER_LMT_TOUT	50	//unit : 100ms	//fix : 9.2
+#define MODE_HEATER_LMT_TOUT	70	//unit : 100ms (net over-limit ticks, ~7 s sustained)
 
 #define MODE_HEATER_PID_COEF_P	100.0f
 #define MODE_HEATER_PID_COEF_I	5.0f
