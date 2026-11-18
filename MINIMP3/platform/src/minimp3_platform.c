@@ -207,7 +207,9 @@ const char* mp3_list[] = {
 		"31.mp3",
 		"32.mp3",
 		"33.mp3",
+		"34.mp3",
 };
+#define MP3_LIST_CNT	(sizeof(mp3_list) / sizeof(mp3_list[0]))
 
 void v_MP3_Init(){
 	mp3dec_init(&mp3dec);
@@ -235,7 +237,7 @@ void v_MP3_Play_T(){
 		printf("sd mount succ.\n");
 	}
 
-	if(mp3_num >= 33){mp3_num = 0;}
+	if(mp3_num >= MP3_LIST_CNT){mp3_num = 0;}
 	FRESULT retFile = f_open(&mp3File, mp3_list[mp3_num++], FA_READ);
 
 	if(retFile != FR_OK){
@@ -366,7 +368,7 @@ int i_MP3_Play(uint16_t u16_mp3_num){
 		printf("sd mount succ.\n");
 	}
 
-	if(u16_mp3_num >= 33){return false;}
+	if(u16_mp3_num >= MP3_LIST_CNT){return false;}
 	FRESULT retFile = f_open(&mp3File, mp3_list[mp3_num++], FA_READ);
 	if(retFile != FR_OK){
 		b_file_open = false;
@@ -494,7 +496,7 @@ int i_MP3_Play_T(uint16_t u16_mp3_num){
 	}
 
 	u16_mp3_num--;
-	if(u16_mp3_num >= 33){return false;}
+	if(u16_mp3_num >= MP3_LIST_CNT){return false;}
 	FRESULT retFile = f_open(&mp3File, mp3_list[u16_mp3_num], FA_READ);
 	if(retFile != FR_OK){
 		b_file_open = false;
@@ -627,7 +629,7 @@ int i_MP3_Play_DAC(uint16_t u16_mp3_num){
 	}
 
 	u16_mp3_num--;
-	if(u16_mp3_num >= 33){return false;}
+	if(u16_mp3_num >= MP3_LIST_CNT){return false;}
 	FRESULT retFile = f_open(&mp3File, mp3_list[mp3_num], FA_READ);
 	if(retFile != FR_OK){
 		b_file_open = false;
@@ -729,7 +731,7 @@ void v_MP3_DAC_Test(){
 
 		//if(i_MP3_Play_T(1) == 0){
 		if(i_MP3_Play_DAC(1) == 0){
-			if(mp3 < 33){mp3++;}
+			if(mp3 < MP3_LIST_CNT){mp3++;}
 			else		{mp3 = 1;}
 
 			timRef = u32_Tim_1msGet();
@@ -801,7 +803,7 @@ int i_MP3_Start(uint16_t u16_mp3_num){
 		return -1;
 	}
 	u16_mp3_num -= 1;
-	if(u16_mp3_num >= 33){return false;}
+	if(u16_mp3_num >= MP3_LIST_CNT){return false;}
 	FRESULT retFile = f_open(&mp3File, mp3_list[u16_mp3_num], FA_READ);
 	if(retFile != FR_OK){
 		b_file_open = false;
@@ -931,7 +933,7 @@ int i_MP3_Start(uint16_t u16_mp3_num){
 		return - 1;
 	}
 	u16_mp3_num -= 1;
-	if(u16_mp3_num >= 33){return false;}
+	if(u16_mp3_num >= MP3_LIST_CNT){return false;}
 	FRESULT retFile = f_open(&mp3File, mp3_list[u16_mp3_num], FA_READ);
 	if(retFile != FR_OK){
 		b_file_open = false;

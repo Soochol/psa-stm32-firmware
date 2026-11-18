@@ -2425,6 +2425,7 @@ static void v_Mode_Error(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t* px
 			if(err_bits & 0x0080) SEGGER_RTT_WriteString(0, " AUDIO\r\n");
 			if(err_bits & 0x0100) SEGGER_RTT_WriteString(0, " FSR\r\n");
 			if(err_bits & 0x0200) SEGGER_RTT_WriteString(0, " SD\r\n");
+			if(err_bits & 0x0800) SEGGER_RTT_WriteString(0, " HEATER_CURR\r\n");
 			if(err_bits & 0x1000) SEGGER_RTT_WriteString(0, " ESP\r\n");
 
 			//led
@@ -2488,7 +2489,10 @@ static void v_Mode_Error(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t* px
 			e_modeERR_t err = e_Mode_Get_Error();
 			uint16_t mp3=0;
 			// LOW: Use named constants instead of magic numbers
-			if(err & modeERR_TEMP_IR)		{mp3=MODE_MP3_ERROR_TEMP_IR;}
+			// Heater overcurrent first: it is the urgent one, and the actuators
+			// are already cut, so the user needs to know why the device stopped.
+			if(err & modeERR_HEATER_CURR)	{mp3=MODE_MP3_ERROR_HEATER_CURR;}
+			else if(err & modeERR_TEMP_IR)	{mp3=MODE_MP3_ERROR_TEMP_IR;}
 			else if(err & modeERR_TEMP_OUT)	{mp3=MODE_MP3_ERROR_TEMP_OUT;}
 			else if(err & modeERR_IMU)		{mp3=MODE_MP3_ERROR_IMU;}
 			else if(err & modeERR_BLOW_FAN)	{mp3=MODE_MP3_ERROR_BLOW_FAN;}
