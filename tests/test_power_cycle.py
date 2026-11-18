@@ -1,6 +1,7 @@
 """Wire-level integration of both production power state machines.
 
 Uses the sibling ESP32 worktree by default, or pass its path as argv[1].
+Links the real src/fallAlertGate.cpp that lowPower.cpp calls.
 Models software resets/sleep and transports bytes, not the full HAL/RTOS,
 normal application parser, physical buttons or electrical timing.
 """
@@ -27,6 +28,7 @@ source = r'''
 #include <cstdio>
 #include <cstring>
 #include "lowPower.cpp"
+bool failGateAllocation = false;
 namespace stm {
 #define ESP_DIR_REQ 0x20
 #define ESP_CMD_EVT_POWER 0x85
@@ -84,6 +86,7 @@ static void normalWake() {
     assert(stm::i_ESP_PowerResult()==1 && !stm::power_active);
 }
 int main() {
+    assert(initFallAlertGate());
     resetReason=0; lowPowerBoot(); // cold battery insertion
     resetReason=ESP_RST_SW;
     deadline=100000;
@@ -119,6 +122,7 @@ with tempfile.TemporaryDirectory(prefix='psa-power-cycle-') as directory:
     exe = str(Path(directory) / 'cycle')
     subprocess.run(['g++', '-std=c++17', '-Wall', '-Wextra', '-Wno-narrowing',
                     '-I' + str(esp / 'tests/power_stubs'), '-I' + str(esp / 'include'),
-                    '-I' + str(esp / 'src'), '-x', 'c++', '-', '-o', exe],
+                    '-I' + str(esp / 'src'), '-I' + str(esp / 'tests/falls/stubs'),
+                    '-x', 'c++', '-', str(esp / 'src/fallAlertGate.cpp'), '-o', exe],
                    input=source, text=True, check=True)
     subprocess.run([exe], check=True)
