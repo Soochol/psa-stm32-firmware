@@ -49,7 +49,8 @@ static uint32_t u32_toutRef;
  *                                          neither→ACK_TIMEOUT_CHECK)
  *   ACK_TIMEOUT_CHECK → (within 500ms ? ACK_AVAIL_REQ : retry CFG_WRITE_REQ or DONE)
  *   RESTART_DELAY → DONE (after 500ms)
- *   FAIL is a terminal state for graceful skip (GPS not connected, etc.)
+ *   Any *_WAIT → RETRY_DELAY → same *_REQ (failed transfer; 3 retries, then FAIL)
+ *   FAIL is terminal for graceful skip (GPS not connected, etc.)
  */
 typedef enum {
     GPS_INIT_IDLE = 0,
@@ -66,6 +67,7 @@ typedef enum {
     GPS_INIT_ACK_DATA_WAIT,
     GPS_INIT_ACK_TIMEOUT_CHECK,
     GPS_INIT_RESTART_DELAY,
+    GPS_INIT_RETRY_DELAY,
     GPS_INIT_DONE,
     GPS_INIT_FAIL,
 } e_gps_init_state_t;
@@ -75,6 +77,9 @@ static uint32_t u32_gps_init_t_start;       // WAIT_BOOT, RESTART_DELAY anchor
 static uint32_t u32_gps_ack_t_start;        // ACK overall timeout (500ms) anchor
 static uint8_t  u8_gps_drain_attempts;      // drain retry counter (max 3)
 static uint8_t  u8_gps_cfg_attempts;        // CFG-VALSET retry counter (max 3)
+static uint8_t  u8_gps_step_retries;
+static e_gps_init_state_t e_gps_retry_state;
+static uint32_t u32_gps_retry_t_start;
 static uint8_t  u8_gps_cfg_buf[128];        // CFG-VALSET payload (built once in kicker)
                                             // Sized for 11 config keys (~69 bytes) + headroom.
                                             // The legacy 64-byte buffer was a latent overflow bug
@@ -82,12 +87,21 @@ static uint8_t  u8_gps_cfg_buf[128];        // CFG-VALSET payload (built once in
 static uint16_t u16_gps_cfg_len;
 static uint32_t u32_gps_init_kick_time;     // anchor for elapsed-time logging (RTT verification)
 
+#define GPS_INIT_STEP_RETRIES    3u
+#define GPS_INIT_RETRY_DELAY_MS  100u
+#define GPS_RUNTIME_RETRY_MS     1000u
+
+static volatile bool b_gps_backoff;
+static volatile uint32_t u32_gps_backoff_t_start;
+
 // Forward declarations of transport functions
 static int i_GPS_Write(uint8_t u8_addr, uint16_t u16_reg, uint8_t* pu8_arr, uint16_t u16_len);
 static int i_GPS_Read(uint8_t u8_addr, uint16_t u16_reg, uint16_t u16_len);
 static int i_GPS_Bus(void);
 static uint32_t u32_GPS_GetTime(void);
 static void v_GPS_Init_StateMachine(void);
+static void v_GPS_Init_StepFailed(e_gps_init_state_t req_state, uint32_t now);
+static bool b_GPS_Init_XferDone(e_gps_init_state_t req_state, uint32_t now);
 
 /*
  * brief: Initialize GPS module
@@ -114,6 +128,8 @@ void v_GPS_Init(void) {
     // driver. v_GPS_Read_DoneHandler / v_GPS_Write_DoneHandler will set
     // e_gps_comm = COMM_STAT_DONE when transactions complete.
     e_gps_comm = COMM_STAT_READY;
+    b_gps_backoff = false;
+    u8_gps_step_retries = 0;
     v_I2C3_Set_Comm_Ready();
 
     // Setup transport layer (function pointers consumed by SAM_M10Q core driver)
@@ -159,6 +175,32 @@ void v_GPS_Init(void) {
     LOG_INFO("GPS", "Init kicker armed (state=WAIT_BOOT) — handler will advance");
 }
 
+static void v_GPS_Init_StepFailed(e_gps_init_state_t req_state, uint32_t now) {
+    if(u8_gps_step_retries >= GPS_INIT_STEP_RETRIES) {
+        LOG_ERROR("GPS", "I2C3 transfer failed %d times - skipping GPS for this session",
+                  u8_gps_step_retries + 1);
+        e_gps_init_state = GPS_INIT_FAIL;
+        return;
+    }
+    u8_gps_step_retries++;
+    LOG_WARN("GPS", "I2C3 transfer failed - retry %d/%d", u8_gps_step_retries, GPS_INIT_STEP_RETRIES);
+    e_gps_retry_state = req_state;
+    u32_gps_retry_t_start = now;
+    e_gps_init_state = GPS_INIT_RETRY_DELAY;
+}
+
+static bool b_GPS_Init_XferDone(e_gps_init_state_t req_state, uint32_t now) {
+    e_COMM_STAT_t comm = e_gps_comm;
+    if(comm == COMM_STAT_BUSY) return false;
+    e_gps_comm = COMM_STAT_READY;
+    if(comm == COMM_STAT_DONE) {
+        u8_gps_step_retries = 0;
+        return true;
+    }
+    v_GPS_Init_StepFailed(req_state, now);
+    return false;
+}
+
 /*
  * brief: GPS init state machine — advances one state per main-loop iteration.
  *
@@ -193,15 +235,14 @@ static void v_GPS_Init_StateMachine(void) {
         // because u16_len == 2.
         if(i_GPS_Read(ADDR_GPS, SAM_M10Q_REG_AVAIL_MSB, 2) == 0) {
             e_gps_init_state = GPS_INIT_DRAIN_AVAIL_WAIT;
+        } else {
+            v_GPS_Init_StepFailed(GPS_INIT_DRAIN_AVAIL_REQ, now);
         }
-        // else: I2C bus busy — retry next iteration. v_GPS_Tout_Handler
-        // (1.2s) is the safety net for stuck transactions.
         return;
 
     case GPS_INIT_DRAIN_AVAIL_WAIT:
-        if(e_gps_comm == COMM_STAT_DONE) {
+        if(b_GPS_Init_XferDone(GPS_INIT_DRAIN_AVAIL_REQ, now)) {
             uint16_t avail = px_gps->u16_availBytes;
-            e_gps_comm = COMM_STAT_READY;
 
             if(avail == 0 || avail == 0xFFFF) {
                 // Drain complete — proceed to CFG-VALSET write
@@ -226,13 +267,14 @@ static void v_GPS_Init_StateMachine(void) {
                                 ? sizeof(px_gps->u8_rxBuf) : avail;
             if(i_GPS_Read(ADDR_GPS, SAM_M10Q_REG_STREAM, to_read) == 0) {
                 e_gps_init_state = GPS_INIT_DRAIN_DATA_WAIT;
+            } else {
+                v_GPS_Init_StepFailed(GPS_INIT_DRAIN_DATA_REQ, now);
             }
         }
         return;
 
     case GPS_INIT_DRAIN_DATA_WAIT:
-        if(e_gps_comm == COMM_STAT_DONE) {
-            e_gps_comm = COMM_STAT_READY;
+        if(b_GPS_Init_XferDone(GPS_INIT_DRAIN_DATA_REQ, now)) {
             // Loop back to check available bytes again
             e_gps_init_state = GPS_INIT_DRAIN_AVAIL_REQ;
         }
@@ -243,12 +285,13 @@ static void v_GPS_Init_StateMachine(void) {
             u8_gps_cfg_attempts++;
             LOG_INFO("GPS", "CFG-VALSET attempt %d (%d bytes)", u8_gps_cfg_attempts, u16_gps_cfg_len);
             e_gps_init_state = GPS_INIT_CFG_WRITE_WAIT;
+        } else {
+            v_GPS_Init_StepFailed(GPS_INIT_CFG_WRITE_REQ, now);
         }
         return;
 
     case GPS_INIT_CFG_WRITE_WAIT:
-        if(e_gps_comm == COMM_STAT_DONE) {
-            e_gps_comm = COMM_STAT_READY;
+        if(b_GPS_Init_XferDone(GPS_INIT_CFG_WRITE_REQ, now)) {
             // Start the 500ms ACK polling window
             u32_gps_ack_t_start = now;
             e_gps_init_state = GPS_INIT_ACK_AVAIL_REQ;
@@ -258,13 +301,14 @@ static void v_GPS_Init_StateMachine(void) {
     case GPS_INIT_ACK_AVAIL_REQ:
         if(i_GPS_Read(ADDR_GPS, SAM_M10Q_REG_AVAIL_MSB, 2) == 0) {
             e_gps_init_state = GPS_INIT_ACK_AVAIL_WAIT;
+        } else {
+            v_GPS_Init_StepFailed(GPS_INIT_ACK_AVAIL_REQ, now);
         }
         return;
 
     case GPS_INIT_ACK_AVAIL_WAIT:
-        if(e_gps_comm == COMM_STAT_DONE) {
+        if(b_GPS_Init_XferDone(GPS_INIT_ACK_AVAIL_REQ, now)) {
             uint16_t avail = px_gps->u16_availBytes;
-            e_gps_comm = COMM_STAT_READY;
             if(avail > 0 && avail != 0xFFFF) {
                 e_gps_init_state = GPS_INIT_ACK_DATA_REQ;
             } else {
@@ -280,14 +324,15 @@ static void v_GPS_Init_StateMachine(void) {
                                 ? sizeof(px_gps->u8_rxBuf) : avail;
             if(i_GPS_Read(ADDR_GPS, SAM_M10Q_REG_STREAM, to_read) == 0) {
                 e_gps_init_state = GPS_INIT_ACK_DATA_WAIT;
+            } else {
+                v_GPS_Init_StepFailed(GPS_INIT_ACK_DATA_REQ, now);
             }
         }
         return;
 
     case GPS_INIT_ACK_DATA_WAIT:
-        if(e_gps_comm == COMM_STAT_DONE) {
+        if(b_GPS_Init_XferDone(GPS_INIT_ACK_DATA_REQ, now)) {
             uint16_t to_read = px_gps->u16_rxLen;
-            e_gps_comm = COMM_STAT_READY;
 
             // Scan rxBuf for a UBX ACK message addressed to CFG-VALSET (0x06/0x8A)
             int ack_status = -1;  // -1=not found, 0=NAK, 1=ACK
@@ -354,6 +399,12 @@ static void v_GPS_Init_StateMachine(void) {
         }
         return;
 
+    case GPS_INIT_RETRY_DELAY:
+        if((now - u32_gps_retry_t_start) >= GPS_INIT_RETRY_DELAY_MS) {
+            e_gps_init_state = e_gps_retry_state;
+        }
+        return;
+
     case GPS_INIT_RESTART_DELAY:
         // u-blox: wait 500ms after CFG-VALSET ACK for the GNSS subsystem to restart
         if((now - u32_gps_init_t_start) >= 500) {
@@ -417,6 +468,25 @@ void v_GPS_Read_DoneHandler(uint8_t u8_addr, uint8_t* pu8_arr, uint16_t u16_len)
     }
 }
 
+static void v_GPS_Transfer_Failed(void) {
+    if(e_gps_init_state == GPS_INIT_DONE) {
+        px_gps->u16_availBytes = 0;
+        px_gps->u16_rxLen = 0;
+    }
+    u32_gps_backoff_t_start = u32_Tim_1msGet();
+    b_gps_backoff = true;
+    e_gps_comm = COMM_STAT_READY;
+}
+
+/*
+ * brief: I2C error callback (called from HAL_I2C_ErrorCallback, ISR context)
+ */
+void v_GPS_Error_Handler(uint8_t u8_addr) {
+    if(u8_addr == ADDR_GPS) {
+        v_GPS_Transfer_Failed();
+    }
+}
+
 /*
  * brief: Initialization status query (called from v_Mode_Booting)
  *
@@ -454,6 +524,9 @@ void v_GPS_Handler(void) {
         return;
     }
 
+    if(e_gps_init_state == GPS_INIT_FAIL) {
+        return;
+    }
     i_SAM_M10Q_Handler(px_gps);
 }
 
@@ -463,10 +536,14 @@ void v_GPS_Handler(void) {
 void v_GPS_Tout_Handler(void) {
     if((e_gps_comm == COMM_STAT_BUSY) &&
        _b_Tim_Is_OVR(u32_Tim_1msGet(), u32_toutRef, 1200)) {
-        // Abort I2C transaction
         extern I2C_HandleTypeDef hi2c3;
         HAL_I2C_Master_Abort_IT(&hi2c3, ADDR_GPS);
-        e_gps_comm = COMM_STAT_READY;
+        // HAL_I2C_Master_Abort_IT fails without any callback on an idle handle,
+        // so a lost completion has to be cleared by hand.
+        if(hi2c3.State == HAL_I2C_STATE_READY) {
+            v_I2C3_Set_Comm_Ready();
+        }
+        v_GPS_Transfer_Failed();
 
         // GPS timeout - log warning but don't enter ERROR mode
         // This allows system to continue operating without GPS
@@ -509,6 +586,7 @@ static int i_GPS_Write(uint8_t u8_addr, uint16_t u16_reg, uint8_t* pu8_arr, uint
 
     // Actual errors (ret >= 2)
     LOG_ERROR("GPS", "Write failed (reg=0x%02X, len=%d, ret=%d)", u16_reg, u16_len, ret);
+    v_GPS_Transfer_Failed();
     return ret;
 }
 
@@ -545,6 +623,7 @@ static int i_GPS_Read(uint8_t u8_addr, uint16_t u16_reg, uint16_t u16_len) {
 
     // Actual errors (ret >= 2)
     LOG_ERROR("GPS", "Read failed (reg=0x%02X, len=%d, ret=%d)", u16_reg, u16_len, ret);
+    v_GPS_Transfer_Failed();
     return ret;
 }
 
@@ -557,6 +636,13 @@ static int i_GPS_Bus(void) {
     static uint32_t last_debug_log = 0;
     uint32_t now = u32_Tim_1msGet();
     bool should_log = (now - last_debug_log) > 10000;  // Log every 10s
+
+    if(b_gps_backoff) {
+        if((now - u32_gps_backoff_t_start) < GPS_RUNTIME_RETRY_MS) {
+            return -1;
+        }
+        b_gps_backoff = false;
+    }
 
     // Auto-reset DONE state to READY to allow next transaction
     if(e_gps_comm == COMM_STAT_DONE) {

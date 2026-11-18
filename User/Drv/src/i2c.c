@@ -368,21 +368,20 @@ int i_I2C3_Write(uint8_t u8_addr, uint16_t u16_reg, uint8_t* pu8_arr, uint16_t u
 		if(u16_len + 1 < I2C3_WR_SIZE){
 			u8_i2c3_addr = u8_addr;
 			memcpy(u8_i2c3_wrArr, pu8_arr, u16_len);
+			// Mark in-flight before the HAL call: the I2C3 ISR can finish (or NACK)
+			// the transfer before the call returns and must not be overwritten.
+			e_comm_i2c3 = COMM_STAT_OK;
 			// I2C3 uses IT mode (interrupt, no DMA)
 			HAL_StatusTypeDef ret = HAL_I2C_Mem_Write_IT(p_i2c3, u8_i2c3_addr, u16_reg, I2C_MEMADD_SIZE_8BIT, u8_i2c3_wrArr, u16_len);
-			if(ret == HAL_OK)		{e_comm_i2c3 = COMM_STAT_OK;}
-			else{
-				if(ret == HAL_BUSY)	{e_comm_i2c3 = COMM_STAT_BUSY;}
-				else				{e_comm_i2c3 = COMM_STAT_ERR;}
+			if(ret != HAL_OK){
+				e_comm_i2c3 = COMM_STAT_READY;
+				return (ret == HAL_BUSY) ? COMM_STAT_BUSY : COMM_STAT_ERR;
 			}
+			return COMM_STAT_OK;
 		}
-		else{
-			e_comm_i2c3 = COMM_STAT_ERR_LEN;
-		}
+		return COMM_STAT_ERR_LEN;
 	}
-	else{
-		e_comm_i2c3 = i_I2C_BufIn(&i2c3_buf, u8_addr, u16_reg, pu8_arr, u16_len, false);
-	}
+	e_comm_i2c3 = i_I2C_BufIn(&i2c3_buf, u8_addr, u16_reg, pu8_arr, u16_len, false);
 	return e_comm_i2c3;
 }
 
@@ -392,21 +391,18 @@ int i_I2C3_Read(uint8_t u8_addr, uint16_t u16_reg, uint16_t u16_len){
 		if(I2C3_WR_SIZE > 0 && I2C3_RD_SIZE >= u16_len){
 			u8_i2c3_addr = u8_addr;
 			u16_i2c3_rdCnt = u16_len;
+			e_comm_i2c3 = COMM_STAT_OK;
 			// I2C3 uses IT mode (interrupt, no DMA)
 			HAL_StatusTypeDef ret = HAL_I2C_Mem_Read_IT(p_i2c3, u8_i2c3_addr, u16_reg, I2C_MEMADD_SIZE_8BIT, u8_i2c3_rdArr, u16_len);
-			if(ret == HAL_OK)		{e_comm_i2c3 = COMM_STAT_OK;}
-			else{
-				if(ret == HAL_BUSY)	{e_comm_i2c3 = COMM_STAT_BUSY;}
-				else				{e_comm_i2c3 = COMM_STAT_ERR;}
+			if(ret != HAL_OK){
+				e_comm_i2c3 = COMM_STAT_READY;
+				return (ret == HAL_BUSY) ? COMM_STAT_BUSY : COMM_STAT_ERR;
 			}
+			return COMM_STAT_OK;
 		}
-		else{
-			e_comm_i2c3 = COMM_STAT_ERR_LEN;
-		}
+		return COMM_STAT_ERR_LEN;
 	}
-	else{
-		e_comm_i2c3 = i_I2C_BufIn(&i2c3_buf, u8_addr, u16_reg, NULL, u16_len, true);
-	}
+	e_comm_i2c3 = i_I2C_BufIn(&i2c3_buf, u8_addr, u16_reg, NULL, u16_len, true);
 	return e_comm_i2c3;
 }
 
@@ -950,6 +946,16 @@ void HAL_I2C_ErrorCallback(I2C_HandleTypeDef *hi2c){
 	}
 	else if(hi2c == p_i2c2){
 		e_comm_i2c2 = COMM_STAT_READY;
+	}
+	else if(hi2c == p_i2c3){
+		// NACK (module absent) or bus error: the transfer is over and no
+		// completion callback follows.
+		e_comm_i2c3 = COMM_STAT_READY;
+		if(u8_i2c3_addr == ADDR_GPS){
+			v_GPS_Error_Handler(u8_i2c3_addr);
+		}
+		u8_i2c3_addr = 0;
+		u16_i2c3_rdCnt = 0;
 	}
 	else if(hi2c == p_i2c4){
 		v_I2C4_Diag_Event(IRD_IRQ_ERROR, HAL_ERROR);
