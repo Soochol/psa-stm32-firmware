@@ -3,7 +3,7 @@ mp3_to_c.py - MP3 파일들을 C 배열(Flash 내장용)로 변환
 
 사용법: python3 build-tools/mp3_to_c.py
 
-입력:  세팅_음성파일_24k/*.mp3  (01.mp3 ~ 33.mp3)
+입력:  세팅_음성파일_24k/*.mp3  (01.mp3 ~ 34.mp3)
 출력:  MINIMP3/flash_audio/src/mp3_flash_data.c
        MINIMP3/flash_audio/inc/mp3_flash_data.h
 """
@@ -18,7 +18,7 @@ MP3_DIR = os.path.join(PROJECT_DIR, "세팅_음성파일_48k")
 OUT_C   = os.path.join(PROJECT_DIR, "MINIMP3", "flash_audio", "src", "mp3_flash_data.c")
 OUT_H   = os.path.join(PROJECT_DIR, "MINIMP3", "flash_audio", "inc", "mp3_flash_data.h")
 
-NUM_FILES = 33
+NUM_FILES = 34
 
 def mp3_to_c():
     os.makedirs(os.path.dirname(OUT_C), exist_ok=True)

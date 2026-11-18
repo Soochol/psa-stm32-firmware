@@ -2,7 +2,7 @@
 #pragma once
 #include <stdint.h>
 
-#define MP3_FLASH_NUM_FILES  33
+#define MP3_FLASH_NUM_FILES  34
 
 extern const uint8_t  mp3_flash_01[];
 extern const uint32_t mp3_flash_01_size;
@@ -70,6 +70,8 @@ extern const uint8_t  mp3_flash_32[];
 extern const uint32_t mp3_flash_32_size;
 extern const uint8_t  mp3_flash_33[];
 extern const uint32_t mp3_flash_33_size;
+extern const uint8_t  mp3_flash_34[];
+extern const uint32_t mp3_flash_34_size;
 
 /* Lookup tables indexed by [file_num - 1] */
 extern const uint8_t  * const mp3_flash_data[MP3_FLASH_NUM_FILES];
