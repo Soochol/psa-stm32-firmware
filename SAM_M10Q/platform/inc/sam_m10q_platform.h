@@ -28,7 +28,7 @@ void v_GPS_Deinit(void);
 // I2C callbacks (called from i2c.c interrupt handlers)
 void v_GPS_Write_DoneHandler(uint8_t u8_addr);
 void v_GPS_Read_DoneHandler(uint8_t u8_addr, uint8_t* pu8_arr, uint16_t u16_len);
-void v_GPS_Error_Handler(uint8_t u8_addr);  // transfer failed (NACK, bus error)
+void v_GPS_Error_Handler(uint8_t u8_addr);
 
 // Communication status
 e_COMM_STAT_t e_GPS_Ready(void);

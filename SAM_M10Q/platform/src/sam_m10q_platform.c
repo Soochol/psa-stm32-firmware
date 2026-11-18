@@ -33,14 +33,10 @@ static uint32_t u32_toutRef;
  * driven by v_GPS_Handler() (called every main loop iteration). Each state
  * issues at most one i_GPS_Read/i_GPS_Write (interrupt mode) and waits for
  * the existing v_GPS_*_DoneHandler callbacks to set e_gps_comm = DONE.
- * A transfer that ends any other way (v_GPS_Error_Handler on a NACK, the
- * 1.2 s v_GPS_Tout_Handler, or a failed HAL start) leaves e_gps_comm at READY
- * and counts as a failed step.
  *
  * Total wall-clock for init: ~2-3 seconds (mostly the post-12V boot wait
- * and CFG-VALSET ACK). Without a module it ends in FAIL about 2.3 s after
- * the kick. Main-loop occupancy per iteration: ~10us. The main loop is
- * never blocked.
+ * and CFG-VALSET ACK). Main-loop occupancy per iteration: ~10us. The main
+ * loop is never blocked.
  *
  * State transitions:
  *   IDLE → WAIT_BOOT (kicked by v_GPS_Init)
@@ -53,11 +49,8 @@ static uint32_t u32_toutRef;
  *                                          neither→ACK_TIMEOUT_CHECK)
  *   ACK_TIMEOUT_CHECK → (within 500ms ? ACK_AVAIL_REQ : retry CFG_WRITE_REQ or DONE)
  *   RESTART_DELAY → DONE (after 500ms)
- *   Any *_WAIT → RETRY_DELAY on a failed transfer; after 100ms it re-enters the
- *     *_REQ state that issued it. The 4th failure of one step (3 retries) → FAIL.
- *   FAIL is terminal for the session: GPS not connected or unresponsive.
- *     v_GPS_Handler stops polling and no more I2C3 transfers are started; the
- *     next power-on re-detects the module.
+ *   Any *_WAIT → RETRY_DELAY → same *_REQ (failed transfer; 3 retries, then FAIL)
+ *   FAIL is terminal for graceful skip (GPS not connected, etc.)
  */
 typedef enum {
     GPS_INIT_IDLE = 0,
@@ -84,9 +77,9 @@ static uint32_t u32_gps_init_t_start;       // WAIT_BOOT, RESTART_DELAY anchor
 static uint32_t u32_gps_ack_t_start;        // ACK overall timeout (500ms) anchor
 static uint8_t  u8_gps_drain_attempts;      // drain retry counter (max 3)
 static uint8_t  u8_gps_cfg_attempts;        // CFG-VALSET retry counter (max 3)
-static uint8_t  u8_gps_step_retries;        // consecutive failed transfers of the current step
-static e_gps_init_state_t e_gps_retry_state; // *_REQ state to re-enter after RETRY_DELAY
-static uint32_t u32_gps_retry_t_start;      // RETRY_DELAY anchor
+static uint8_t  u8_gps_step_retries;
+static e_gps_init_state_t e_gps_retry_state;
+static uint32_t u32_gps_retry_t_start;
 static uint8_t  u8_gps_cfg_buf[128];        // CFG-VALSET payload (built once in kicker)
                                             // Sized for 11 config keys (~69 bytes) + headroom.
                                             // The legacy 64-byte buffer was a latent overflow bug
@@ -94,11 +87,10 @@ static uint8_t  u8_gps_cfg_buf[128];        // CFG-VALSET payload (built once in
 static uint16_t u16_gps_cfg_len;
 static uint32_t u32_gps_init_kick_time;     // anchor for elapsed-time logging (RTT verification)
 
-#define GPS_INIT_STEP_RETRIES    3u     // re-issues of one failed step before FAIL
+#define GPS_INIT_STEP_RETRIES    3u
 #define GPS_INIT_RETRY_DELAY_MS  100u
-#define GPS_RUNTIME_RETRY_MS     1000u  // min gap between I2C3 starts after a runtime failure
+#define GPS_RUNTIME_RETRY_MS     1000u
 
-// Runtime back-off: set by every failed transfer, honoured by i_GPS_Bus().
 static volatile bool b_gps_backoff;
 static volatile uint32_t u32_gps_backoff_t_start;
 
@@ -183,11 +175,6 @@ void v_GPS_Init(void) {
     LOG_INFO("GPS", "Init kicker armed (state=WAIT_BOOT) — handler will advance");
 }
 
-/*
- * brief: A transfer of the current init step failed — retry it or give up.
- * note: Up to GPS_INIT_STEP_RETRIES re-issues spaced GPS_INIT_RETRY_DELAY_MS
- *       apart, then GPS_INIT_FAIL (module absent or unresponsive).
- */
 static void v_GPS_Init_StepFailed(e_gps_init_state_t req_state, uint32_t now) {
     if(u8_gps_step_retries >= GPS_INIT_STEP_RETRIES) {
         LOG_ERROR("GPS", "I2C3 transfer failed %d times - skipping GPS for this session",
@@ -202,11 +189,6 @@ static void v_GPS_Init_StepFailed(e_gps_init_state_t req_state, uint32_t now) {
     e_gps_init_state = GPS_INIT_RETRY_DELAY;
 }
 
-/*
- * brief: Result poll for the transfer issued by req_state's *_REQ state.
- * return: true once it completed (e_gps_comm consumed back to READY). While it
- *         is in flight, or after it failed (retry/FAIL already scheduled), false.
- */
 static bool b_GPS_Init_XferDone(e_gps_init_state_t req_state, uint32_t now) {
     e_COMM_STAT_t comm = e_gps_comm;
     if(comm == COMM_STAT_BUSY) return false;
@@ -486,14 +468,6 @@ void v_GPS_Read_DoneHandler(uint8_t u8_addr, uint8_t* pu8_arr, uint16_t u16_len)
     }
 }
 
-/*
- * brief: A transfer failed — shared by the I2C error ISR, the timeout handler
- *        and failed HAL starts.
- * note: Leaves e_gps_comm at READY (not DONE), which the init WAIT states read
- *       as a failed step and the runtime driver as "channel free". After DONE it
- *       also drops the half-finished result so the driver restarts its poll
- *       cycle, and arms the back-off that keeps the retry rate at the poll rate.
- */
 static void v_GPS_Transfer_Failed(void) {
     if(e_gps_init_state == GPS_INIT_DONE) {
         px_gps->u16_availBytes = 0;
@@ -506,8 +480,6 @@ static void v_GPS_Transfer_Failed(void) {
 
 /*
  * brief: I2C error callback (called from HAL_I2C_ErrorCallback, ISR context)
- * note: NACK when the module is absent or a bus error. The transfer is already
- *       finished at the HAL level; no Read/Write done callback will follow.
  */
 void v_GPS_Error_Handler(uint8_t u8_addr) {
     if(u8_addr == ADDR_GPS) {
@@ -537,7 +509,7 @@ e_COMM_STAT_t e_GPS_Ready(void) {
  * (state != DONE && state != FAIL) we run only the init dispatcher and skip
  * the normal SAM_M10Q handler — this guarantees a single outstanding I2C
  * transaction at a time on the GPS bus during init. Once init reaches DONE,
- * normal polling takes over. After FAIL nothing runs.
+ * normal polling takes over.
  */
 void v_GPS_Handler(void) {
 #if IWDG_USED
@@ -552,7 +524,6 @@ void v_GPS_Handler(void) {
         return;
     }
 
-    // FAIL = module absent/unresponsive: stay off I2C3 for the rest of the session
     if(e_gps_init_state == GPS_INIT_FAIL) {
         return;
     }
@@ -561,16 +532,14 @@ void v_GPS_Handler(void) {
 
 /*
  * brief: Timeout handler (1.2 second timeout for 1Hz Auto PVT)
- * note: A transfer the HAL is still running is aborted, and its AbortCplt
- *       callback frees the I2C3 driver. If the HAL handle is already idle the
- *       completion callback was lost, so the driver state is freed here —
- *       otherwise the next transfer would only be queued behind it.
  */
 void v_GPS_Tout_Handler(void) {
     if((e_gps_comm == COMM_STAT_BUSY) &&
        _b_Tim_Is_OVR(u32_Tim_1msGet(), u32_toutRef, 1200)) {
         extern I2C_HandleTypeDef hi2c3;
         HAL_I2C_Master_Abort_IT(&hi2c3, ADDR_GPS);
+        // HAL_I2C_Master_Abort_IT fails without any callback on an idle handle,
+        // so a lost completion has to be cleared by hand.
         if(hi2c3.State == HAL_I2C_STATE_READY) {
             v_I2C3_Set_Comm_Ready();
         }
@@ -617,7 +586,7 @@ static int i_GPS_Write(uint8_t u8_addr, uint16_t u16_reg, uint8_t* pu8_arr, uint
 
     // Actual errors (ret >= 2)
     LOG_ERROR("GPS", "Write failed (reg=0x%02X, len=%d, ret=%d)", u16_reg, u16_len, ret);
-    v_GPS_Transfer_Failed();  // no transfer in flight: don't leave e_gps_comm BUSY
+    v_GPS_Transfer_Failed();
     return ret;
 }
 
@@ -654,7 +623,7 @@ static int i_GPS_Read(uint8_t u8_addr, uint16_t u16_reg, uint16_t u16_len) {
 
     // Actual errors (ret >= 2)
     LOG_ERROR("GPS", "Read failed (reg=0x%02X, len=%d, ret=%d)", u16_reg, u16_len, ret);
-    v_GPS_Transfer_Failed();  // no transfer in flight: don't leave e_gps_comm BUSY
+    v_GPS_Transfer_Failed();
     return ret;
 }
 
@@ -668,8 +637,6 @@ static int i_GPS_Bus(void) {
     uint32_t now = u32_Tim_1msGet();
     bool should_log = (now - last_debug_log) > 10000;  // Log every 10s
 
-    // After a failed transfer keep the bus closed for GPS_RUNTIME_RETRY_MS, so a
-    // persistent error (module unplugged) costs one I2C3 start per poll period.
     if(b_gps_backoff) {
         if((now - u32_gps_backoff_t_start) < GPS_RUNTIME_RETRY_MS) {
             return -1;

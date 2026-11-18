@@ -374,7 +374,6 @@ int i_I2C3_Write(uint8_t u8_addr, uint16_t u16_reg, uint8_t* pu8_arr, uint16_t u
 			// I2C3 uses IT mode (interrupt, no DMA)
 			HAL_StatusTypeDef ret = HAL_I2C_Mem_Write_IT(p_i2c3, u8_i2c3_addr, u16_reg, I2C_MEMADD_SIZE_8BIT, u8_i2c3_wrArr, u16_len);
 			if(ret != HAL_OK){
-				// Nothing in flight, so no callback will free the driver.
 				e_comm_i2c3 = COMM_STAT_READY;
 				return (ret == HAL_BUSY) ? COMM_STAT_BUSY : COMM_STAT_ERR;
 			}
@@ -392,7 +391,6 @@ int i_I2C3_Read(uint8_t u8_addr, uint16_t u16_reg, uint16_t u16_len){
 		if(I2C3_WR_SIZE > 0 && I2C3_RD_SIZE >= u16_len){
 			u8_i2c3_addr = u8_addr;
 			u16_i2c3_rdCnt = u16_len;
-			// Mark in-flight before the HAL call, see i_I2C3_Write.
 			e_comm_i2c3 = COMM_STAT_OK;
 			// I2C3 uses IT mode (interrupt, no DMA)
 			HAL_StatusTypeDef ret = HAL_I2C_Mem_Read_IT(p_i2c3, u8_i2c3_addr, u16_reg, I2C_MEMADD_SIZE_8BIT, u8_i2c3_rdArr, u16_len);
