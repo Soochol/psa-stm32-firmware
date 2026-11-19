@@ -1075,6 +1075,15 @@ int i_MP3_ForceStop(){
 	return e_mp3_stat;
 }
 
+// Number of playable tracks; valid track numbers are 1..count.
+int i_MP3_Get_Track_Count(){
+#if MP3_USE_FLASH
+	return MP3_FLASH_NUM_FILES;
+#else
+	return MP3_LIST_CNT;
+#endif
+}
+
 // MP3_ERR counts as ready: a failed start leaves nothing playing, so it must
 // not block the next request or the callers that wait for the speaker.
 int i_MP3_Is_Ready(){

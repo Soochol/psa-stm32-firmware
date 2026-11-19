@@ -407,8 +407,8 @@ void v_Mode_BlowFan_Disable();
 /////////////////////////////////
 // MP3 track numbers for different events
 #define MODE_MP3_BATTERY_ALERT			14		// Battery low alert sound
-#define MODE_MP3_FORCE_UP				19		// Force-up mode start sound
-#define MODE_MP3_FORCE_DOWN				20		// Force-down mode start sound
+#define MODE_MP3_FORCE_UP				19		// Force-up start sound (not played: FU entry is silent)
+#define MODE_MP3_FORCE_DOWN				20		// Force-down start sound (not played: FD entry is silent)
 #define MODE_MP3_WAITING_TIMEOUT		21		// Waiting mode timeout sound
 #define MODE_MP3_FORCE_ON_TIMEOUT		23		// Force-on mode timeout sound
 

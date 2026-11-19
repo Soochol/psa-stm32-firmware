@@ -971,7 +971,7 @@ static void v_ESP_CtrlProc(uint8_t u8_cmd, uint8_t* pu8_data, uint8_t u8_len){
 		}
 		break;
 	case ESP_CMD_CTRL_SPK_PLAY:
-		if(pu8_data[0] >= 1 && pu8_data[0] <= 33){
+		if(pu8_data[0] >= 1 && pu8_data[0] <= i_MP3_Get_Track_Count()){
 			i_MP3_Begin(pu8_data[0]);
 		}
 		break;

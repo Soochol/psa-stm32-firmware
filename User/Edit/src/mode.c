@@ -1159,7 +1159,9 @@ static void v_Mode_Battery(){
 		//sound (MP3 alert only meaningful when heater is quiet)
 		if(i_Mode_Get_MP3_Play()){
 			if(bat_curr == modeBAT_LV_ALERT && sound_alert){
-				if(i_MP3_Get_Stat() != MP3_BUSY){
+				// Is_Ready, not "!= BUSY": in MP3_START i_MP3_Begin ignores the
+				// request, and the alert would be cleared without playing.
+				if(i_MP3_Is_Ready()){
 					i_MP3_Begin(MODE_MP3_BATTERY_ALERT);
 					playing = 1;
 					sound_alert = 0;
@@ -1827,7 +1829,6 @@ static void v_Mode_ForceUp(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t* 
 			tout = u32_Mode_Get_ForceUp_Tout() * MODE_TOUT_TO_MS_MULT;
 			// No entry beep: SW2 is volume-only, so every FU entry is an auto
 			// tilt transition (HEALING→FU / FD→FU). Users don't want sound there.
-			px_pub->i_sound = 0;
 			//led
 			px_pub->u32_timLedItv = 0;
 			ledToggle = 0;
@@ -1867,13 +1868,6 @@ static void v_Mode_ForceUp(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t* 
 		}
 		else if(temp < 0){
 			f_Mode_Heater_PID_Handler(f_Mode_Get_Temp_ForceUp());
-		}
-
-		if(px_pub->i_sound){
-			if(i_MP3_Is_Ready()){
-				i_MP3_Begin(MODE_MP3_FORCE_UP);
-				px_pub->i_sound = 0;
-			}
 		}
 	}
 	else if(px_work->cr.bit.b1_off){
@@ -2019,7 +2013,6 @@ static void v_Mode_ForceDown(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t
 			coolDelayRef = u32_Tim_1msGet();
 			coolDelay = u32_Mode_Get_ForceDownDelay() * MODE_DELAY_TO_MS_MULT;
 			// No entry beep: auto tilt transitions only (FU→FD / FORCE_ON→FD).
-			px_pub->i_sound = 0;
 		}
 		// LOW: Removed empty else block
 	}
@@ -2045,13 +2038,6 @@ static void v_Mode_ForceDown(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t
 			}
 			else if(temp < 0){
 				v_Mode_CoolFan_Enable();
-			}
-		}
-
-		if(px_pub->i_sound){
-			if(i_MP3_Is_Ready()){
-				i_MP3_Begin(MODE_MP3_FORCE_DOWN);
-				px_pub->i_sound = 0;
 			}
 		}
 	}
