@@ -1783,11 +1783,11 @@ static void v_Mode_Waiting(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t* 
 		}
 	}
 	else if(px_work->cr.bit.b1_off){
-		if(i_MP3_Get_Stat() != MP3_BUSY){
-			//end condition
-			v_Mode_MoveNext(px_work);
-			v_Mode_CoolFan_Disable();
-		}
+		// Leave at once. Decoding runs in v_Mode_Handler in every mode, so a
+		// prompt keeps playing into the next mode; holding WAITING here only
+		// delayed the ESP32's FU/FD by the prompt length.
+		v_Mode_MoveNext(px_work);
+		v_Mode_CoolFan_Disable();
 	}
 	v_Mode_Sensing_Handler();
 	v_Mode_BlowFan_Handler();
