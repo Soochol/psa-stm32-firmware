@@ -1663,11 +1663,11 @@ static void v_Mode_Booting(e_modeID_t e_id, x_modeWORK_t* px_work, x_modePUB_t* 
 #endif
 	}
 	else if(px_work->cr.bit.b1_off){
+		// No "완료" prompt here: sensor init is not the end of start-up. The
+		// ESP32 runs healing after InitEnd and plays the ready prompt itself
+		// once healing has cooled down and the device is usable.
 		if(ready_mask == modeCONFIG_CPLT){
 			ready_mask = 0;
-			if(i_Mode_Get_MP3_Play()){
-				i_MP3_Begin(2);
-			}
 		}
 		if(i_Mode_Get_MP3_Play()){
 			int mp3_stat = i_MP3_Get_Stat();
