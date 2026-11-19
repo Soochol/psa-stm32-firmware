@@ -47,6 +47,13 @@ typedef enum {
 	ESP_WARN_BATTERY_LOW=0,
 } e_ESP_WARN_t;
 
+// ctrlSpkPlay(0x54) ACK result byte.
+typedef enum {
+	ESP_SPK_PLAY_STARTED=0,		// the track is playing now
+	ESP_SPK_PLAY_BUSY=1,		// another prompt is playing; not queued, ask again
+	ESP_SPK_PLAY_INVALID=2,		// no such track, or the player failed to start it
+} e_ESP_SPK_PLAY_t;
+
 void v_ESP_Recive(uint8_t u8_rx);
 
 void v_ESP_Handler();
