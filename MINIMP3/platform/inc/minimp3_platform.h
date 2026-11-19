@@ -39,6 +39,7 @@ int i_MP3_Player(uint16_t u16_num);
 int i_MP3_ForceStop();
 int i_MP3_Get_Stat();
 int i_MP3_Is_Ready();
+int i_MP3_Get_Track_Count();
 int i_MP3_Playing();
 int i_MP3_Begin(uint16_t u16_num);
 

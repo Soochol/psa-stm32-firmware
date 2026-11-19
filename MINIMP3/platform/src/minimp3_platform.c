@@ -1075,8 +1075,19 @@ int i_MP3_ForceStop(){
 	return e_mp3_stat;
 }
 
+// Number of playable tracks; valid track numbers are 1..count.
+int i_MP3_Get_Track_Count(){
+#if MP3_USE_FLASH
+	return MP3_FLASH_NUM_FILES;
+#else
+	return MP3_LIST_CNT;
+#endif
+}
+
+// MP3_ERR counts as ready: a failed start leaves nothing playing, so it must
+// not block the next request or the callers that wait for the speaker.
 int i_MP3_Is_Ready(){
-	if(e_mp3_stat == MP3_IDLE || e_mp3_stat == MP3_DONE){
+	if(e_mp3_stat == MP3_IDLE || e_mp3_stat == MP3_DONE || e_mp3_stat == MP3_ERR){
 		return 1;
 	}
 	else{
@@ -1103,11 +1114,13 @@ int i_MP3_Playing(){
 
 int i_MP3_Begin(uint16_t u16_num){
 	LOG_INFO("MP3", "play #%u", (unsigned)u16_num);
-	if(e_mp3_stat == MP3_IDLE || e_mp3_stat == MP3_DONE){
+	if(i_MP3_Is_Ready()){
 		if(i_MP3_Start(u16_num) == 0){
 			e_mp3_stat = MP3_START;
 		}
 		else{
+			// i_MP3_Start has already started the SAI A1 DMA; release it.
+			i_MP3_Stop();
 			e_mp3_stat = MP3_ERR;
 		}
 	}
