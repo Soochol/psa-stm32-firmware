@@ -971,10 +971,22 @@ static void v_ESP_CtrlProc(uint8_t u8_cmd, uint8_t* pu8_data, uint8_t u8_len){
 		}
 		break;
 	case ESP_CMD_CTRL_SPK_PLAY:
-		if(pu8_data[0] >= 1 && pu8_data[0] <= i_MP3_Get_Track_Count()){
-			i_MP3_Begin(pu8_data[0]);
+	{
+		// The ACK carries the outcome (spec 0x54), because a request that
+		// arrives while another prompt plays is not queued: the ESP32 has to
+		// hear "busy" to ask again.
+		uint8_t u8_res = ESP_SPK_PLAY_INVALID;
+		if(u8_len >= 1 && pu8_data[0] >= 1 && pu8_data[0] <= i_MP3_Get_Track_Count()){
+			if(!i_MP3_Is_Ready()){
+				u8_res = ESP_SPK_PLAY_BUSY;
+			}
+			else if(i_MP3_Begin(pu8_data[0]) == MP3_START){
+				u8_res = ESP_SPK_PLAY_STARTED;
+			}
 		}
-		break;
+		b_ESP_Transmit(ESP_DIR_ACK, u8_cmd, &u8_res, 1);
+		return;						// ACK already sent, with the result in it
+	}
 	case ESP_CMD_CTRL_COOLFAN_ON:
 		if(pu8_data[0] == 1){
 			v_Mode_CoolFan_Enable();
@@ -1169,11 +1181,23 @@ void v_ESP_Send_Sensing(int16_t* pi16_imu_left, int16_t* pi16_imu_right,\
 		}
 	}
 
+	// The SD record holds the 64 B sample; seq is the record's own key there.
+	const uint16_t u16_sampleLen = cnt;
+
+	// ===== SEQ (4 bytes, big-endian) — STAT v2.1 =====
+	// The seq v_SD_Log_Write is about to give this sample, so a live frame and
+	// its SD record share (bootId, seq). Restarts at 0 on every STM32 reset.
+	uint32_t u32_seq = u32_SD_Log_Get_Seq();
+	data[cnt++] = (uint8_t)(u32_seq >> 24);
+	data[cnt++] = (uint8_t)(u32_seq >> 16);
+	data[cnt++] = (uint8_t)(u32_seq >> 8);
+	data[cnt++] = (uint8_t)(u32_seq);
+
 	bool b_txOk = b_ESP_Transmit(ESP_DIR_REQ, ESP_CMD_STAT, data, cnt);
 
 	// SD sensor log. deviceMode and errorMask are read here rather than inside the
 	// driver so sd.c stays a driver — it has no business reaching up into mode.
-	v_SD_Log_Write(data, cnt, u8_Mode_Get_ProtoMode(),
+	v_SD_Log_Write(data, u16_sampleLen, u8_Mode_Get_ProtoMode(),
 			(uint16_t)e_Mode_Get_Error(), b_txOk);
 
 	if(i_toutAct == 0){
